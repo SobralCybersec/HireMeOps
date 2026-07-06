@@ -1,0 +1,243 @@
+/* ---------- Palette ---------- */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0f1115;
+  --color-surface: #171a21;
+  --color-surface-alt: #1e222b;
+  --color-border: #2a2f3a;
+  --color-text: #e6e8ee;
+  --color-text-muted: #9aa1af;
+  --color-accent: #4f8cff;
+  --color-accent-hover: #6ea0ff;
+  --color-danger: #ff4d4f;
+  --color-danger-hover: #ff7a7b;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eef0f4;
+  --color-border: #dde1e8;
+  --color-text: #14161a;
+  --color-text-muted: #5b6270;
+  --color-accent: #2f6fed;
+  --color-accent-hover: #1f5adf;
+  --color-danger: #d92d2f;
+  --color-danger-hover: #b71f21;
+}
+
+/* Fallback before useThemeStore/useSettingsStore resolve on boot. */
+html:not([data-theme]) {
+  color-scheme: dark;
+  --color-bg: #0f1115;
+  --color-surface: #171a21;
+  --color-surface-alt: #1e222b;
+  --color-border: #2a2f3a;
+  --color-text: #e6e8ee;
+  --color-text-muted: #9aa1af;
+  --color-accent: #4f8cff;
+  --color-accent-hover: #6ea0ff;
+  --color-danger: #ff4d4f;
+  --color-danger-hover: #ff7a7b;
+}
+
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/*
+  Guard: `.reduced-effects` is applied to <html> by useThemeStore when the
+  user picks Settings > Theme & Effects > Reduced effects (or the OS reports
+  prefers-reduced-motion). Any future transition/animation/blur/parallax MUST
+  respect this class (either this blanket kill, or an `html:not(.reduced-effects)`
+  guard on the specific effect) so low-end machines and motion-sensitive users
+  aren't forced into GSAP/Three.js effects they opted out of.
+*/
+html.reduced-effects * {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+}
+
+/* ---------- App shell layout ---------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.sidebar {
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+}
+
+.sidebar-brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 8px 12px 16px;
+  color: var(--color-accent);
+}
+
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.nav-link:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.nav-link.active {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.topbar-title {
+  font-weight: 600;
+}
+
+.app-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  min-height: 0;
+}
+
+.page-outlet {
+  overflow-y: auto;
+  padding: 24px;
+}
+
+/* ---------- Emergency stop ---------- */
+
+.emergency-stop-btn {
+  background-color: var(--color-danger);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.emergency-stop-btn:hover {
+  background-color: var(--color-danger-hover);
+}
+
+.emergency-stop-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* ---------- Event log drawer ---------- */
+
+.event-log-drawer {
+  border-left: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  padding: 12px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+
+.event-log-drawer h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin: 0 0 8px;
+}
+
+.event-log-empty {
+  color: var(--color-text-muted);
+}
+
+.event-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.event-log-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background-color: var(--color-surface-alt);
+}
+
+.event-log-type {
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.event-log-time {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---------- Page placeholder ---------- */
+
+.page-placeholder h1 {
+  margin-top: 0;
+}
+
+.page-note {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.page-placeholder section {
+  margin-top: 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.page-placeholder ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}

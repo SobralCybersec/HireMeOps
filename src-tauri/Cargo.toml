@@ -1,0 +1,33 @@
+[package]
+name = "hiremeops"
+version = "0.1.0"
+description = "HireMeOps — local-first job-search automation cockpit"
+authors = ["HireMeOps"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name unique from the bin name (Windows, cargo#8519).
+name = "hiremeops_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+directories = "6"
+
+[features]
+# security crates (argon2/aes-gcm/keyring/sha2) are introduced in Phase 2
+default = []
