@@ -65,6 +65,11 @@
   --tx-fast: 120ms var(--ease-standard);
   --tx-base: 180ms var(--ease-standard);
   --tx-slow: 260ms var(--ease-emphasized);
+
+  /* Choreography — entrance / chart / stagger (see src/styles/effects.css) */
+  --tx-entrance: 220ms var(--ease-emphasized);
+  --tx-chart:    300ms var(--ease-emphasized);
+  --tx-stagger:   40ms;
 }
 
 /* ---- Dark palette (primary) ----------------------------------- */

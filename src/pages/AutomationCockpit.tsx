@@ -1,5 +1,6 @@
 import { useAutomationStore } from "../stores/useAutomationStore";
 import { useEventStore } from "../stores/useEventStore";
+import { useReducedEffects } from "../lib/effects";
 import type { AutomationState } from "../types/domain";
 import {
   AutomationStatusBadge,
@@ -35,6 +36,8 @@ export function AutomationCockpit() {
   const resume             = useAutomationStore((s) => s.resume);
   const stop               = useAutomationStore((s) => s.stop);
   const events             = useEventStore((s) => s.events);
+
+  const reduce = useReducedEffects();
 
   const isIdle    = IDLE_STATES.includes(state);
   const isRunning = !isIdle;
@@ -91,7 +94,10 @@ export function AutomationCockpit() {
       </Toolbar>
 
       {/* State display ------------------------------------------------ */}
-      <div className="state-display" aria-live="polite">
+      <div
+        className={`state-display${isRunning && !reduce ? " fx-pulse-ring" : ""}`}
+        aria-live="polite"
+      >
         <AutomationStatusBadge state={state} bare />
         <div className="state-display__label">{subLabel}</div>
         <div style={{ marginLeft: "auto" }}>
