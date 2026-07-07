@@ -24,6 +24,12 @@ type LoadState =
   | { kind: "ready"; doc: PDFDocumentProxy; numPages: number }
   | { kind: "unavailable" };
 
+// Resolved document, tagged with the cv id it belongs to. The "loading" state
+// is derived (not stored) whenever no resolved result matches the current cv.
+type Resolved =
+  | { id: string; kind: "ready"; doc: PDFDocumentProxy; numPages: number }
+  | { id: string; kind: "unavailable" };
+
 const ZOOM_STEPS = [0.6, 0.75, 0.9, 1, 1.25, 1.5, 2];
 const DEFAULT_ZOOM_INDEX = 3;
 
@@ -75,7 +81,7 @@ function ViewerPage({
 }
 
 export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
-  const [load, setLoad] = useState<LoadState>({ kind: "loading" });
+  const [resolved, setResolved] = useState<Resolved | null>(null);
   const [current, setCurrent] = useState(1);
   const [zoomIdx, setZoomIdx] = useState(DEFAULT_ZOOM_INDEX);
   const [showMeta, setShowMeta] = useState(true);
@@ -85,18 +91,32 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const scale = ZOOM_STEPS[zoomIdx];
 
-  // Load the document (or resolve "unavailable").
+  // Load the document (or resolve "unavailable"). State is written only from the
+  // async callback, so there is no synchronous setState inside the effect body.
   useEffect(() => {
     let alive = true;
-    setLoad({ kind: "loading" });
     void loadCvDocument(cv.id, loader).then((doc) => {
       if (!alive) return;
-      setLoad(doc ? { kind: "ready", doc, numPages: doc.numPages } : { kind: "unavailable" });
+      setResolved(
+        doc
+          ? { id: cv.id, kind: "ready", doc, numPages: doc.numPages }
+          : { id: cv.id, kind: "unavailable" },
+      );
     });
     return () => {
       alive = false;
     };
   }, [cv.id, loader]);
+
+  // Effective load state, derived so a cv change shows "loading" immediately
+  // (until the new fetch resolves) without a synchronous setState-in-effect.
+  const load: LoadState =
+    resolved && resolved.id === cv.id
+      ? resolved.kind === "ready"
+        ? { kind: "ready", doc: resolved.doc, numPages: resolved.numPages }
+        : { kind: "unavailable" }
+      : { kind: "loading" };
+  const pageCount = load.kind === "ready" ? load.numPages : 1;
 
   const goToPage = useCallback((page: number, total: number) => {
     const clamped = Math.max(1, Math.min(total, page));
@@ -113,7 +133,6 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
 
   // Keyboard controls.
   useEffect(() => {
-    const total = load.kind === "ready" ? load.numPages : 1;
     const onKey = (e: KeyboardEvent) => {
       switch (e.key) {
         case "Escape":
@@ -123,20 +142,20 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
         case "ArrowRight":
         case "PageDown":
           e.preventDefault();
-          goToPage(current + 1, total);
+          goToPage(current + 1, pageCount);
           break;
         case "ArrowLeft":
         case "PageUp":
           e.preventDefault();
-          goToPage(current - 1, total);
+          goToPage(current - 1, pageCount);
           break;
         case "Home":
           e.preventDefault();
-          goToPage(1, total);
+          goToPage(1, pageCount);
           break;
         case "End":
           e.preventDefault();
-          goToPage(total, total);
+          goToPage(pageCount, pageCount);
           break;
         case "+":
         case "=":
@@ -153,7 +172,7 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, load, goToPage, onClose]);
+  }, [current, pageCount, goToPage, onClose]);
 
   const total = load.kind === "ready" ? load.numPages : cv.pageCount;
   const pages = load.kind === "ready" ? Array.from({ length: load.numPages }, (_, i) => i + 1) : [];

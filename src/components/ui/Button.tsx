@@ -30,7 +30,6 @@ export function Button({
     .join(" ");
 
   return (
-    // eslint-disable-next-line react/button-has-type
     <button type={type} className={cls} {...rest}>
       {icon}
       {children}

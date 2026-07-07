@@ -6,11 +6,19 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
+.CLAUDE
 node_modules
 dist
 dist-ssr
 *.local
+CLAUDE.md
+CONTEXT.md
+DESIGN_SYSTEM.md
+HireMeOps_AGENTS.md
+HireMeOps_DATABASE_SCHEMA.md
+HireMeOps_FRONTEND_SPEC.md
+HireMeOps_IMPLEMENTATION_SPEC.md
+HireMeOps_PROJECT_INDEX.md
 
 # Editor directories and files
 .vscode/*

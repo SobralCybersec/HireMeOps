@@ -19,25 +19,19 @@ export function useCvPreview(
   loader: CvBytesLoader,
   enabled: boolean,
 ): PreviewState {
-  const [state, setState] = useState<PreviewState>(() => {
-    const cached = getCachedThumb(cvId);
-    return cached ? { status: "ready", src: cached } : { status: "idle", src: null };
-  });
+  // Async render result, tagged with the cv id it belongs to. Written *only*
+  // from the async render callback — never synchronously inside the effect —
+  // so the "loading"/"ready-from-cache" states are derived during render below.
+  const [rendered, setRendered] = useState<{ id: string; src: string | null } | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
-
-    const cached = getCachedThumb(cvId);
-    if (cached) {
-      setState({ status: "ready", src: cached });
-      return;
-    }
+    if (getCachedThumb(cvId)) return; // cache hit resolves via derivation below
 
     let alive = true;
-    setState({ status: "loading", src: null });
     void renderCvThumbnail(cvId, loader).then((url) => {
       if (!alive) return;
-      setState(url ? { status: "ready", src: url } : { status: "unavailable", src: null });
+      setRendered({ id: cvId, src: url });
     });
 
     return () => {
@@ -45,5 +39,16 @@ export function useCvPreview(
     };
   }, [cvId, loader, enabled]);
 
-  return state;
+  // Derive the public status during render, so no setState happens in the
+  // effect body. A cache hit wins immediately; otherwise an async result for
+  // *this* cv resolves it; anything else is still loading (or idle if gated).
+  const cached = getCachedThumb(cvId);
+  if (cached) return { status: "ready", src: cached };
+  if (!enabled) return { status: "idle", src: null };
+  if (rendered && rendered.id === cvId) {
+    return rendered.src
+      ? { status: "ready", src: rendered.src }
+      : { status: "unavailable", src: null };
+  }
+  return { status: "loading", src: null };
 }
