@@ -1616,6 +1616,41 @@ html.reduced-effects .dot--running { animation: none; }
 }
 
 /* ================================================================
+   Skip navigation link — appears on keyboard focus only.
+   position:fixed escapes the overflow:hidden on .app-shell.
+   ================================================================ */
+.skip-link {
+  position: fixed;
+  left: var(--sp-4);
+  top: var(--sp-4);
+  z-index: calc(var(--z-toast) + 10);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  font-family: var(--font-ui);
+  text-decoration: none;
+  white-space: nowrap;
+  /* Hidden visually until focused — clip-path avoids layout shift */
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  transition: clip-path var(--tx-fast);
+}
+
+.skip-link:focus-visible {
+  clip-path: none;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  outline: 2px solid var(--color-text-inverse);
+  outline-offset: 2px;
+}
+
+/* ================================================================
    Overlay surface helper — menus/popovers inherit elevation tokens
    ================================================================ */
 .overlay-surface {

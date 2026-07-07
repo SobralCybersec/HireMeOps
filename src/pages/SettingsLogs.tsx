@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useThemeStore } from "../stores/useThemeStore";
 import { useEventStore } from "../stores/useEventStore";
@@ -191,6 +191,20 @@ export function SettingsLogs() {
     });
   }
 
+  // Keyboard nav for the vertical settings tablist (ArrowUp/Down + Home/End).
+  function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
+    const keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    let next: number;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else next = TABS.length - 1;
+    setActiveTab(TABS[next].key);
+    document.getElementById(`settings-tab-${TABS[next].key}`)?.focus();
+  }
+
   // Tabs that need settings from the backend to render meaningfully
   const needsSettings =
     activeTab === "general" ||
@@ -232,19 +246,24 @@ export function SettingsLogs() {
           className="settings-sidebar"
           role="tablist"
           aria-label="Settings sections"
+          aria-orientation="vertical"
         >
-          {TABS.map((t) => (
+          {TABS.map((t, idx) => (
             <button
               key={t.key}
+              id={`settings-tab-${t.key}`}
               type="button"
               role="tab"
               aria-selected={activeTab === t.key}
+              aria-controls="settings-panel"
+              tabIndex={activeTab === t.key ? 0 : -1}
               className={
                 activeTab === t.key
                   ? "settings-tab-btn active"
                   : "settings-tab-btn"
               }
               onClick={() => setActiveTab(t.key)}
+              onKeyDown={(e) => handleTabKey(e, idx)}
             >
               {t.label}
             </button>
@@ -252,7 +271,12 @@ export function SettingsLogs() {
         </div>
 
         {/* ── Content ─────────────────────────────────────────────────── */}
-        <div className="settings-content" role="tabpanel">
+        <div
+          id="settings-panel"
+          className="settings-content"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab}`}
+        >
           {isLoading && needsSettings ? (
             <div className="empty-state">
               <p className="empty-state__title">Loading settings…</p>

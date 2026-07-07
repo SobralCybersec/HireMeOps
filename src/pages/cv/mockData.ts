@@ -2,7 +2,7 @@
 // wired. Shapes match `CvLibraryDoc`; ids line up with the analysis mock so the
 // two pages tell one coherent story.
 
-import type { CvLibraryDoc } from "./types";
+import type { AnalysisResult, CvLibraryDoc } from "./types";
 
 const HOUR = 1000 * 60 * 60;
 const DAY = HOUR * 24;
@@ -40,6 +40,32 @@ export const MOCK_LIBRARY: CvLibraryDoc[] = [
     fileHash: "def0123",
     assignedVariants: [{ id: "v3", name: "Fullstack" }],
     sections: ["Profile", "Experience", "Projects", "Skills", "Education"],
+  },
+];
+
+// Analysis history — `cvName` values line up with `MOCK_LIBRARY` file names so
+// the Library and Analysis pages tell one coherent story.
+export const MOCK_HISTORY: AnalysisResult[] = [
+  {
+    cvName: "cv_rust_2025.pdf",
+    variantName: "Rust Systems",
+    overallScore: 88,
+    atsScore: 84,
+    keywordMatch: 91,
+    strengths: [
+      "Strong systems programming background",
+      "Open-source contributions",
+      "Relevant project experience",
+    ],
+    weaknesses: ["Limited cloud infrastructure experience", "No formal CS degree listed"],
+    missingKeywords: ["Kubernetes", "gRPC", "distributed systems"],
+    recommendations: [
+      "Add Kubernetes experience (even personal cluster projects)",
+      "Mention distributed systems coursework or self-study",
+      "Lead with quantified impact statements",
+    ],
+    provider: "claude-sonnet-4-6",
+    ranAt: new Date(Date.now() - HOUR).toISOString(),
   },
 ];
 

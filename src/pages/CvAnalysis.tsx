@@ -1,39 +1,5 @@
 import { useState } from "react";
-
-interface AnalysisResult {
-  cvName: string;
-  variantName: string;
-  overallScore: number;
-  atsScore: number;
-  keywordMatch: number;
-  strengths: string[];
-  weaknesses: string[];
-  missingKeywords: string[];
-  recommendations: string[];
-  provider: string;
-  ranAt: string;
-}
-
-// Placeholder data – replace with real analysis store once wired
-const MOCK_HISTORY: AnalysisResult[] = [
-  {
-    cvName:        "cv_rust_2025.pdf",
-    variantName:   "Rust Systems",
-    overallScore:  88,
-    atsScore:      84,
-    keywordMatch:  91,
-    strengths:     ["Strong systems programming background", "Open-source contributions", "Relevant project experience"],
-    weaknesses:    ["Limited cloud infrastructure experience", "No formal CS degree listed"],
-    missingKeywords: ["Kubernetes", "gRPC", "distributed systems"],
-    recommendations: [
-      "Add Kubernetes experience (even personal cluster projects)",
-      "Mention distributed systems coursework or self-study",
-      "Lead with quantified impact statements",
-    ],
-    provider: "claude-sonnet-4-6",
-    ranAt:    new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  },
-];
+import { MOCK_HISTORY, MOCK_LIBRARY } from "./cv";
 
 const SCORE_COLORS: Record<string, string> = {
   high:   "var(--status-success-text)",
@@ -46,6 +12,12 @@ function scoreColor(n: number) {
   if (n >= 50) return SCORE_COLORS.mid;
   return SCORE_COLORS.low;
 }
+
+// Unique variant names across the library — drives the variant picker so it
+// stays in step with what each CV is actually assigned to.
+const VARIANT_NAMES = [
+  ...new Set(MOCK_LIBRARY.flatMap((cv) => cv.assignedVariants.map((v) => v.name))),
+];
 
 export function CvAnalysis() {
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
@@ -63,16 +35,17 @@ export function CvAnalysis() {
         <div className="field" style={{ display: "inline-flex", flexDirection: "row", gap: "var(--sp-2)", alignItems: "center" }}>
           <label className="field__label" htmlFor="cv-sel" style={{ whiteSpace: "nowrap" }}>CV</label>
           <select id="cv-sel" className="field__select" style={{ width: 220 }}>
-            <option>cv_rust_2025.pdf</option>
-            <option>cv_fullstack_general.docx</option>
+            {MOCK_LIBRARY.map((cv) => (
+              <option key={cv.id}>{cv.fileName}</option>
+            ))}
           </select>
         </div>
         <div className="field" style={{ display: "inline-flex", flexDirection: "row", gap: "var(--sp-2)", alignItems: "center" }}>
           <label className="field__label" htmlFor="var-sel" style={{ whiteSpace: "nowrap" }}>Variant</label>
           <select id="var-sel" className="field__select" style={{ width: 200 }}>
-            <option>Rust Systems</option>
-            <option>Java Backend</option>
-            <option>Fullstack</option>
+            {VARIANT_NAMES.map((name) => (
+              <option key={name}>{name}</option>
+            ))}
           </select>
         </div>
         <div className="toolbar-sep" />
@@ -199,11 +172,11 @@ export function CvAnalysis() {
                 <table className="data-table" aria-label="Analysis history">
                   <thead>
                     <tr>
-                      <th>CV</th>
-                      <th>Variant</th>
-                      <th>Score</th>
-                      <th>Provider</th>
-                      <th>Date</th>
+                      <th scope="col">CV</th>
+                      <th scope="col">Variant</th>
+                      <th scope="col">Score</th>
+                      <th scope="col">Provider</th>
+                      <th scope="col">Date</th>
                     </tr>
                   </thead>
                   <tbody>

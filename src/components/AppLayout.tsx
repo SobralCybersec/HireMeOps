@@ -12,6 +12,9 @@ export function AppLayout() {
 
   return (
     <div className="app-shell">
+      {/* Skip link — first focusable element; jumps past sidebar/topbar */}
+      <a className="skip-link" href="#main-content">Skip to content</a>
+
       {/* ---- Sidebar (frontend spec §3.2) ---- */}
       <nav className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-header">

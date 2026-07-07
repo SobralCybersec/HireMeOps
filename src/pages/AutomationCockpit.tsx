@@ -97,6 +97,7 @@ export function AutomationCockpit() {
       <div
         className={`state-display${isRunning && !reduce ? " fx-pulse-ring" : ""}`}
         aria-live="polite"
+        aria-atomic="true"
       >
         <AutomationStatusBadge state={state} bare />
         <div className="state-display__label">{subLabel}</div>
@@ -124,27 +125,30 @@ export function AutomationCockpit() {
           compact
           bodyClassName="event-log-scroll"
         >
-          {appEvents.length === 0 ? (
-            <EmptyState
-              title="No events"
-              body="Automation events will stream here."
-            />
-          ) : (
-            <ul className="event-log-list">
-              {appEvents.slice(0, 40).map((e) => (
-                <li key={e.id} className="event-log-item">
-                  <span className="event-log-type">{e.type}</span>
-                  <time className="event-log-time" dateTime={e.createdAt}>
-                    {new Date(e.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
-                  </time>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* role="log" announces streaming events to screen readers */}
+          <div role="log" aria-live="polite" aria-atomic="false" aria-label="Automation log">
+            {appEvents.length === 0 ? (
+              <EmptyState
+                title="No events"
+                body="Automation events will stream here."
+              />
+            ) : (
+              <ul className="event-log-list">
+                {appEvents.slice(0, 40).map((e) => (
+                  <li key={e.id} className="event-log-item">
+                    <span className="event-log-type">{e.type}</span>
+                    <time className="event-log-time" dateTime={e.createdAt}>
+                      {new Date(e.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </time>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </Card>
       </div>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,6 +119,20 @@ export function ProfileVariants() {
   );
   const [activeTab, setActiveTab] = useState<Tab>("Headline");
 
+  // Keyboard nav for the horizontal variant editor tablist (ArrowLeft/Right + Home/End).
+  function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    let next: number;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else next = TABS.length - 1;
+    setActiveTab(TABS[next]);
+    document.getElementById(`variant-tab-${TABS[next]}`)?.focus();
+  }
+
   const selected = MOCK_VARIANTS.find((v) => v.id === selectedId) ?? null;
 
   return (
@@ -218,14 +232,18 @@ export function ProfileVariants() {
                 role="tablist"
                 aria-label="Variant editor sections"
               >
-                {TABS.map((tab) => (
+                {TABS.map((tab, idx) => (
                   <button
                     key={tab}
+                    id={`variant-tab-${tab}`}
                     type="button"
                     role="tab"
                     aria-selected={activeTab === tab}
+                    aria-controls="variant-panel"
+                    tabIndex={activeTab === tab ? 0 : -1}
                     className={activeTab === tab ? "filter-tab active" : "filter-tab"}
                     onClick={() => setActiveTab(tab)}
+                    onKeyDown={(e) => handleTabKey(e, idx)}
                     style={{ borderRadius: 0, whiteSpace: "nowrap" }}
                   >
                     {tab}
@@ -235,7 +253,9 @@ export function ProfileVariants() {
 
               {/* Tab content */}
               <div
+                id="variant-panel"
                 role="tabpanel"
+                aria-labelledby={`variant-tab-${activeTab}`}
                 style={{
                   flex: 1,
                   padding: "var(--sp-5)",

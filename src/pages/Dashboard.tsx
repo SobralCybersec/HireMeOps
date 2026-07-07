@@ -180,24 +180,28 @@ export function Dashboard() {
           value={submitted}
           meta="this session"
           tone={submitted > 0 ? "accent" : "default"}
+          className="fx-stagger-1"
         />
         <KpiCard
           label="Discovered"
           value={discovered}
           meta="this session"
+          className="fx-stagger-2"
         />
         <KpiCard
           label="Needs Review"
           value={review}
           tone={review > 0 ? "review" : "default"}
+          className="fx-stagger-3"
         />
         <KpiCard
           label="Failed"
           value={failed}
           tone={failed > 0 ? "danger" : "default"}
+          className="fx-stagger-4"
         />
-        <KpiCard label="Duplicates Skipped" value={duplicates} />
-        <KpiCard label="Events Logged"      value={events.length} />
+        <KpiCard label="Duplicates Skipped" value={duplicates} className="fx-stagger-5" />
+        <KpiCard label="Events Logged"      value={events.length} className="fx-stagger-6" />
         <KpiCard
           label="Success Rate"
           value={successRate !== null ? `${successRate}%` : "—"}
@@ -313,38 +317,45 @@ export function Dashboard() {
           actions={<Badge variant="neutral">{events.length}</Badge>}
           compact
         >
-          {events.length === 0 ? (
-            <EmptyState
-              label="Quiet"
-              title="No events yet"
-              body="Start automation to see live events here."
-            />
-          ) : (
-            <ul
-              className="event-log-list"
-              aria-label="Recent automation events"
-              style={{ padding: "var(--sp-1) 0" }}
-            >
-              {events.slice(0, 20).map((e) => {
-                const v = eventVariant(e.type);
-                return (
-                  <li
-                    key={e.id}
-                    className={v ? `event-log-item evt--${v}` : "event-log-item"}
-                  >
-                    <span className="event-log-type">{e.type}</span>
-                    <time className="event-log-time" dateTime={e.createdAt}>
-                      {new Date(e.createdAt).toLocaleTimeString([], {
-                        hour:   "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
-                    </time>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          {/* aria-live so screen readers announce arriving events */}
+          <div
+            role="log"
+            aria-live="polite"
+            aria-atomic="false"
+            aria-label="Recent automation events"
+          >
+            {events.length === 0 ? (
+              <EmptyState
+                label="Quiet"
+                title="No events yet"
+                body="Start automation to see live events here."
+              />
+            ) : (
+              <ul
+                className="event-log-list"
+                style={{ padding: "var(--sp-1) 0" }}
+              >
+                {events.slice(0, 20).map((e) => {
+                  const v = eventVariant(e.type);
+                  return (
+                    <li
+                      key={e.id}
+                      className={v ? `event-log-item evt--${v}` : "event-log-item"}
+                    >
+                      <span className="event-log-type">{e.type}</span>
+                      <time className="event-log-time" dateTime={e.createdAt}>
+                        {new Date(e.createdAt).toLocaleTimeString([], {
+                          hour:   "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </time>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </Card>
       </div>
 
