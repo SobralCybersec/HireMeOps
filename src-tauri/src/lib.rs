@@ -15,12 +15,21 @@ mod matching;
 mod storage;
 mod util;
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use tauri::Manager;
 
 /// Shared application state, managed by Tauri and injected into commands.
 pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub paths: storage::paths::AppPaths,
+    /// Canonical emergency-stop latch. `automation_stop` /
+    /// `automation_emergency_stop` set it; `automation_start` clears it. Every
+    /// `BrowserSupervisor` is constructed sharing this exact `Arc` (via
+    /// `with_stop_flag`), so tripping it halts any in-flight browser task at its
+    /// next checkpoint — the kill-switch is always live, even between tasks.
+    pub emergency_stop: Arc<AtomicBool>,
 }
 
 async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
@@ -29,7 +38,11 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     let db = storage::db::init_pool(&paths).await?;
     storage::db::run_migrations(&db).await?;
     storage::settings::ensure_defaults(&db).await?;
-    Ok(AppState { db, paths })
+    Ok(AppState {
+        db,
+        paths,
+        emergency_stop: Arc::new(AtomicBool::new(false)),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
