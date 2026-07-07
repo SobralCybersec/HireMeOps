@@ -11,7 +11,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{DomainError, DomainResult};
-use crate::ai::prompt::{draft_prompt, draft_system, parse_draft, DraftInput, DRAFT_PROMPT_VERSION};
+use crate::ai::prompt::{
+    draft_prompt, draft_system, parse_draft, DraftInput, DRAFT_PROMPT_VERSION,
+};
 use crate::ai::{api_key_from_env, complete_cached, input_hash, select_provider};
 use crate::cv::{self, DocKind};
 use crate::domain::ai::CompletionRequest;
@@ -59,7 +61,9 @@ impl ApplicationServiceImpl {
         .bind(cv_document_id)
         .fetch_optional(&self.db)
         .await?
-        .ok_or_else(|| DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}")))?;
+        .ok_or_else(|| {
+            DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
+        })?;
 
         let kind = match file_type.as_str() {
             "pdf" => DocKind::Pdf,
@@ -120,18 +124,21 @@ impl ApplicationService for ApplicationServiceImpl {
                 .bind(&profile_id)
                 .fetch_optional(&self.db)
                 .await?
-                .ok_or_else(|| DomainError::InvalidInput(format!("unknown profile: {profile_id}")))?;
+                .ok_or_else(|| {
+                    DomainError::InvalidInput(format!("unknown profile: {profile_id}"))
+                })?;
 
         // A pinned role variant overrides the target/summary the model tailors to.
-        let variant: Option<(String, Option<String>, Option<String>)> = match &role_variant_id {
-            Some(vid) => sqlx::query_as(
-                "SELECT target_title, headline, summary FROM profile_variants WHERE id = ?1",
-            )
-            .bind(vid)
-            .fetch_optional(&self.db)
-            .await?,
-            None => None,
-        };
+        let variant: Option<(String, Option<String>, Option<String>)> =
+            match &role_variant_id {
+                Some(vid) => sqlx::query_as(
+                    "SELECT target_title, headline, summary FROM profile_variants WHERE id = ?1",
+                )
+                .bind(vid)
+                .fetch_optional(&self.db)
+                .await?,
+                None => None,
+            };
         let variant_target: Option<String> = variant.as_ref().map(|(target, headline, _)| {
             headline
                 .as_deref()

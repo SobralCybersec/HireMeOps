@@ -171,9 +171,15 @@ pub fn draft_prompt(input: &DraftInput) -> String {
     if let Some(loc) = input.job_location.map(str::trim).filter(|l| !l.is_empty()) {
         s.push_str(&format!("Location: {loc}\n"));
     }
-    s.push_str(&format!("Description:\n{}\n\n", clip(input.job_description)));
+    s.push_str(&format!(
+        "Description:\n{}\n\n",
+        clip(input.job_description)
+    ));
 
-    s.push_str(&format!("CANDIDATE\nName: {}\n", input.candidate_name.trim()));
+    s.push_str(&format!(
+        "CANDIDATE\nName: {}\n",
+        input.candidate_name.trim()
+    ));
     if let Some(t) = input
         .variant_target
         .map(str::trim)

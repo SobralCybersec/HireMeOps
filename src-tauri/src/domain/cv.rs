@@ -6,7 +6,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{DomainError, DomainResult};
-use crate::ai::prompt::{cv_analysis_prompt, cv_analysis_system, parse_cv_analysis, CV_ANALYSIS_PROMPT_VERSION};
+use crate::ai::prompt::{
+    cv_analysis_prompt, cv_analysis_system, parse_cv_analysis, CV_ANALYSIS_PROMPT_VERSION,
+};
 use crate::ai::{api_key_from_env, complete_cached, input_hash, select_provider};
 use crate::cv::{self, DocKind};
 use crate::domain::ai::{AiProvider, CompletionRequest};
