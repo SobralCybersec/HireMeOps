@@ -20,10 +20,10 @@ Local-first desktop app; builds clean (`cargo check`, `tsc --noEmit`, `vite buil
 | 2 | Profiles & CV — profile CRUD + variants, CV import / parse / analyze service | ✅ Complete |
 | 3 | Jobs & matching — deterministic, rule-based scoring engine, job posts, `job_matches`, application-draft stubs | ✅ Complete |
 | — | Frontend redesign — design system (`DESIGN_SYSTEM.md`), theme tokens, component + page library, effects/motion layer with reduced-effects wiring, accessibility pass | ✅ Complete |
-| 4 | AI providers — provider abstraction, augmenting match explanations | ⏳ Next |
-| 5 | Browser automation — supervisor beyond the current safe stubs | ⏳ Planned |
-| 6 | Automation cockpit | ⏳ Planned |
-| 7 | Export / backup / release | ⏳ Planned |
+| 4 | AI providers — provider abstraction + response cache behind `CvService::analyze` and `ApplicationService::draft`; augments match explanations only | ✅ Complete |
+| 5 | Browser automation — Playwright/Chromium sidecar: real browser sessions, LinkedIn Easy Apply, evidence capture | ✅ Complete |
+| 6 | Automation cockpit — `AutomationSupervisor`: queue, retries, evidence, emergency stop wired end-to-end | ✅ Complete |
+| 7 | Export / backup — profiles JSON, jobs/applications/audit CSV, `VACUUM INTO` snapshot + validated restore | ✅ Complete |
 
 The **matching engine is deterministic and rule-based** (see `src-tauri/src/matching/`) —
 scoring is reproducible and does not depend on any AI provider. AI providers (Phase 4) only
