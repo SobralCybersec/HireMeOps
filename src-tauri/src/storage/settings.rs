@@ -125,6 +125,21 @@ pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
     })
 }
 
+/// Read just the configured AI providers + default index, without needing
+/// [`AppPaths`]. Used by AI-backed services (CV analysis, application drafting)
+/// that only care about provider config, not the path-derived fields.
+pub async fn load_ai_providers(pool: &SqlitePool) -> Result<(Vec<AiProviderSettings>, i64)> {
+    let m = get_all(pool).await?;
+    let providers: Vec<AiProviderSettings> =
+        serde_json::from_str(m.get("ai_providers").map(String::as_str).unwrap_or("[]"))
+            .unwrap_or_default();
+    let idx = m
+        .get("default_ai_provider_index")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    Ok((providers, idx))
+}
+
 /// Persist the writable fields. Derived fields (`portable_mode`,
 /// `database_path`) are intentionally not written back.
 pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {

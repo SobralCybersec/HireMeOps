@@ -6,7 +6,11 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{DomainError, DomainResult};
+use crate::ai::prompt::{cv_analysis_prompt, cv_analysis_system, parse_cv_analysis, CV_ANALYSIS_PROMPT_VERSION};
+use crate::ai::{api_key_from_env, complete_cached, input_hash, select_provider};
 use crate::cv::{self, DocKind};
+use crate::domain::ai::{AiProvider, CompletionRequest};
+use crate::storage::settings::load_ai_providers;
 use crate::util::now_iso;
 
 /// Ingests CV documents, parses them into structured profile facts, and runs
@@ -131,10 +135,96 @@ impl CvService for CvServiceImpl {
         Ok(id)
     }
 
-    async fn analyze(&self, _cv_document_id: &str) -> DomainResult<String> {
-        // Gap/quality analysis is AI-backed — wired in Phase 4 (task #28).
-        Err(DomainError::NotImplemented("CvService::analyze"))
+    async fn analyze(&self, cv_document_id: &str) -> DomainResult<String> {
+        // Load the document row: we need the on-disk file to re-extract its text,
+        // plus profile_id/file_hash for the report row and the cache key.
+        let (profile_id, file_type, file_hash, stored_path): (String, String, String, String) =
+            sqlx::query_as(
+                "SELECT profile_id, file_type, file_hash, stored_path
+                 FROM cv_documents WHERE id = ?1",
+            )
+            .bind(cv_document_id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or_else(|| {
+                DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
+            })?;
+
+        // Re-extract text from the stored file (parsed text isn't persisted).
+        let kind = match file_type.as_str() {
+            "pdf" => DocKind::Pdf,
+            "docx" => DocKind::Docx,
+            other => {
+                return Err(DomainError::InvalidInput(format!(
+                    "unsupported stored file type: {other}"
+                )))
+            }
+        };
+        let bytes = std::fs::read(&stored_path)
+            .map_err(|e| DomainError::InvalidInput(format!("read {stored_path}: {e}")))?;
+        let parsed = cv::parse(kind, &bytes)
+            .map_err(|e| DomainError::InvalidInput(format!("parse cv document: {e}")))?;
+
+        // Select the configured provider; the API key is env-resolved (not stored
+        // unencrypted). A disabled/empty provider surfaces a clear error on call.
+        let (providers, default_index) = load_ai_providers(&self.db).await?;
+        let provider = select_provider(&providers, default_index, api_key_from_env());
+        // Fail fast before building the prompt / touching the cache: a disabled
+        // provider can never complete, so surface the clear error here.
+        if provider.is_disabled() {
+            return Err(DomainError::InvalidInput(
+                "no AI provider configured — add one in Settings".into(),
+            ));
+        }
+
+        let req = CompletionRequest {
+            model: provider.default_model().to_string(),
+            prompt: cv_analysis_prompt(&parsed.text, None),
+            system: Some(cv_analysis_system()),
+            // Fold the prompt version + CV content hash into the cache key so a
+            // prompt-wording bump or a different CV re-runs the analysis.
+            input_hash: input_hash(&[CV_ANALYSIS_PROMPT_VERSION, &file_hash]),
+        };
+        let resp = complete_cached(&self.db, &provider, req).await?;
+        let analysis = parse_cv_analysis(&resp.text);
+
+        // Persist the structured report.
+        let id = Uuid::new_v4().to_string();
+        let now = now_iso();
+        let model_provider = provider.id();
+        let model_name = provider.default_model();
+        sqlx::query(
+            "INSERT INTO cv_analysis_reports (
+                id, profile_id, cv_document_id, role_variant_id,
+                model_provider, model_name, score, summary, optimization_needed,
+                missing_keywords_json, strengths_json, weaknesses_json,
+                recommendations_json, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        )
+        .bind(&id)
+        .bind(&profile_id)
+        .bind(cv_document_id)
+        .bind(Option::<String>::None) // role_variant_id — not targeted here
+        .bind(model_provider)
+        .bind(model_name)
+        .bind(analysis.score)
+        .bind(&analysis.summary)
+        .bind(analysis.optimization_needed as i64)
+        .bind(json_array(&analysis.missing_keywords))
+        .bind(json_array(&analysis.strengths))
+        .bind(json_array(&analysis.weaknesses))
+        .bind(json_array(&analysis.recommendations))
+        .bind(&now)
+        .execute(&self.db)
+        .await?;
+
+        Ok(id)
     }
+}
+
+/// Serialize a string list to a JSON array text column (never fails for `Vec<String>`).
+fn json_array(items: &[String]) -> String {
+    serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string())
 }
 
 #[cfg(test)]

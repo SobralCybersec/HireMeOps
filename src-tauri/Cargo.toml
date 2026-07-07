@@ -33,6 +33,7 @@ sha2 = "0.11.0"
 tauri-plugin-dialog = "2.7.1"
 zip = "8.6.0"
 quick-xml = "0.41.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [features]
 # security crates (argon2/aes-gcm/keyring/sha2) are introduced in Phase 2

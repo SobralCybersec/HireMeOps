@@ -5,6 +5,7 @@
 //! Phase 3 adds the jobs module: canonical URL, dedupe, search-query building,
 //! and the full job-preference / job-post / job-match command surface.
 
+mod ai;
 mod commands;
 mod cv;
 mod domain;
@@ -58,6 +59,8 @@ pub fn run() {
             // Phase 2 — CV
             commands::cv::import_cv_document,
             commands::cv::analyze_cv_document,
+            // Phase 4 — applications
+            commands::applications::draft_application,
             commands::automation::automation_start,
             commands::automation::automation_pause,
             commands::automation::automation_resume,
