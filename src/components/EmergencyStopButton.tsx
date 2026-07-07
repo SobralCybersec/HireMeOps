@@ -3,34 +3,31 @@ import { useAutomationStore } from "../stores/useAutomationStore";
 import { useEventStore } from "../stores/useEventStore";
 
 /**
- * Always-visible red kill switch for automation. Lives in AppLayout's topbar
- * so it is reachable from every routed page. Triggerable by click OR the
- * global Ctrl/Cmd+Shift+C hotkey, regardless of focus.
+ * Always-visible kill switch in the top command bar.
+ * Triggered by click OR Ctrl/Cmd+Shift+S from any focus position.
+ * Preserves original store wiring exactly; only the visual changes.
  */
 export function EmergencyStopButton() {
-  const emergencyStop = useAutomationStore((state) => state.emergencyStop);
-  const addEvent = useEventStore((state) => state.addEvent);
+  const emergencyStop = useAutomationStore((s) => s.emergencyStop);
+  const addEvent      = useEventStore((s) => s.addEvent);
 
   const trigger = useCallback(() => {
     void emergencyStop();
     addEvent({
-      id: crypto.randomUUID(),
-      type: "automation.stopped",
-      payload: { reason: "emergency_stop" },
+      id:        crypto.randomUUID(),
+      type:      "automation.stopped",
+      payload:   { reason: "emergency_stop" },
       createdAt: new Date().toISOString(),
     });
   }, [emergencyStop, addEvent]);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const isModifiedC =
-        event.shiftKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c";
-      if (isModifiedC) {
-        event.preventDefault();
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.shiftKey && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
         trigger();
       }
     }
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [trigger]);
@@ -40,10 +37,10 @@ export function EmergencyStopButton() {
       type="button"
       className="emergency-stop-btn"
       onClick={trigger}
-      title="Emergency Stop (Ctrl/Cmd+Shift+C)"
-      aria-label="Emergency Stop"
+      title="Emergency Stop (Ctrl/Cmd+Shift+S)"
+      aria-label="Emergency Stop – abort automation immediately"
     >
-      ⛔ Emergency Stop
+      ■ E-STOP
     </button>
   );
 }

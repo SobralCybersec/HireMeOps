@@ -1,21 +1,10 @@
-/* Global reset for the app shell. Palette + component styles live in
-   src/styles/theme.css, which is imported once in main.tsx. */
+/* Global reset. Palette + component styles live in src/styles/theme.css */
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
-}
-
-body {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }

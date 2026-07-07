@@ -1,0 +1,437 @@
+/* Co-located styles for the CV Library / Analysis surface.
+ *
+ * These are page-local extensions, NOT shared primitives, so they live here
+ * rather than in theme.css. Every value is a design token (var(--…)); the only
+ * literals are intrinsic geometry (aspect ratios, 0/1px hairlines, %). Motion
+ * uses the shared easings/durations and is auto-neutralised by the global
+ * `.reduced-effects` switch. */
+
+/* ---- Card preview thumbnail ----------------------------------- */
+.cvx-thumb {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+}
+
+.cvx-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+.cvx-thumb__glyph {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.cvx-thumb__pages {
+  position: absolute;
+  right: var(--sp-1);
+  bottom: var(--sp-1);
+  padding: 0 var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Shimmer skeleton — neutralised under .reduced-effects globally. */
+.cvx-skel {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    100deg,
+    var(--color-surface-2) 30%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 70%
+  );
+  background-size: 200% 100%;
+  animation: cvx-shimmer 1.3s var(--ease-standard) infinite;
+}
+
+@keyframes cvx-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ---- Card wrapper additions ----------------------------------- */
+.cvx-card--selected {
+  border-color: var(--color-accent);
+}
+
+.cvx-card__thumb-wrap {
+  display: block;
+}
+
+.cvx-card__open {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+
+.cvx-card__open-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--tx-fast);
+}
+
+.cvx-card__open:hover .cvx-card__open-hint,
+.cvx-card__open:focus-visible .cvx-card__open-hint {
+  opacity: 1;
+}
+
+.cvx-card__open:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.cvx-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.cvx-variant {
+  font-size: var(--text-2xs);
+}
+
+.cvx-card__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Hover peek (portal'd to body) ---------------------------- */
+.cvx-peek {
+  position: fixed;
+  z-index: var(--z-drawer);
+  padding: var(--sp-1);
+  box-shadow: var(--shadow-3);
+  pointer-events: none;
+  animation: cvx-fade var(--tx-fast);
+}
+
+.cvx-peek__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes cvx-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ---- Viewer modal --------------------------------------------- */
+.cvx-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+}
+
+.cvx-viewer {
+  /* Component-local layout scales (kept off theme.css intentionally). */
+  --cvx-rail-w: 128px;
+  --cvx-meta-w: 232px;
+
+  display: flex;
+  flex-direction: column;
+  width: min(1200px, 100%);
+  height: min(880px, 100%);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+
+.cvx-viewer:focus-visible {
+  outline: none;
+}
+
+.cvx-viewer__bar {
+  flex-shrink: 0;
+  gap: var(--sp-2);
+}
+
+.cvx-viewer__title {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cvx-viewer__pager,
+.cvx-viewer__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.cvx-viewer__pagenum {
+  min-width: 52px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-2);
+}
+
+.cvx-viewer__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Thumbnail rail */
+.cvx-rail {
+  flex-shrink: 0;
+  width: var(--cvx-rail-w);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.cvx-rail__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-1);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--tx-fast);
+}
+
+.cvx-rail__item:hover {
+  border-color: var(--color-border-strong);
+}
+
+.cvx-rail__item--active {
+  border-color: var(--color-accent);
+}
+
+.cvx-rail__item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.cvx-rail__canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.cvx-rail__num {
+  position: absolute;
+  right: var(--sp-1);
+  bottom: var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+  padding: 0 var(--sp-1);
+  border-radius: var(--radius-sm);
+}
+
+/* Main page column */
+.cvx-main {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--color-surface-2);
+}
+
+.cvx-main__skel {
+  width: min(612px, 90%);
+  height: 80%;
+}
+
+.cvx-page {
+  position: relative;
+  box-shadow: var(--shadow-1);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cvx-page__canvas {
+  display: block;
+}
+
+.cvx-page__skel {
+  aspect-ratio: 8.5 / 11;
+  background: var(--color-surface-3);
+  border-radius: var(--radius-sm);
+}
+
+.cvx-page__num {
+  position: absolute;
+  left: var(--sp-1);
+  top: var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-2);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  padding: 0 var(--sp-1);
+  border-radius: var(--radius-sm);
+}
+
+.cvx-unavailable {
+  margin: auto;
+  max-width: 360px;
+}
+
+/* Metadata panel */
+.cvx-meta {
+  flex-shrink: 0;
+  width: var(--cvx-meta-w);
+  overflow-y: auto;
+  padding: var(--sp-4);
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.cvx-meta__title {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cvx-meta__title:first-child {
+  margin-top: 0;
+}
+
+.cvx-meta__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.cvx-meta__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--text-xs);
+}
+
+.cvx-meta__row dt {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.cvx-meta__row dd {
+  margin: 0;
+  color: var(--color-text-2);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cvx-meta__mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cvx-meta__empty {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.cvx-meta__sections {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.cvx-meta__sections li {
+  font-size: var(--text-xs);
+  color: var(--color-text-2);
+}
+
+/* ---- Analysis: CV summary strip ------------------------------- */
+.cvx-summary {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.cvx-summary__thumb {
+  width: 96px;
+  flex-shrink: 0;
+}
+
+.cvx-summary__facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.cvx-summary__name {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+
+.cvx-summary__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+}

@@ -2,5 +2,6 @@
 
 pub mod automation;
 pub mod events;
+pub mod jobs;
 pub mod profiles;
 pub mod settings;

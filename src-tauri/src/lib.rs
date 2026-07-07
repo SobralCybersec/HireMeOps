@@ -1,12 +1,15 @@
 //! HireMeOps — local-first job-search automation cockpit (Tauri 2 backend).
 //!
-//! Phase 1 wires up the foundation: path resolution (incl. portable mode),
-//! the SQLite pool + migrations, the app-event bus, the settings repo and the
-//! Tauri command surface. Feature domains live in [`domain`] as skeletons.
+//! Phase 1 wires the foundation: path resolution (incl. portable mode),
+//! SQLite pool + migrations, app-event bus, settings repo, Tauri command surface.
+//! Phase 3 adds the jobs module: canonical URL, dedupe, search-query building,
+//! and the full job-preference / job-post / job-match command surface.
 
 mod commands;
 mod domain;
 mod events;
+mod jobs;
+mod matching;
 mod storage;
 mod util;
 
@@ -57,6 +60,16 @@ pub fn run() {
             commands::automation::automation_stop,
             commands::automation::automation_emergency_stop,
             commands::events::emit_test_event,
+            // Phase 3 — jobs
+            commands::jobs::list_job_preferences,
+            commands::jobs::create_job_preference,
+            commands::jobs::list_search_queries,
+            commands::jobs::generate_search_queries,
+            commands::jobs::ingest_job_post,
+            commands::jobs::list_job_posts,
+            commands::jobs::update_job_status,
+            commands::jobs::score_job_match,
+            commands::jobs::list_job_matches,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
