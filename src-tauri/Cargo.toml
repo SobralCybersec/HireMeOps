@@ -27,6 +27,12 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "6"
+pdf-extract = "0.12.0"
+lopdf = "0.43.0"
+sha2 = "0.11.0"
+tauri-plugin-dialog = "2.7.1"
+zip = "8.6.0"
+quick-xml = "0.41.0"
 
 [features]
 # security crates (argon2/aes-gcm/keyring/sha2) are introduced in Phase 2

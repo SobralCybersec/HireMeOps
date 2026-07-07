@@ -6,6 +6,7 @@
 //! and the full job-preference / job-post / job-match command surface.
 
 mod commands;
+mod cv;
 mod domain;
 mod events;
 mod jobs;
@@ -54,6 +55,9 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::profiles::list_profiles,
+            // Phase 2 — CV
+            commands::cv::import_cv_document,
+            commands::cv::analyze_cv_document,
             commands::automation::automation_start,
             commands::automation::automation_pause,
             commands::automation::automation_resume,

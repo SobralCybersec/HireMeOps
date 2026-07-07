@@ -20,6 +20,8 @@ pub struct AppPaths {
     pub evidence_dir: PathBuf,
     /// Sub-directory for exports and backups.
     pub export_dir: PathBuf,
+    /// Sub-directory holding imported CV files (per-profile sub-dirs created lazily).
+    pub cv_files_dir: PathBuf,
     /// Whether the app is running in portable mode.
     pub portable: bool,
 }
@@ -46,7 +48,8 @@ impl AppPaths {
 
         let evidence_dir = data_dir.join("evidence");
         let export_dir = data_dir.join("exports");
-        for dir in [&data_dir, &evidence_dir, &export_dir] {
+        let cv_files_dir = data_dir.join("cv_files");
+        for dir in [&data_dir, &evidence_dir, &export_dir, &cv_files_dir] {
             std::fs::create_dir_all(dir)
                 .with_context(|| format!("create dir {}", dir.display()))?;
         }
@@ -57,6 +60,7 @@ impl AppPaths {
             db_path,
             evidence_dir,
             export_dir,
+            cv_files_dir,
             portable,
         })
     }
