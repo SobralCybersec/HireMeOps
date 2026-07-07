@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
+use crate::domain::jobs::{JobSearchService, JobSearchServiceImpl};
 use crate::jobs::{build_queries, canonicalize, check_dedupe, DedupeOutcome, SearchQueryInput};
 use crate::util::now_iso;
 use crate::AppState;
@@ -537,10 +538,9 @@ pub async fn ingest_job_post(
     input: IngestJobPostInput,
 ) -> Result<IngestJobPostResult, String> {
     let canonical = canonicalize(&input.url);
-    let dedupe =
-        check_dedupe(&state.db, &input.profile_id, &input.platform, &canonical)
-            .await
-            .map_err(|e| e.to_string())?;
+    let dedupe = check_dedupe(&state.db, &input.profile_id, &input.platform, &canonical)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let (is_dup, dup_of, status) = match &dedupe {
         DedupeOutcome::Unique => (false, None, "discovered"),
@@ -589,7 +589,7 @@ pub async fn ingest_job_post(
     .bind(&input.seniority)
     .bind(&input.employment_type)
     .bind(&input.posted_at)
-    .bind(&now)                    // discovered_at AND last_seen_at (bound twice as ?19)
+    .bind(&now) // discovered_at AND last_seen_at (bound twice as ?19)
     .bind(&input.discovery_source)
     .bind(&input.search_query_id)
     .bind(status)
@@ -670,8 +670,16 @@ pub async fn update_job_status(
     status: String,
 ) -> Result<(), String> {
     const VALID: &[&str] = &[
-        "discovered", "matched", "rejected", "queued", "applied",
-        "failed", "needs_review", "saved", "ignored", "skipped_duplicate_url",
+        "discovered",
+        "matched",
+        "rejected",
+        "queued",
+        "applied",
+        "failed",
+        "needs_review",
+        "saved",
+        "ignored",
+        "skipped_duplicate_url",
     ];
     if !VALID.contains(&status.as_str()) {
         return Err(format!("invalid status '{status}'"));
@@ -687,61 +695,29 @@ pub async fn update_job_status(
 
 // ── Commands: Job Matches ────────────────────────────────────────────────────
 
-/// Scoring-relevant columns of a job post.
-#[derive(sqlx::FromRow)]
-struct ScoreJobRow {
-    title: String,
-    company: String,
-    description: String,
-    summary: Option<String>,
-    location: Option<String>,
-    remote_mode: Option<String>,
-    seniority: Option<String>,
-    salary_min: Option<i64>,
-    salary_max: Option<i64>,
-}
-
-/// Scoring-relevant columns of a job preference.
-#[derive(sqlx::FromRow)]
-struct ScorePrefRow {
-    id: String,
-    target_roles_json: String,
-    seniority_json: Option<String>,
-    locations_json: Option<String>,
-    remote_modes_json: Option<String>,
-    min_salary: Option<i64>,
-    required_skills_json: Option<String>,
-    preferred_skills_json: Option<String>,
-    excluded_keywords_json: Option<String>,
-    blocked_companies_json: Option<String>,
-    auto_submit_min_score: i64,
-    needs_review_confidence_threshold: i64,
-}
-
-/// A profile variant, as a best-CV candidate.
-#[derive(sqlx::FromRow)]
-struct VariantRow {
-    id: String,
-    target_title: String,
-    keywords_json: Option<String>,
-    preferred_cv_document_id: Option<String>,
-}
-
-/// Parse a JSON string-array column into a `Vec<String>`; tolerant of NULL and
-/// malformed JSON (both yield an empty vec).
-fn parse_json_array(raw: &Option<String>) -> Vec<String> {
-    raw.as_deref()
-        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
-        .unwrap_or_default()
+/// Run a saved search query: score every still-`discovered` job post ingested
+/// under it against the query's profile, then stamp `last_run_at`. Returns the
+/// number of posts scored.
+///
+/// Network/browser fetching that *produces* those job posts lands with the
+/// sidecar (Phase 5); this wires the deterministic scoring half end to end.
+#[tauri::command]
+pub async fn run_search(
+    state: State<'_, AppState>,
+    search_query_id: String,
+) -> Result<u32, String> {
+    JobSearchServiceImpl::new(state.db.clone())
+        .run_search(&search_query_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Score a job against a profile + preference — deterministic, rule-based.
 ///
-/// Per SPEC §7.5 this is the *match scoring* stage (Phase 3): it computes five
-/// sub-scores from the job post and the saved preference, selects the best-fit
-/// profile variant / CV, and writes a full `job_matches` row. No AI is used —
-/// Phase 4's providers may later augment `explanation`/`model_*`, but this
-/// deterministic baseline always works offline.
+/// Per SPEC §7.5 this is the *match scoring* stage (Phase 3). The logic lives in
+/// [`JobSearchServiceImpl`]; this command is a thin wrapper that delegates, then
+/// returns the freshly-written `job_matches` row. Passing `preference_id`
+/// forces a specific preference; otherwise the profile's most recent is used.
 #[tauri::command]
 pub async fn score_job_match(
     state: State<'_, AppState>,
@@ -749,189 +725,25 @@ pub async fn score_job_match(
     profile_id: String,
     preference_id: Option<String>,
 ) -> Result<JobMatchDto, String> {
-    use crate::matching::{
-        build_explanation, score_job, select_best_cv, MatchInput, Recommendation,
-        VariantCandidate, AUTO_SUBMIT_DEFAULT, NEEDS_REVIEW_DEFAULT,
-    };
-
-    let id = Uuid::new_v4().to_string();
-    let now = now_iso();
-
-    // ── Load the job post ──
-    let job = sqlx::query_as::<_, ScoreJobRow>(
-        "SELECT title, company, description, summary, location, remote_mode,
-                seniority, salary_min, salary_max
-         FROM job_posts WHERE id = ?1",
-    )
-    .bind(&job_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| format!("job post {job_id} not found"))?;
-
-    // ── Load the preference: explicit id, else the profile's most recent ──
-    let pref = match &preference_id {
-        Some(pid) => sqlx::query_as::<_, ScorePrefRow>(
-            "SELECT id, target_roles_json, seniority_json, locations_json,
-                    remote_modes_json, min_salary, required_skills_json,
-                    preferred_skills_json, excluded_keywords_json, blocked_companies_json,
-                    auto_submit_min_score, needs_review_confidence_threshold
-             FROM job_preferences WHERE id = ?1",
-        )
-        .bind(pid)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| e.to_string())?,
-        None => sqlx::query_as::<_, ScorePrefRow>(
-            "SELECT id, target_roles_json, seniority_json, locations_json,
-                    remote_modes_json, min_salary, required_skills_json,
-                    preferred_skills_json, excluded_keywords_json, blocked_companies_json,
-                    auto_submit_min_score, needs_review_confidence_threshold
-             FROM job_preferences WHERE profile_id = ?1
-             ORDER BY updated_at DESC LIMIT 1",
-        )
-        .bind(&profile_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| e.to_string())?,
-    };
-
-    let job_text = format!("{} {}", job.description, job.summary.clone().unwrap_or_default());
-
-    // ── Assemble the scorer input ──
-    let input = match &pref {
-        Some(p) => MatchInput {
-            job_title: job.title.clone(),
-            job_text,
-            job_company: job.company.clone(),
-            job_seniority: job.seniority.clone(),
-            job_location: job.location.clone(),
-            job_remote_mode: job.remote_mode.clone(),
-            job_salary_min: job.salary_min,
-            job_salary_max: job.salary_max,
-            target_roles: parse_json_array(&Some(p.target_roles_json.clone())),
-            pref_seniority: parse_json_array(&p.seniority_json),
-            pref_locations: parse_json_array(&p.locations_json),
-            pref_remote_modes: parse_json_array(&p.remote_modes_json),
-            required_skills: parse_json_array(&p.required_skills_json),
-            preferred_skills: parse_json_array(&p.preferred_skills_json),
-            excluded_keywords: parse_json_array(&p.excluded_keywords_json),
-            blocked_companies: parse_json_array(&p.blocked_companies_json),
-            min_salary: p.min_salary,
-            auto_submit_min_score: p.auto_submit_min_score.clamp(0, 100) as u8,
-            needs_review_threshold: p.needs_review_confidence_threshold.clamp(0, 100) as u8,
-        },
-        // No preference on file → neutral scoring, default thresholds.
-        None => MatchInput {
-            job_title: job.title.clone(),
-            job_text,
-            job_company: job.company.clone(),
-            job_seniority: job.seniority.clone(),
-            job_location: job.location.clone(),
-            job_remote_mode: job.remote_mode.clone(),
-            job_salary_min: job.salary_min,
-            job_salary_max: job.salary_max,
-            auto_submit_min_score: AUTO_SUBMIT_DEFAULT,
-            needs_review_threshold: NEEDS_REVIEW_DEFAULT,
-            ..Default::default()
-        },
-    };
-
-    let scored = score_job(&input);
-    let explanation = build_explanation(&scored);
-
-    // ── Best-CV selection via best-fitting profile variant ──
-    let candidates: Vec<VariantCandidate> = sqlx::query_as::<_, VariantRow>(
-        "SELECT id, target_title, keywords_json, preferred_cv_document_id
-         FROM profile_variants WHERE profile_id = ?1",
-    )
-    .bind(&profile_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| e.to_string())?
-    .into_iter()
-    .map(|v| VariantCandidate {
-        variant_id: v.id,
-        target_title: v.target_title,
-        keywords: parse_json_array(&v.keywords_json),
-        preferred_cv_document_id: v.preferred_cv_document_id,
-    })
-    .collect();
-
-    let selection = select_best_cv(&input.job_title, &input.job_text, &candidates);
-    let cv_document_id = selection.as_ref().and_then(|s| s.cv_document_id.clone());
-    let role_variant_id = selection.as_ref().map(|s| s.variant_id.clone());
-
-    // ── Persist the match row ──
-    let matched_json = serde_json::to_string(&scored.matched_skills).ok();
-    let missing_json = serde_json::to_string(&scored.missing_skills).ok();
-    let risk_json = serde_json::to_string(&scored.risk_flags).ok();
-    let effective_pref_id = pref.as_ref().map(|p| p.id.clone());
-
-    sqlx::query(
-        "INSERT INTO job_matches (
-            id, job_id, profile_id, preference_id, cv_document_id, role_variant_id,
-            score, role_score, skill_score, seniority_score, location_score, salary_score,
-            matched_skills_json, missing_skills_json, risk_flags_json,
-            recommendation, explanation, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
-    )
-    .bind(&id)
-    .bind(&job_id)
-    .bind(&profile_id)
-    .bind(&effective_pref_id)
-    .bind(&cv_document_id)
-    .bind(&role_variant_id)
-    .bind(scored.score as i64)
-    .bind(scored.role_score as i64)
-    .bind(scored.skill_score as i64)
-    .bind(scored.seniority_score as i64)
-    .bind(scored.location_score as i64)
-    .bind(scored.salary_score as i64)
-    .bind(&matched_json)
-    .bind(&missing_json)
-    .bind(&risk_json)
-    .bind(scored.recommendation.as_str())
-    .bind(&explanation)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // ── Route the job's lifecycle status from the recommendation ──
-    let new_status = match scored.recommendation {
-        Recommendation::AutoApply => "matched",
-        Recommendation::ReviewFirst => "needs_review",
-        Recommendation::SaveForLater => "saved",
-        Recommendation::Skip => "rejected",
-    };
-    sqlx::query("UPDATE job_posts SET status = ?1 WHERE id = ?2 AND status = 'discovered'")
-        .bind(new_status)
-        .bind(&job_id)
-        .execute(&state.db)
+    let match_id = JobSearchServiceImpl::new(state.db.clone())
+        .score_match_with_preference(&job_id, &profile_id, preference_id.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(JobMatchDto {
-        id,
-        job_id,
-        profile_id,
-        preference_id: effective_pref_id,
-        score: scored.score as i64,
-        role_score: Some(scored.role_score as i64),
-        skill_score: Some(scored.skill_score as i64),
-        seniority_score: Some(scored.seniority_score as i64),
-        location_score: Some(scored.location_score as i64),
-        salary_score: Some(scored.salary_score as i64),
-        matched_skills_json: matched_json,
-        missing_skills_json: missing_json,
-        risk_flags_json: risk_json,
-        recommendation: scored.recommendation.as_str().to_string(),
-        explanation: Some(explanation),
-        model_provider: None,
-        model_name: None,
-        created_at: now,
-    })
+    sqlx::query_as::<_, MatchRow>(
+        "SELECT id, job_id, profile_id, preference_id,
+                score, role_score, skill_score, seniority_score,
+                location_score, salary_score,
+                matched_skills_json, missing_skills_json, risk_flags_json,
+                recommendation, explanation,
+                model_provider, model_name, created_at
+         FROM job_matches WHERE id = ?1",
+    )
+    .bind(&match_id)
+    .fetch_one(&state.db)
+    .await
+    .map(Into::into)
+    .map_err(|e| e.to_string())
 }
 
 /// List matches for a profile, newest first.

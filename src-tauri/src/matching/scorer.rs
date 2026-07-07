@@ -106,8 +106,26 @@ pub fn normalize_tokens(text: &str) -> BTreeSet<String> {
 fn is_stopword(t: &str) -> bool {
     matches!(
         t,
-        "the" | "and" | "for" | "with" | "you" | "our" | "are" | "will" | "our's" | "a" | "an"
-            | "to" | "of" | "in" | "on" | "at" | "as" | "is" | "be" | "or"
+        "the"
+            | "and"
+            | "for"
+            | "with"
+            | "you"
+            | "our"
+            | "are"
+            | "will"
+            | "our's"
+            | "a"
+            | "an"
+            | "to"
+            | "of"
+            | "in"
+            | "on"
+            | "at"
+            | "as"
+            | "is"
+            | "be"
+            | "or"
     )
 }
 
@@ -189,7 +207,11 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
     // Matched / missing skill lists (required + preferred, deduped by order).
     let mut matched = Vec::new();
     let mut missing = Vec::new();
-    for skill in input.required_skills.iter().chain(input.preferred_skills.iter()) {
+    for skill in input
+        .required_skills
+        .iter()
+        .chain(input.preferred_skills.iter())
+    {
         if matched.contains(skill) || missing.contains(skill) {
             continue;
         }
@@ -275,7 +297,9 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
 
     // Hard gate: a blocked company or excluded keyword always routes to skip.
     let hard_skip = blocked
-        || risk_flags.iter().any(|f| f.starts_with("excluded_keyword:"));
+        || risk_flags
+            .iter()
+            .any(|f| f.starts_with("excluded_keyword:"));
     let recommendation = if hard_skip {
         Recommendation::Skip
     } else if score >= auto_min {
@@ -398,7 +422,10 @@ mod tests {
         i.job_company = "EvilCorp".into();
         let s = score_job(&i);
         assert_eq!(s.recommendation, Recommendation::Skip);
-        assert!(s.risk_flags.iter().any(|f| f.starts_with("blocked_company:")));
+        assert!(s
+            .risk_flags
+            .iter()
+            .any(|f| f.starts_with("blocked_company:")));
     }
 
     #[test]
@@ -407,7 +434,10 @@ mod tests {
         i.job_text = "This is an unpaid internship".into();
         let s = score_job(&i);
         assert_eq!(s.recommendation, Recommendation::Skip);
-        assert!(s.risk_flags.iter().any(|f| f.starts_with("excluded_keyword:")));
+        assert!(s
+            .risk_flags
+            .iter()
+            .any(|f| f.starts_with("excluded_keyword:")));
     }
 
     #[test]

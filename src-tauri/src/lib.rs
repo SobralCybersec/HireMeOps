@@ -72,6 +72,7 @@ pub fn run() {
             commands::jobs::ingest_job_post,
             commands::jobs::list_job_posts,
             commands::jobs::update_job_status,
+            commands::jobs::run_search,
             commands::jobs::score_job_match,
             commands::jobs::list_job_matches,
         ])

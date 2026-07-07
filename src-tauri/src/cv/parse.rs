@@ -113,8 +113,7 @@ fn docx_xml_to_text(xml: &str) -> Result<String, String> {
                 // quick-xml 0.41: `decode()` handles the byte encoding, then the
                 // free `escape::unescape` resolves entities (&amp; etc.).
                 let decoded = t.decode().map_err(|e| e.to_string())?;
-                let unescaped =
-                    quick_xml::escape::unescape(&decoded).map_err(|e| e.to_string())?;
+                let unescaped = quick_xml::escape::unescape(&decoded).map_err(|e| e.to_string())?;
                 out.push_str(&unescaped);
             }
             Event::Eof => break,

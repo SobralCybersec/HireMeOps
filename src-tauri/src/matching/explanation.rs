@@ -23,20 +23,29 @@ pub fn build_explanation(s: &MatchScore) -> String {
         ("location", s.location_score),
         ("salary", s.salary_score),
     ];
-    factors.sort_by(|a, b| b.1.cmp(&a.1));
+    factors.sort_by_key(|&(_, v)| std::cmp::Reverse(v));
     let breakdown = factors
         .iter()
         .map(|(label, v)| format!("{label} {v}"))
         .collect::<Vec<_>>()
         .join(", ");
 
-    let mut out = format!("{verdict} (overall {}/100). Breakdown: {breakdown}.", s.score);
+    let mut out = format!(
+        "{verdict} (overall {}/100). Breakdown: {breakdown}.",
+        s.score
+    );
 
     if !s.matched_skills.is_empty() {
-        out.push_str(&format!(" Matched skills: {}.", s.matched_skills.join(", ")));
+        out.push_str(&format!(
+            " Matched skills: {}.",
+            s.matched_skills.join(", ")
+        ));
     }
     if !s.missing_skills.is_empty() {
-        out.push_str(&format!(" Missing skills: {}.", s.missing_skills.join(", ")));
+        out.push_str(&format!(
+            " Missing skills: {}.",
+            s.missing_skills.join(", ")
+        ));
     }
     if !s.risk_flags.is_empty() {
         out.push_str(&format!(" Risk flags: {}.", s.risk_flags.join(", ")));

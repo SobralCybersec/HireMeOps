@@ -72,7 +72,7 @@ pub fn select_best_cv(
 
         let ratio = 0.6 * title_overlap + 0.4 * kw_cov;
         // Strictly-greater keeps the earliest candidate on ties.
-        if best.map_or(true, |(b, _)| ratio > b) {
+        if best.is_none_or(|(b, _)| ratio > b) {
             best = Some((ratio, idx));
         }
     }
@@ -107,8 +107,18 @@ mod tests {
     #[test]
     fn picks_variant_matching_the_job_title() {
         let cands = vec![
-            cand("v_be", "Backend Engineer", &["rust", "postgres"], Some("cv_be")),
-            cand("v_fe", "Frontend Engineer", &["react", "css"], Some("cv_fe")),
+            cand(
+                "v_be",
+                "Backend Engineer",
+                &["rust", "postgres"],
+                Some("cv_be"),
+            ),
+            cand(
+                "v_fe",
+                "Frontend Engineer",
+                &["react", "css"],
+                Some("cv_fe"),
+            ),
         ];
         let sel = select_best_cv(
             "Senior Backend Engineer",

@@ -61,8 +61,8 @@ impl CvService for CvServiceImpl {
             DocKind::Docx => "docx",
         };
 
-        let bytes =
-            std::fs::read(src).map_err(|e| DomainError::InvalidInput(format!("read {path}: {e}")))?;
+        let bytes = std::fs::read(src)
+            .map_err(|e| DomainError::InvalidInput(format!("read {path}: {e}")))?;
         let file_hash = cv::hash_bytes(&bytes);
 
         // Idempotent import: identical content for this profile → existing row.
@@ -231,7 +231,10 @@ mod tests {
         let tmp = unique_tmp_dir();
         let svc = CvServiceImpl::new(pool.clone(), tmp.clone());
 
-        let id = svc.import_document("p1", &fixture("sample.docx")).await.unwrap();
+        let id = svc
+            .import_document("p1", &fixture("sample.docx"))
+            .await
+            .unwrap();
         let (ft, pages): (String, Option<i64>) =
             sqlx::query_as("SELECT file_type, page_count FROM cv_documents WHERE id = ?1")
                 .bind(&id)

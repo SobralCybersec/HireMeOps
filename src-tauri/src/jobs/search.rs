@@ -48,10 +48,19 @@ pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
             .map(|s| format!("\"{}\"", s))
             .collect::<Vec<_>>()
             .join(" OR ");
-        parts.push(if skills.len() > 1 { format!("({})", inner) } else { inner });
+        parts.push(if skills.len() > 1 {
+            format!("({})", inner)
+        } else {
+            inner
+        });
     }
 
-    if input.remote_mode.as_deref().map(|r| r.contains("remote")).unwrap_or(false) {
+    if input
+        .remote_mode
+        .as_deref()
+        .map(|r| r.contains("remote"))
+        .unwrap_or(false)
+    {
         parts.push("remote".into());
     }
 
@@ -81,7 +90,12 @@ pub fn build_google_dork(input: &SearchQueryInput) -> BuiltQuery {
         parts.push(skill.clone());
     }
 
-    if input.remote_mode.as_deref().map(|r| r == "remote").unwrap_or(false) {
+    if input
+        .remote_mode
+        .as_deref()
+        .map(|r| r == "remote")
+        .unwrap_or(false)
+    {
         parts.push("remote".into());
     }
 
@@ -122,8 +136,16 @@ mod tests {
     #[test]
     fn linkedin_contains_titles() {
         let q = build_linkedin_query(&sample());
-        assert!(q.query_string.contains("Senior Rust Engineer"), "{}", q.query_string);
-        assert!(q.query_string.contains("Backend Engineer"), "{}", q.query_string);
+        assert!(
+            q.query_string.contains("Senior Rust Engineer"),
+            "{}",
+            q.query_string
+        );
+        assert!(
+            q.query_string.contains("Backend Engineer"),
+            "{}",
+            q.query_string
+        );
     }
 
     #[test]
@@ -141,13 +163,20 @@ mod tests {
 
     #[test]
     fn linkedin_query_type() {
-        assert_eq!(build_linkedin_query(&sample()).query_type, "linkedin_search");
+        assert_eq!(
+            build_linkedin_query(&sample()).query_type,
+            "linkedin_search"
+        );
     }
 
     #[test]
     fn google_dork_site_clause() {
         let q = build_google_dork(&sample());
-        assert!(q.query_string.contains("site:linkedin.com/jobs"), "{}", q.query_string);
+        assert!(
+            q.query_string.contains("site:linkedin.com/jobs"),
+            "{}",
+            q.query_string
+        );
         assert!(q.query_string.contains("intitle:"), "{}", q.query_string);
     }
 

@@ -1,8 +1,18 @@
 //! Canonical URL normalization for job deduplication and URL locking.
 
 const TRACKING_EXACT: &[&str] = &[
-    "gclid", "fbclid", "ref", "trk", "_gl", "msclkid", "igshid",
-    "mc_eid", "oly_enc_id", "oly_anon_id", "_hsenc", "_hsmi",
+    "gclid",
+    "fbclid",
+    "ref",
+    "trk",
+    "_gl",
+    "msclkid",
+    "igshid",
+    "mc_eid",
+    "oly_enc_id",
+    "oly_anon_id",
+    "_hsenc",
+    "_hsmi",
 ];
 
 fn is_tracking(key: &str) -> bool {
@@ -20,7 +30,12 @@ fn lowercase_scheme_host(s: &str) -> String {
             Some(i) => (&rest[..i], &rest[i..]),
             None => (rest, ""),
         };
-        format!("{}{}{}", scheme.to_ascii_lowercase(), host.to_ascii_lowercase(), path)
+        format!(
+            "{}{}{}",
+            scheme.to_ascii_lowercase(),
+            host.to_ascii_lowercase(),
+            path
+        )
     } else {
         s.to_ascii_lowercase()
     }
@@ -53,7 +68,11 @@ pub fn canonicalize(url: &str) -> String {
                 .split('&')
                 .filter_map(|seg| {
                     let (k, v) = seg.split_once('=').unwrap_or((seg, ""));
-                    if is_tracking(k) { None } else { Some((k, v)) }
+                    if is_tracking(k) {
+                        None
+                    } else {
+                        Some((k, v))
+                    }
                 })
                 .collect();
             if params.is_empty() {
@@ -93,12 +112,18 @@ mod tests {
 
     #[test]
     fn drops_fragment() {
-        assert_eq!(canonicalize("https://example.com/jobs/42#apply"), "https://example.com/jobs/42");
+        assert_eq!(
+            canonicalize("https://example.com/jobs/42#apply"),
+            "https://example.com/jobs/42"
+        );
     }
 
     #[test]
     fn strips_trailing_slash() {
-        assert_eq!(canonicalize("https://example.com/jobs/"), "https://example.com/jobs");
+        assert_eq!(
+            canonicalize("https://example.com/jobs/"),
+            "https://example.com/jobs"
+        );
     }
 
     #[test]

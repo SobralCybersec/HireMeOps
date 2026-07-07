@@ -65,7 +65,9 @@ mod tests {
     #[tokio::test]
     async fn unique_when_empty() {
         let pool = mem_pool().await;
-        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1").await.unwrap();
+        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
         assert_eq!(out, DedupeOutcome::Unique);
     }
 
@@ -80,8 +82,15 @@ mod tests {
         .await
         .unwrap();
 
-        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1").await.unwrap();
-        assert_eq!(out, DedupeOutcome::Duplicate { existing_id: "job-1".into() });
+        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
+        assert_eq!(
+            out,
+            DedupeOutcome::Duplicate {
+                existing_id: "job-1".into()
+            }
+        );
     }
 
     #[tokio::test]
@@ -95,7 +104,9 @@ mod tests {
         .await
         .unwrap();
 
-        let out = check(&pool, "p2", "linkedin", "https://linkedin.com/jobs/1").await.unwrap();
+        let out = check(&pool, "p2", "linkedin", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
         assert_eq!(out, DedupeOutcome::Unique);
     }
 
@@ -110,7 +121,9 @@ mod tests {
         .await
         .unwrap();
 
-        let out = check(&pool, "p1", "indeed", "https://linkedin.com/jobs/1").await.unwrap();
+        let out = check(&pool, "p1", "indeed", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
         assert_eq!(out, DedupeOutcome::Unique);
     }
 }

@@ -28,7 +28,9 @@ pub struct AutomationSupervisorStub;
 
 impl AutomationSupervisor for AutomationSupervisorStub {
     async fn start_task(&self, _automation_task_id: &str) -> DomainResult<()> {
-        Err(DomainError::NotImplemented("AutomationSupervisor::start_task"))
+        Err(DomainError::NotImplemented(
+            "AutomationSupervisor::start_task",
+        ))
     }
     async fn stop_all(&self) -> DomainResult<()> {
         // Safe no-op in Phase 1: nothing is running yet.
