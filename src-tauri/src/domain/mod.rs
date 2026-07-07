@@ -14,6 +14,7 @@ pub mod ai;
 pub mod applications;
 pub mod automation;
 pub mod cv;
+pub mod exports;
 pub mod jobs;
 
 use thiserror::Error;

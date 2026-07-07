@@ -4,6 +4,7 @@ pub mod applications;
 pub mod automation;
 pub mod cv;
 pub mod events;
+pub mod exports;
 pub mod jobs;
 pub mod profiles;
 pub mod settings;

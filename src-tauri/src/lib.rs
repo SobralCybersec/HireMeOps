@@ -91,6 +91,14 @@ pub fn run() {
             commands::jobs::run_search,
             commands::jobs::score_job_match,
             commands::jobs::list_job_matches,
+            // Phase 6/7 — exports & backups
+            commands::exports::export_profiles_json,
+            commands::exports::export_jobs_csv,
+            commands::exports::export_applications_csv,
+            commands::exports::export_audit_csv,
+            commands::exports::create_backup,
+            commands::exports::list_backups,
+            commands::exports::restore_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
