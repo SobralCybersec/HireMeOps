@@ -16,13 +16,16 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   CvCard,
   CvViewer,
+  CvExportButton,
   loadCvLibrary,
   importCvDocument,
+  loadCvRewrites,
+  runCvRewrite,
   defaultCvBytesLoader,
   formatBytes,
   relativeTime,
 } from "./cv";
-import type { CvLibraryDoc } from "./cv";
+import type { CvLibraryDoc, CvRewriteReport } from "./cv";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import "./cv/cv.css";
@@ -51,6 +54,12 @@ export function CvLibrary() {
   // Re-analyse flow: mirrors the import error pattern.
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  // AI-rewrite flow: mirrors the analyse pattern. `rewrites` holds the profile's
+  // persisted rewrites (newest first); the inspector surfaces the newest one for
+  // the selected document so it can be exported to PDF.
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
+  const [rewrites, setRewrites] = useState<CvRewriteReport[]>([]);
 
   // Reset transient load state when the request identity changes. Done during
   // render (not synchronously inside the effect) so React folds it into the
@@ -83,6 +92,24 @@ export function CvLibrary() {
         setDocs([]);
         setError(errMessage(e));
         setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileId, reloadNonce]);
+
+  // Load the profile's persisted CV rewrites (newest first). Keyed on the same
+  // deps as the library load so a fresh rewrite (which bumps `reloadNonce`)
+  // reloads the list. A load failure degrades to an empty list -- the rewrite
+  // affordance simply stays hidden rather than blocking the library view.
+  useEffect(() => {
+    let cancelled = false;
+    loadCvRewrites(activeProfileId ?? "")
+      .then((rows) => {
+        if (!cancelled) setRewrites(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setRewrites([]);
       });
     return () => {
       cancelled = true;
@@ -136,6 +163,23 @@ export function CvLibrary() {
       setAnalyzeError(errMessage(e));
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  // Produce an AI-tailored rewrite of the selected CV, then reload the rewrites
+  // list (via `reloadNonce`) so the inspector's Export-PDF affordance appears.
+  // Mirrors `handleAnalyze`'s busy/error conventions.
+  async function handleRewrite() {
+    if (isRewriting || selected === null) return;
+    setIsRewriting(true);
+    setRewriteError(null);
+    try {
+      await runCvRewrite(selected.id);
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setRewriteError(errMessage(e));
+    } finally {
+      setIsRewriting(false);
     }
   }
 
@@ -229,6 +273,23 @@ export function CvLibrary() {
             className="inline-warning__dismiss"
             onClick={() => setAnalyzeError(null)}
             aria-label="Dismiss analyse error"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        </div>
+      )}
+
+      {rewriteError !== null && (
+        <div className="inline-warning inline-warning--danger" role="alert">
+          <div className="inline-warning__body">
+            <div>Rewrite failed. Your library is unchanged.</div>
+            <div className="inline-warning__url">{rewriteError}</div>
+          </div>
+          <button
+            type="button"
+            className="inline-warning__dismiss"
+            onClick={() => setRewriteError(null)}
+            aria-label="Dismiss rewrite error"
           >
             <Icon icon={Cancel01Icon} size={14} />
           </button>
@@ -334,13 +395,47 @@ export function CvLibrary() {
                     ) : (
                       <Badge variant="neutral">none</Badge>
                     )}
-                    {selected.lastAnalysisScore !== null && (
+                  </div>
+                </div>
+
+                {/* CV analysis + rewrite. The "Rewrite with AI" trigger sits
+                    beside the analysis score so it reads as the natural next
+                    step after seeing the match result. */}
+                <div className="cvx-inspector__analysis">
+                  <span className="cvx-inspector__heading">CV analysis</span>
+                  <div className="cvx-inspector__analysis-row">
+                    {selected.lastAnalysisScore !== null ? (
                       <Badge variant={matchScoreVariant(selected.lastAnalysisScore)}>
                         match {selected.lastAnalysisScore}%
                       </Badge>
+                    ) : (
+                      <Badge variant="neutral">not analysed</Badge>
                     )}
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      aria-label="Rewrite this CV with AI"
+                      disabled={isRewriting}
+                      onClick={handleRewrite}
+                    >
+                      {isRewriting ? "Rewriting..." : "Rewrite with AI"}
+                    </Button>
                   </div>
                 </div>
+
+                {/* AI rewrite -> PDF export. Only shown once a rewrite exists
+                    for this document; produced via the CV analysis "Rewrite
+                    with AI" action above. Export offers New (fresh render) or
+                    Modify (stamp metadata onto the source PDF). */}
+                {(() => {
+                  const latestRewrite = rewrites.find((r) => r.cvDocumentId === selected.id);
+                  return latestRewrite ? (
+                    <div className="cvx-inspector__rewrite">
+                      <span className="cvx-inspector__heading">AI rewrite</span>
+                      <CvExportButton rewrite={latestRewrite} />
+                    </div>
+                  ) : null;
+                })()}
               </Card>
             </div>
           )}

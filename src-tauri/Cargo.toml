@@ -56,6 +56,23 @@ default = ["real-browser"]
 # Pull in a real Chromium/CDP driver.
 real-browser = ["dep:chromiumoxide", "dep:futures"]
 
+[profile.dev]
+# `tauri dev` speed. Your own crate stays at opt-level 0 so recompiles are fast;
+# full debuginfo is the biggest compile/link tax in dev, so drop to line tables
+# (still gives file:line in backtraces/panics — enough for day-to-day work).
+debug = "line-tables-only"
+# Unpacked split-debuginfo lets the linker skip copying debug data into the
+# binary, further speeding the link step on Linux.
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+# Optimize *dependencies* (chromiumoxide, sqlx, tauri, reqwest, pdf-extract…).
+# They compile once and are cached, so the one-time cost buys a dramatically
+# faster-running dev app — this fixes the "runs too slow" half. Your own crate
+# is unaffected (matched by [profile.dev] above), so incremental edits stay fast.
+opt-level = 2
+debug = false
+
 [profile.release]
 # Smaller, faster release binary. `lto = "thin"` keeps link times reasonable
 # vs. `fat` while still inlining across crates; single codegen-unit maximizes

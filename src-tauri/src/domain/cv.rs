@@ -9,7 +9,9 @@ use uuid::Uuid;
 
 use super::{DomainError, DomainResult};
 use crate::ai::prompt::{
-    cv_analysis_prompt, cv_analysis_system, parse_cv_analysis, CV_ANALYSIS_PROMPT_VERSION,
+    cv_analysis_prompt, cv_analysis_system, cv_rewrite_prompt, cv_rewrite_system,
+    parse_cv_analysis, parse_cv_rewrite, CvMetadata, CvRewrite, CV_ANALYSIS_PROMPT_VERSION,
+    CV_REWRITE_PROMPT_VERSION,
 };
 use crate::ai::{complete_cached, input_hash, select_provider_resolved};
 use crate::cv::{self, DocKind};
@@ -73,12 +75,47 @@ pub struct CvAnalysisReport {
     pub created_at: String,
 }
 
+/// A persisted AI CV rewrite, read back for the CV page. Mirrors a `cv_rewrites`
+/// row with the `rewrite_json` / `metadata_json` columns decoded into structs
+/// and the document/variant names joined in for display. Additive alongside
+/// [`CvAnalysisReport`] — a rewrite is the tailored CV itself, not a critique.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CvRewriteReport {
+    pub id: String,
+    pub cv_document_id: Option<String>,
+    /// Joined file name of the source document; empty if it was since deleted
+    /// (the rewrite survives via `ON DELETE SET NULL`).
+    pub cv_file_name: String,
+    pub role_variant_id: Option<String>,
+    /// Joined variant name when the rewrite targeted a specific variant.
+    pub variant_name: Option<String>,
+    pub model_provider: String,
+    pub model_name: String,
+    /// The full rewritten CV the model produced (structured, round-trippable).
+    pub rewrite: CvRewrite,
+    /// PDF metadata derived from `rewrite`, matching `ResumeService`.
+    pub metadata: CvMetadata,
+    pub created_at: String,
+}
+
 /// Ingests CV documents, parses them into structured profile facts, and runs
 /// gap/quality analysis producing `cv_analysis_reports`.
 #[allow(async_fn_in_trait)]
 pub trait CvService: Send + Sync {
     async fn import_document(&self, profile_id: &str, path: &str) -> DomainResult<String>;
     async fn analyze(&self, cv_document_id: &str) -> DomainResult<String>;
+    /// Produce a REWRITTEN CV (not a critique) tailored to `target_title`,
+    /// tailored to the source document, and persist it plus its derived PDF
+    /// metadata to `cv_rewrites`. Returns the new rewrite row id.
+    async fn rewrite(
+        &self,
+        cv_document_id: &str,
+        target_title: Option<&str>,
+    ) -> DomainResult<String>;
+    /// List a profile's persisted CV rewrites, newest first, with the
+    /// `*_json` columns decoded and document/variant names joined in.
+    async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>>;
     /// Read the raw bytes of a stored CV document (for the frontend PDF viewer).
     async fn read_bytes(&self, cv_document_id: &str) -> DomainResult<Vec<u8>>;
     /// List a profile's CV documents enriched for the library UI (active flag,
@@ -98,6 +135,16 @@ impl CvService for CvServiceStub {
     }
     async fn analyze(&self, _cv_document_id: &str) -> DomainResult<String> {
         Err(DomainError::NotImplemented("CvService::analyze"))
+    }
+    async fn rewrite(
+        &self,
+        _cv_document_id: &str,
+        _target_title: Option<&str>,
+    ) -> DomainResult<String> {
+        Err(DomainError::NotImplemented("CvService::rewrite"))
+    }
+    async fn list_rewrites(&self, _profile_id: &str) -> DomainResult<Vec<CvRewriteReport>> {
+        Err(DomainError::NotImplemented("CvService::list_rewrites"))
     }
     async fn read_bytes(&self, _cv_document_id: &str) -> DomainResult<Vec<u8>> {
         Err(DomainError::NotImplemented("CvService::read_bytes"))
@@ -477,6 +524,152 @@ impl CvService for CvServiceImpl {
         .await?;
 
         Ok(id)
+    }
+
+    async fn rewrite(
+        &self,
+        cv_document_id: &str,
+        target_title: Option<&str>,
+    ) -> DomainResult<String> {
+        // Load the document row: we need the on-disk file to re-extract its text,
+        // plus profile_id/file_hash for the rewrite row and the cache key.
+        let (profile_id, file_type, file_hash, stored_path): (String, String, String, String) =
+            sqlx::query_as(
+                "SELECT profile_id, file_type, file_hash, stored_path
+                 FROM cv_documents WHERE id = ?1",
+            )
+            .bind(cv_document_id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or_else(|| {
+                DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
+            })?;
+
+        // Re-extract text from the stored file (parsed text isn't persisted).
+        let kind = match file_type.as_str() {
+            "pdf" => DocKind::Pdf,
+            "docx" => DocKind::Docx,
+            other => {
+                return Err(DomainError::InvalidInput(format!(
+                    "unsupported stored file type: {other}"
+                )))
+            }
+        };
+        let bytes = std::fs::read(&stored_path)
+            .map_err(|e| DomainError::InvalidInput(format!("read {stored_path}: {e}")))?;
+        let parsed = cv::parse(kind, &bytes)
+            .map_err(|e| DomainError::InvalidInput(format!("parse cv document: {e}")))?;
+
+        // Select the configured provider (env-resolved API key). Fail fast on a
+        // disabled/empty provider before building the prompt or touching cache.
+        let (providers, default_index) = load_ai_providers(&self.db).await?;
+        let provider = select_provider_resolved(&providers, default_index).await;
+        if provider.is_disabled() {
+            return Err(DomainError::InvalidInput(
+                "no AI provider configured — add one in Settings".into(),
+            ));
+        }
+
+        let req = CompletionRequest {
+            model: provider.default_model().to_string(),
+            prompt: cv_rewrite_prompt(&parsed.text, target_title),
+            system: Some(cv_rewrite_system()),
+            // Fold the prompt version, CV content hash, and target title into the
+            // cache key so a wording bump, a different CV, or a different target
+            // re-runs the rewrite.
+            input_hash: input_hash(&[
+                CV_REWRITE_PROMPT_VERSION,
+                &file_hash,
+                target_title.unwrap_or(""),
+            ]),
+        };
+        let resp = complete_cached(&self.db, &provider, req).await?;
+        let rewrite = parse_cv_rewrite(&resp.text);
+        let metadata = rewrite.cv_metadata();
+
+        // Persist the rewrite + derived metadata alongside (never replacing) the
+        // analysis reports. Serialization never fails for these owned structs.
+        let id = Uuid::new_v4().to_string();
+        let now = now_iso();
+        let rewrite_json = serde_json::to_string(&rewrite).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
+        sqlx::query(
+            "INSERT INTO cv_rewrites (
+                id, profile_id, cv_document_id, role_variant_id,
+                model_provider, model_name, rewrite_json, metadata_json, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )
+        .bind(&id)
+        .bind(&profile_id)
+        .bind(cv_document_id)
+        .bind(Option::<String>::None) // role_variant_id — not targeted here
+        .bind(provider.id())
+        .bind(provider.default_model())
+        .bind(&rewrite_json)
+        .bind(&metadata_json)
+        .bind(&now)
+        .execute(&self.db)
+        .await?;
+
+        Ok(id)
+    }
+
+    async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>> {
+        // Newest first. LEFT JOINs so a rewrite survives its document/variant
+        // being deleted (both FKs are ON DELETE SET NULL) — the joined name is
+        // then NULL and we fall back to an empty string / None in the view-model.
+        type Row = (
+            String,         // id
+            Option<String>, // cv_document_id
+            Option<String>, // joined file_name
+            Option<String>, // role_variant_id
+            Option<String>, // joined variant name
+            Option<String>, // model_provider
+            Option<String>, // model_name
+            String,         // rewrite_json
+            String,         // metadata_json
+            String,         // created_at
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
+                    r.model_provider, r.model_name, r.rewrite_json, r.metadata_json,
+                    r.created_at
+             FROM cv_rewrites r
+             LEFT JOIN cv_documents d ON d.id = r.cv_document_id
+             LEFT JOIN profile_variants v ON v.id = r.role_variant_id
+             WHERE r.profile_id = ?1
+             ORDER BY r.created_at DESC",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+
+        let reports = rows
+            .into_iter()
+            .map(|r| {
+                // Decode the persisted rewrite; a malformed row degrades to an
+                // empty rewrite rather than failing the whole read. Recompute
+                // metadata from the decoded rewrite so it stays consistent even
+                // if the stored metadata column drifted.
+                let rewrite = serde_json::from_str::<CvRewrite>(&r.7).unwrap_or_default();
+                let metadata = serde_json::from_str::<CvMetadata>(&r.8)
+                    .unwrap_or_else(|_| rewrite.cv_metadata());
+                CvRewriteReport {
+                    id: r.0,
+                    cv_document_id: r.1,
+                    cv_file_name: r.2.unwrap_or_default(),
+                    role_variant_id: r.3,
+                    variant_name: r.4,
+                    model_provider: r.5.unwrap_or_default(),
+                    model_name: r.6.unwrap_or_default(),
+                    rewrite,
+                    metadata,
+                    created_at: r.9,
+                }
+            })
+            .collect();
+
+        Ok(reports)
     }
 }
 

@@ -3,8 +3,22 @@
 export { CvCard } from "./CvCard";
 export { CvViewer } from "./CvViewer";
 export { CvPreviewThumb } from "./CvPreviewThumb";
+export { CvExportButton } from "./CvExportButton";
 export { MOCK_LIBRARY, MOCK_HISTORY, formatBytes, relativeTime } from "./mockData";
 export { defaultCvBytesLoader, PROPOSED_CV_BYTES_COMMAND } from "./pdf";
 export { loadCvLibrary, importCvDocument } from "./library";
 export { loadCvAnalysisReports, runCvAnalysis } from "./analysis";
-export type { CvAnalysisReport, CvBytesLoader, CvLibraryDoc, CvVariantRef } from "./types";
+export { loadCvRewrites, runCvRewrite, exportCvRewrite, saveRewritePdf } from "./rewrite";
+export type { CvExportMode } from "./rewrite";
+export type {
+  CvAnalysisReport,
+  CvBytesLoader,
+  CvEducationEntry,
+  CvExperienceEntry,
+  CvLibraryDoc,
+  CvMetadata,
+  CvRewrite,
+  CvRewriteReport,
+  CvSkillGroup,
+  CvVariantRef,
+} from "./types";

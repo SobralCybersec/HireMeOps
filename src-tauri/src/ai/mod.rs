@@ -140,7 +140,9 @@ pub fn provider_from_settings(s: &AiProviderSettings, _api_key: Option<String>) 
         // Browser-backed "free" provider: no API key, no wire endpoint. The
         // settings form packs the target site and in-session model into
         // `default_model` as "<site>/<model>" (site e.g. `chatgpt`, `gemini`,
-        // `mistral`, `zai`, `meta`; the model portion is optional). Split on the
+        // `mistral`, `zai`, `meta`, `deepseek`; the model portion is optional).
+        // The `"browser"` arm accepts any site string (routing is registry-based
+        // in browser_bridge), so new providers need no logic change here. Split on the
         // FIRST '/' so a model name may itself contain slashes. Both CV analysis
         // and automation reach this via `complete_cached`.
         "browser" => {
@@ -199,7 +201,13 @@ pub async fn select_provider_resolved(
     default_index: i64,
 ) -> Provider {
     let idx = usize::try_from(default_index).unwrap_or(0);
-    match providers.get(idx) {
+    // Fall back to the first provider when the stored index is out of range but
+    // a provider IS configured. A stale `default_ai_provider_index` (e.g. left
+    // over from an old multi-provider config, now pointing past a single
+    // browser entry) would otherwise resolve to `Disabled` and fail with
+    // "no AI provider configured" even though the user has a valid provider.
+    let selected = providers.get(idx).or_else(|| providers.first());
+    match selected {
         Some(s) => provider_from_settings(s, resolve_api_key(s).await),
         None => Provider::Disabled,
     }

@@ -240,7 +240,15 @@ export function SettingsLogs() {
     patch: Partial<Omit<AiProviderSettings, "kind">>,
   ) {
     if (!settings) return;
-    void updateSettings({ aiProviders: upsertProvider(providers, kind, patch) });
+    // Also pin defaultAiProviderIndex to 0. The browser-only list has a single
+    // entry, but a stale index (> 0, left over from a legacy multi-provider
+    // config) would make the backend resolve providers[idx] = None →
+    // Provider::Disabled → "no AI provider configured" even after a valid site
+    // is chosen. Persisting the index alongside the array keeps them in sync.
+    void updateSettings({
+      aiProviders: upsertProvider(providers, kind, patch),
+      defaultAiProviderIndex: 0,
+    });
   }
 
   function handleSetDefaultProvider(kind: AiProviderSettings["kind"]) {

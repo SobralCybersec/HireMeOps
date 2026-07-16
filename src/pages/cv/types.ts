@@ -61,6 +61,83 @@ export interface CvAnalysisReport {
   createdAt: string;
 }
 
+/** One skill group of a rewritten CV: category → comma-separated skills. */
+export interface CvSkillGroup {
+  category: string;
+  skills: string;
+}
+
+/** One experience entry of a rewritten CV (maps to the .tex experience table). */
+export interface CvExperienceEntry {
+  title: string;
+  organization: string;
+  location: string;
+  dates: string;
+  bullets: string[];
+}
+
+/** One education entry of a rewritten CV (maps to the .tex education table). */
+export interface CvEducationEntry {
+  degree: string;
+  institution: string;
+  location: string;
+  dates: string;
+  bullets: string[];
+}
+
+/**
+ * A fully REWRITTEN CV tailored to a target role - real rewritten content, not
+ * a critique. Mirrors `ai::prompt::CvRewrite`. Structured to round-trip through
+ * the Java CV Generator's `.tex` model.
+ */
+export interface CvRewrite {
+  name: string;
+  positions: string[];
+  summary: string;
+  skills: CvSkillGroup[];
+  experience: CvExperienceEntry[];
+  education: CvEducationEntry[];
+}
+
+/**
+ * PDF metadata derived from a `CvRewrite`, matching `ResumeService.addPDFMetadata`
+ * field-for-field so the CV Generator consumes it directly. Mirrors
+ * `ai::prompt::CvMetadata` (serialized `camelCase`).
+ */
+export interface CvMetadata {
+  title: string;
+  subject: string;
+  keywords: string;
+  author: string;
+  description: string;
+  category: string;
+}
+
+/**
+ * One persisted CV rewrite run, exactly as the backend emits it
+ * (`domain/cv.rs::CvRewriteReport`, serialized `camelCase`). Listed newest-first.
+ * Additive alongside `CvAnalysisReport` - a rewrite is the tailored CV itself.
+ */
+export interface CvRewriteReport {
+  id: string;
+  /** Source document id, or null if that document row was since deleted. */
+  cvDocumentId: string | null;
+  /** Joined file name of the source document; kept even after deletion. */
+  cvFileName: string;
+  /** Targeted role variant id, or null for a general (untargeted) run. */
+  roleVariantId: string | null;
+  /** Joined variant name when the run targeted a specific variant. */
+  variantName: string | null;
+  modelProvider: string;
+  modelName: string;
+  /** The full rewritten CV the model produced. */
+  rewrite: CvRewrite;
+  /** PDF metadata derived from `rewrite`. */
+  metadata: CvMetadata;
+  /** ISO timestamp the rewrite was persisted. */
+  createdAt: string;
+}
+
 /**
  * SEAM - the one function that turns a CV id into raw document bytes.
  *

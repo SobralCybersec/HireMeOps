@@ -85,9 +85,12 @@ pub fn run() {
             // Phase 2 — CV
             commands::cv::import_cv_document,
             commands::cv::analyze_cv_document,
+            commands::cv::rewrite_cv_document,
             commands::cv::cv_read_bytes,
             commands::cv::list_cv_documents,
             commands::cv::list_cv_analysis_reports,
+            commands::cv::list_cv_rewrites,
+            commands::cv::export_cv_rewrite,
             // Phase 4 — applications
             commands::applications::draft_application,
             commands::applications::submit_application,
