@@ -18,7 +18,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time", "net", "io-util", "process"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 anyhow = "1"
 thiserror = "2"
@@ -34,7 +34,33 @@ tauri-plugin-dialog = "2.7.1"
 zip = "8.6.0"
 quick-xml = "0.41.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# OS keyring for subscription (OAuth) tokens. The `*-native` backends avoid
+# needing a running secret-service/dbus at build time (Linux uses the kernel
+# keyutils), keeping CI + headless builds working.
+keyring = { version = "3", features = ["linux-native", "apple-native", "windows-native"] }
+
+# Optional deps — only compiled when `real-browser` feature is enabled.
+# `tokio-runtime` activates the tokio WebSocket backend inside chromiumoxide
+# (the crate's own default is `async-std-runtime`, which we explicitly exclude).
+chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"], optional = true }
+# futures is a direct dep of chromiumoxide so it is always in the dep graph
+# when `real-browser` is on; declare it here so our gated module can name it.
+futures = { version = "0.3", optional = true }
 
 [features]
 # security crates (argon2/aes-gcm/keyring/sha2) are introduced in Phase 2
-default = []
+# `real-browser` is on by default so the automation cockpit drives a real
+# Chromium/CDP session out of the box. Build with `--no-default-features` for
+# the lean build that skips chromiumoxide.
+default = ["real-browser"]
+# Pull in a real Chromium/CDP driver.
+real-browser = ["dep:chromiumoxide", "dep:futures"]
+
+[profile.release]
+# Smaller, faster release binary. `lto = "thin"` keeps link times reasonable
+# vs. `fat` while still inlining across crates; single codegen-unit maximizes
+# optimization; `strip` drops debug symbols from the shipped binary.
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true

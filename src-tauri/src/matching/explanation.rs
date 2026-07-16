@@ -105,4 +105,46 @@ mod tests {
         assert!(e.contains("Risk flags: blocked_company:EvilCorp"));
         assert!(e.contains("Skipped"));
     }
+
+    #[test]
+    fn empty_skills_sections_omitted() {
+        let mut sc = score();
+        sc.matched_skills = vec![];
+        sc.missing_skills = vec![];
+        let e = build_explanation(&sc);
+        assert!(!e.contains("Matched skills"), "no matched → section absent");
+        assert!(!e.contains("Missing skills"), "no missing → section absent");
+    }
+
+    #[test]
+    fn review_first_verdict_appears_in_explanation() {
+        let mut sc = score();
+        sc.recommendation = Recommendation::ReviewFirst;
+        sc.score = 55;
+        let e = build_explanation(&sc);
+        assert!(
+            e.to_lowercase().contains("review"),
+            "expected 'review' in: {e}"
+        );
+    }
+
+    #[test]
+    fn save_for_later_verdict_appears_in_explanation() {
+        let mut sc = score();
+        sc.recommendation = Recommendation::SaveForLater;
+        sc.score = 30;
+        let e = build_explanation(&sc);
+        assert!(
+            e.to_lowercase().contains("later"),
+            "expected 'later' in: {e}"
+        );
+    }
+
+    #[test]
+    fn breakdown_contains_all_five_dimensions() {
+        let e = build_explanation(&score());
+        for dim in &["role", "skills", "seniority", "location", "salary"] {
+            assert!(e.contains(dim), "missing dimension '{dim}' in: {e}");
+        }
+    }
 }

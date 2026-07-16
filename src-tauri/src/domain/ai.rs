@@ -2,7 +2,8 @@
 //!
 //! Concrete providers (Ollama local, Anthropic, OpenAI-compatible) implement
 //! [`AiProvider`]. Responses are cached in `ai_cache` keyed by
-//! `(model_name, prompt_hash, input_hash)` so identical prompts are free.
+//! `(model_name, prompt_hash, input_hash)`; the concrete provider namespace is
+//! folded into `prompt_hash` so identical requests cannot cross providers.
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,12 @@ pub struct CompletionResponse {
 pub trait AiProvider: Send + Sync {
     /// Human-readable provider id (e.g. `"ollama"`, `"anthropic"`).
     fn id(&self) -> &'static str;
+
+    /// Stable, non-secret namespace used to isolate cached responses.
+    /// Implementations that can target multiple endpoints should override this.
+    fn cache_namespace(&self) -> String {
+        self.id().to_string()
+    }
 
     /// Run a completion, honouring the `ai_cache` layer.
     async fn complete(&self, req: CompletionRequest) -> DomainResult<CompletionResponse>;

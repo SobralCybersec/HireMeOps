@@ -14,13 +14,9 @@ interface PreviewState {
   src: string | null;
 }
 
-export function useCvPreview(
-  cvId: string,
-  loader: CvBytesLoader,
-  enabled: boolean,
-): PreviewState {
+export function useCvPreview(cvId: string, loader: CvBytesLoader, enabled: boolean): PreviewState {
   // Async render result, tagged with the cv id it belongs to. Written *only*
-  // from the async render callback — never synchronously inside the effect —
+  // from the async render callback - never synchronously inside the effect -
   // so the "loading"/"ready-from-cache" states are derived during render below.
   const [rendered, setRendered] = useState<{ id: string; src: string | null } | null>(null);
 

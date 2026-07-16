@@ -4,7 +4,7 @@
 
 use tauri::State;
 
-use crate::domain::cv::{CvService, CvServiceImpl};
+use crate::domain::cv::{CvAnalysisReport, CvDocumentSummary, CvService, CvServiceImpl};
 use crate::AppState;
 
 fn service(state: &AppState) -> CvServiceImpl {
@@ -33,6 +33,45 @@ pub async fn analyze_cv_document(
 ) -> Result<String, String> {
     service(&state)
         .analyze(&cv_document_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Read the raw bytes of a stored CV document, for the frontend PDF viewer.
+/// The frontend loader (`pdf.ts`) invokes this as `cv_read_bytes({ cvId })`;
+/// Tauri maps `cvId` → `cv_id`.
+#[tauri::command]
+pub async fn cv_read_bytes(state: State<'_, AppState>, cv_id: String) -> Result<Vec<u8>, String> {
+    service(&state)
+        .read_bytes(&cv_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List a profile's CV documents, enriched for the CV Library page (active
+/// flag, latest analysis score, assigned variants). Invoked from the frontend
+/// as `list_cv_documents({ profileId })`; Tauri maps `profileId` → `profile_id`.
+#[tauri::command]
+pub async fn list_cv_documents(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<Vec<CvDocumentSummary>, String> {
+    service(&state)
+        .list_documents(&profile_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List a profile's persisted CV analysis reports, newest first, for the CV
+/// Analysis history panel. Invoked as `list_cv_analysis_reports({ profileId })`;
+/// Tauri maps `profileId` → `profile_id`.
+#[tauri::command]
+pub async fn list_cv_analysis_reports(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<Vec<CvAnalysisReport>, String> {
+    service(&state)
+        .list_analysis_reports(&profile_id)
         .await
         .map_err(|e| e.to_string())
 }

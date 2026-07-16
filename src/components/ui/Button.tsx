@@ -20,12 +20,7 @@ export function Button({
   type = "button",
   ...rest
 }: ButtonProps) {
-  const cls = [
-    "btn",
-    `btn--${variant}`,
-    size !== "md" ? `btn--${size}` : null,
-    className,
-  ]
+  const cls = ["btn", `btn--${variant}`, size !== "md" ? `btn--${size}` : null, className]
     .filter(Boolean)
     .join(" ");
 

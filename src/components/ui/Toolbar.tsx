@@ -10,9 +10,7 @@ interface ToolbarProps {
 
 /** Horizontal action row. Wraps `.toolbar` (+ `.toolbar--border`). */
 export function Toolbar({ children, border, className, ...rest }: ToolbarProps) {
-  const cls = ["toolbar", border ? "toolbar--border" : null, className]
-    .filter(Boolean)
-    .join(" ");
+  const cls = ["toolbar", border ? "toolbar--border" : null, className].filter(Boolean).join(" ");
   return (
     <div className={cls} role="toolbar" {...rest}>
       {children}

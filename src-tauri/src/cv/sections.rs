@@ -133,4 +133,42 @@ Contact
     fn empty_text_yields_no_sections() {
         assert!(detect_sections("").is_empty());
     }
+
+    #[test]
+    fn colon_stripped_before_canonical_check() {
+        // "Skills:" → strip colon → "Skills" → canonical → detected.
+        let text = "Skills:\nRust, Python\n";
+        assert_eq!(detect_sections(text), vec!["Skills"]);
+    }
+
+    #[test]
+    fn non_canonical_all_caps_is_detected() {
+        // "PORTFOLIO" is not in CANONICAL but is ALL_CAPS → should appear.
+        let text = "PORTFOLIO\nsome detail\n";
+        assert_eq!(detect_sections(text), vec!["Portfolio"]);
+    }
+
+    #[test]
+    fn line_over_40_chars_is_ignored() {
+        // 41 characters: well past the heading length gate.
+        let long = "A".repeat(41);
+        let text = format!("{long}\nSummary\n");
+        let got = detect_sections(&text);
+        assert_eq!(got, vec!["Summary"]);
+    }
+
+    #[test]
+    fn sentence_punctuation_rejects_heading_candidate() {
+        // A period marks prose — even a short, canonical-looking line must be rejected.
+        let text = "Hello, world.\nExperience\n";
+        assert_eq!(detect_sections(text), vec!["Experience"]);
+    }
+
+    #[test]
+    fn title_case_applied_to_all_caps_heading() {
+        // ALL-CAPS headings are title-cased in the output.
+        let text = "WORK EXPERIENCE\n";
+        let got = detect_sections(text);
+        assert_eq!(got, vec!["Work Experience"]);
+    }
 }

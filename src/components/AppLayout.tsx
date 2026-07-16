@@ -1,84 +1,50 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { TopCommandBar } from "./TopCommandBar";
+import { Suspense, useRef } from "react";
+import { Outlet } from "react-router-dom";
+import { MissionHeader } from "./MissionHeader";
 import { EventLogDrawer } from "./EventLogDrawer";
-import { useAutomationStore } from "../stores/useAutomationStore";
-import { useEventStore } from "../stores/useEventStore";
-import { NAV_GROUPS } from "../app/routes";
-import { humanizeStatus } from "./ui";
+import { useUiStore } from "../stores/useUiStore";
+import { useDragScroll } from "../lib/useDragScroll";
 
 export function AppLayout() {
-  const autoState = useAutomationStore((s) => s.state);
-  const eventCount = useEventStore((s) => s.events.length);
+  const eventLogVisible = useUiStore((s) => s.eventLogVisible);
+  const isDesktopRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  // Phone-like click-and-drag panning across every scrollable pane in the
+  // workspace. Mounted once here against `.app-main`; see useDragScroll.
+  const mainRef = useRef<HTMLDivElement>(null);
+  useDragScroll(mainRef);
 
   return (
     <div className="app-shell">
-      {/* Skip link — first focusable element; jumps past sidebar/topbar */}
-      <a className="skip-link" href="#main-content">Skip to content</a>
+      {/* Skip link - first focusable element; jumps past the image-led masthead */}
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
 
-      {/* ---- Sidebar (frontend spec §3.2) ---- */}
-      <nav className="sidebar" aria-label="Primary navigation">
-        <div className="sidebar-header">
-          <span className="sidebar-brand">HireMeOps</span>
+      {/* Image-led mission masthead: navigation, profile state, motion/theme controls, and E-STOP. */}
+      <MissionHeader />
+
+      {!isDesktopRuntime && (
+        <div className="banner banner--warning" role="alert">
+          Browser preview has no Rust backend. Run <code>pnpm tauri dev</code> for working actions.
         </div>
+      )}
 
-        <ul className="sidebar-nav" role="list">
-          {NAV_GROUPS.map((group) => (
-            <li key={group.label} className="nav-group">
-              <span className="nav-group-label" aria-hidden="true">
-                {group.label}
-              </span>
-              <ul role="list">
-                {group.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      end={item.to === "/"}
-                      className={({ isActive }) =>
-                        isActive ? "nav-link active" : "nav-link"
-                      }
-                    >
-                      {item.label}
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      {/* ---- Main area ---- */}
-      <div className="app-main">
-        <TopCommandBar />
-
-        {/* Body */}
-        <div className="app-body">
-          <main
-            className="page-outlet"
-            id="main-content"
-            tabIndex={-1}
-            aria-label="Page content"
-          >
-            <Outlet />
+      {/* Main workspace - pages keep their own task-local headers. */}
+      <div className="app-main" ref={mainRef}>
+        <div className={eventLogVisible ? "app-body" : "app-body app-body--no-drawer"}>
+          <main className="page-outlet" id="main-content" tabIndex={-1} aria-label="Page content">
+            <Suspense
+              fallback={
+                <div className="page-loading" role="status" aria-live="polite">
+                  Loading...
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </main>
-          <EventLogDrawer />
-        </div>
-
-        {/* Status strip */}
-        <div
-          className="status-strip"
-          role="status"
-          aria-live="polite"
-          aria-atomic="false"
-        >
-          <span>STATE: {humanizeStatus(autoState)}</span>
-          <span className="status-strip-sep" aria-hidden="true">|</span>
-          <span>{eventCount} events</span>
-          <span className="status-strip-sep" aria-hidden="true">|</span>
-          <span>
-            <kbd className="status-strip-kbd">Ctrl+Shift+S</kbd>
-            {" "}emergency stop
-          </span>
+          {eventLogVisible && <EventLogDrawer />}
         </div>
       </div>
     </div>

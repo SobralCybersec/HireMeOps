@@ -507,4 +507,97 @@ mod tests {
         assert_eq!(Recommendation::Skip.as_str(), "skip");
         assert_eq!(Recommendation::SaveForLater.as_str(), "save_for_later");
     }
+
+    #[test]
+    fn salary_below_minimum_gives_partial_credit() {
+        let mut i = base();
+        // Floor 80_000; job ceiling 50_000 → ratio 0.625, partial = pct(0.625 * 0.8) = 50
+        i.job_salary_max = Some(50_000);
+        i.job_salary_min = Some(40_000);
+        let s = score_job(&i);
+        assert!(
+            s.salary_score < 60,
+            "salary_score should be below neutral (60), got {}",
+            s.salary_score
+        );
+        assert!(s.salary_score > 0, "should still get partial credit");
+    }
+
+    #[test]
+    fn salary_no_disclosure_gives_neutral() {
+        let mut i = base();
+        i.job_salary_min = None;
+        i.job_salary_max = None;
+        let s = score_job(&i);
+        assert_eq!(s.salary_score, NEUTRAL_SALARY);
+    }
+
+    #[test]
+    fn seniority_mismatch_scores_thirty() {
+        let mut i = base();
+        i.job_seniority = Some("junior".into()); // pref wants "senior"
+        let s = score_job(&i);
+        assert_eq!(s.seniority_score, 30);
+    }
+
+    #[test]
+    fn location_mismatch_scores_twenty() {
+        let mut i = base();
+        i.job_location = Some("Tokyo, Japan".into());
+        i.job_remote_mode = Some("onsite".into()); // pref wants remote
+        let s = score_job(&i);
+        assert_eq!(s.location_score, 20, "no matching location should score 20");
+    }
+
+    #[test]
+    fn remote_mode_match_gives_full_location_score() {
+        let mut i = base();
+        i.pref_locations.clear(); // remote mode alone is enough
+        i.pref_remote_modes = vec!["remote".into()];
+        i.job_remote_mode = Some("remote".into());
+        let s = score_job(&i);
+        assert_eq!(s.location_score, 100);
+    }
+
+    #[test]
+    fn missing_required_skill_adds_risk_flag() {
+        let mut i = base();
+        i.job_title = "Software Engineer".into(); // strip Rust from title
+        i.job_text = "We build with Go and Kubernetes".into(); // Rust + PostgreSQL absent
+        let s = score_job(&i);
+        assert!(
+            s.risk_flags
+                .iter()
+                .any(|f| f.starts_with("missing_required_skills:")),
+            "expected missing_required_skills flag, got: {:?}",
+            s.risk_flags
+        );
+        assert!(s.missing_skills.contains(&"Rust".to_string()));
+        assert!(s.missing_skills.contains(&"PostgreSQL".to_string()));
+    }
+
+    #[test]
+    fn normalize_tokens_drops_stopwords_and_short_tokens() {
+        let tokens = normalize_tokens("the quick brown fox and a cat");
+        // Stopwords removed.
+        assert!(!tokens.contains("the"), "stopword 'the' should be dropped");
+        assert!(!tokens.contains("and"), "stopword 'and' should be dropped");
+        assert!(!tokens.contains("a"), "single-char should be dropped");
+        // Real words kept.
+        assert!(tokens.contains("quick"));
+        assert!(tokens.contains("brown"));
+        assert!(tokens.contains("fox"));
+        assert!(tokens.contains("cat"));
+    }
+
+    #[test]
+    fn preferred_only_skill_still_scores_coverage() {
+        let mut i = base();
+        i.required_skills.clear(); // no required skills
+        i.preferred_skills = vec!["Kubernetes".into(), "Tokio".into()];
+        // Both are in the job text.
+        let s = score_job(&i);
+        assert_eq!(s.skill_score, 100, "100% preferred coverage → skill_score 100");
+        assert!(s.matched_skills.contains(&"Kubernetes".to_string()));
+    }
 }

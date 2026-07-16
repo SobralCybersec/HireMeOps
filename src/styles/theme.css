@@ -1,5 +1,5 @@
 /* ================================================================
-   HireMeOps – Design Token System
+   HireMeOps - Design Token System
    Dense command-center / instrument-panel aesthetic.
    All colors as CSS custom properties; both themes honour them.
    ================================================================ */
@@ -18,58 +18,84 @@
 
   /* Type scale */
   --text-2xs: 10px;
-  --text-xs:  11px;
-  --text-sm:  12px;
+  --text-xs: 11px;
+  --text-sm: 12px;
   --text-base: 13px;
-  --text-md:  14px;
-  --text-lg:  16px;
-  --text-xl:  18px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
   --text-2xl: 22px;
   --text-3xl: 28px;
 
-  /* Font families */
-  --font-ui:   'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, 'Courier New', monospace;
+  /* Font families - cockpit is mono-forward. JetBrains Mono is the signature
+     face for both UI and data; the mono fallback chain kicks in only if
+     @fontsource/jetbrains-mono fails to load. */
+  --font-ui: "JetBrains Mono", ui-monospace, "Fira Code", "Cascadia Code", "Courier New", monospace;
+  --font-mono:
+    "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, "Courier New", monospace;
+  /* Display face for the loud surfaces (brand wordmark, page/stat titles,
+     state readout). Defaults to the same mono stack so "dark"/"light" look
+     unchanged; the named themes override it for character. Data always stays
+     --font-mono for tabular alignment. */
+  --font-display: var(--font-ui);
 
   /* Font weights */
-  --fw-regular:  400;
-  --fw-medium:   500;
+  --fw-regular: 400;
+  --fw-medium: 500;
   --fw-semibold: 600;
-  --fw-bold:     700;
+  --fw-bold: 700;
 
-  /* Border radius – tight, instrument-like */
-  --radius-sm: 2px;
-  --radius:    4px;
-  --radius-md: 6px;
+  /* Line-height scale */
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+
+  /* Letter-spacing scale */
+  --ls-tight: -0.01em;
+  --ls-normal: 0;
+  --ls-wide: 0.06em;
+  --ls-wider: 0.12em;
+  --ls-widest: 0.14em;
+
+  /* Opacity scale */
+  --opacity-disabled: 0.4;
+  --opacity-muted: 0.6;
+
+  /* Border radius - tight, instrument-like */
+  --radius-sm: 1px;
+  --radius: 3px;
+  --radius-md: 5px;
   --radius-lg: 8px;
 
   /* Z-index scale */
-  --z-base:    0;
-  --z-sticky:  10;
+  --z-base: 0;
+  --z-sticky: 10;
   --z-overlay: 20;
-  --z-drawer:  30;
-  --z-modal:   40;
-  --z-toast:   50;
+  --z-drawer: 30;
+  --z-modal: 40;
+  --z-toast: 50;
 
-  /* Layout constants */
-  --sidebar-w:   192px;
-  --topbar-h:     40px;
-  --statusbar-h:  22px;
-  --eventlog-w:  252px;
+  /* Layout constants - topbar removed; sidebar owns brand/nav/session/E-STOP.
+     Collapsed rail keeps every affordance icon-visible at 52px. */
+  --sidebar-w: 220px;
+  --sidebar-w-collapsed: 52px;
+  --topbar-h: 40px; /* legacy; retained for one-off internal chrome */
+  --statusbar-h: 22px;
+  --eventlog-w: 252px;
 
-  /* Motion easing – shared curves so animation reads consistently */
-  --ease-standard:   cubic-bezier(0.2, 0, 0, 1);
+  /* Motion easing - shared curves so animation reads consistently */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
 
-  /* Transitions – low motion by design */
+  /* Transitions - low motion by design */
   --tx-fast: 120ms var(--ease-standard);
   --tx-base: 180ms var(--ease-standard);
   --tx-slow: 260ms var(--ease-emphasized);
 
-  /* Choreography — entrance / chart / stagger (see src/styles/effects.css) */
+  /* Choreography - entrance / chart / stagger (see src/styles/effects.css) */
   --tx-entrance: 220ms var(--ease-emphasized);
-  --tx-chart:    300ms var(--ease-emphasized);
-  --tx-stagger:   40ms;
+  --tx-chart: 300ms var(--ease-emphasized);
+  --tx-stagger: 40ms;
 }
 
 /* ---- Dark palette (primary) ----------------------------------- */
@@ -77,88 +103,259 @@
 html:not([data-theme]) {
   color-scheme: dark;
 
-  --color-bg:            #07090e;
-  --color-surface:       #0c1018;
-  --color-surface-2:     #111825;
-  --color-surface-3:     #172030;
+  --color-bg: #07090e;
+  --color-surface: #0c1018;
+  --color-surface-2: #111825;
+  --color-surface-3: #172030;
   --color-surface-hover: #1b2638;
+  --color-surface-sunken: #050710;
+  --color-surface-raised: #151d2e;
 
-  --color-border:        #1a2236;
+  --color-border: #1a2236;
   --color-border-strong: #28364e;
 
-  --color-text:          #d8e0f0;
-  --color-text-2:        #8496b8;
-  --color-text-muted:    #3e4e6a;
-  --color-text-inverse:  #07090e;
+  --color-text: #d8e0f0;
+  --color-text-2: #8496b8;
+  --color-text-muted: #3e4e6a;
+  --color-text-inverse: #07090e;
 
-  --color-accent:        #4c7ef3;
-  --color-accent-dim:    #101e44;
-  --color-accent-text:   #8fb4fb;
-  --color-accent-hover:  #6490f5;
+  --color-accent: #4c7ef3;
+  --color-accent-dim: #101e44;
+  --color-accent-text: #8fb4fb;
+  --color-accent-hover: #6490f5;
 
-  --color-danger:        #e03535;
-  --color-danger-dim:    #2e0c0c;
-  --color-danger-hover:  #f04040;
+  --color-danger: #e03535;
+  --color-danger-dim: #2e0c0c;
+  --color-danger-hover: #f04040;
 
-  /* Elevation – overlays/menus/toasts float above the instrument panel */
+  /* Elevation - overlays/menus/toasts float above the instrument panel */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.32);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.44);
   --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.56);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* Internal dividers - lighter than structural --color-border */
+  --color-border-subtle: #141c2c;
 
   /* Semantic status tokens */
-  --status-queued-bg:    #141c2c; --status-queued-text:   #7888aa;
-  --status-running-bg:   #101e44; --status-running-text:  #4c7ef3;
-  --status-success-bg:   #0c2418; --status-success-text:  #20c458;
-  --status-failed-bg:    #280c0c; --status-failed-text:   #e03535;
-  --status-review-bg:    #261a06; --status-review-text:   #df9522;
-  --status-stopped-bg:   #280c0c; --status-stopped-text:  #a01818;
-  --status-paused-bg:    #181c2c; --status-paused-text:   #6878a8;
-  --status-neutral-bg:   #111825; --status-neutral-text:  #5a6a8a;
+  --status-queued-bg: #141c2c;
+  --status-queued-text: #7888aa;
+  --status-running-bg: #101e44;
+  --status-running-text: #4c7ef3;
+  --status-success-bg: #0c2418;
+  --status-success-text: #20c458;
+  --status-failed-bg: #280c0c;
+  --status-failed-text: #e03535;
+  --status-review-bg: #261a06;
+  --status-review-text: #df9522;
+  --status-stopped-bg: #280c0c;
+  --status-stopped-text: #a01818;
+  --status-paused-bg: #181c2c;
+  --status-paused-text: #6878a8;
+  --status-neutral-bg: #111825;
+  --status-neutral-text: #5a6a8a;
+
+  /* Semantic status aliases - used by ai-provider status, event-log dots,
+     KpiCard danger/warning tints. Kept as aliases (not new hex) so palette
+     revamps only touch --status-*-text. */
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
 }
 
 /* ---- Light palette -------------------------------------------- */
 [data-theme="light"] {
   color-scheme: light;
 
-  --color-bg:            #eef1f8;
-  --color-surface:       #ffffff;
-  --color-surface-2:     #edf1f9;
-  --color-surface-3:     #e3e9f5;
+  --color-bg: #eef1f8;
+  --color-surface: #ffffff;
+  --color-surface-2: #edf1f9;
+  --color-surface-3: #e3e9f5;
   --color-surface-hover: #d8e0f2;
+  --color-surface-sunken: #e2e7f2;
+  --color-surface-raised: #f8f9fc;
 
-  --color-border:        #cdd5e8;
+  --color-border: #cdd5e8;
   --color-border-strong: #a4b0cc;
 
-  --color-text:          #080f20;
-  --color-text-2:        #36487a;
-  --color-text-muted:    #7a8ebc;
-  --color-text-inverse:  #ffffff;
+  --color-text: #080f20;
+  --color-text-2: #36487a;
+  --color-text-muted: #7a8ebc;
+  --color-text-inverse: #ffffff;
 
-  --color-accent:        #2558d8;
-  --color-accent-dim:    #dce8ff;
-  --color-accent-text:   #1a48c0;
-  --color-accent-hover:  #1a47c0;
+  --color-accent: #2558d8;
+  --color-accent-dim: #dce8ff;
+  --color-accent-text: #1a48c0;
+  --color-accent-hover: #1a47c0;
 
-  --color-danger:        #c22020;
-  --color-danger-dim:    #fde8e8;
-  --color-danger-hover:  #a01818;
+  --color-danger: #c22020;
+  --color-danger-dim: #fde8e8;
+  --color-danger-hover: #a01818;
 
-  --shadow-1: 0 1px 2px rgba(15, 26, 51, 0.10);
+  --shadow-1: 0 1px 2px rgba(15, 26, 51, 0.1);
   --shadow-2: 0 4px 12px rgba(15, 26, 51, 0.14);
   --shadow-3: 0 12px 32px rgba(15, 26, 51, 0.18);
+  --shadow-inset: inset 0 1px 2px rgba(15, 26, 51, 0.06);
 
-  --status-queued-bg:    #e8edf8; --status-queued-text:   #445888;
-  --status-running-bg:   #dce8ff; --status-running-text:  #1a47c0;
-  --status-success-bg:   #d6f4e0; --status-success-text:  #126636;
-  --status-failed-bg:    #fde8e8; --status-failed-text:   #c22020;
-  --status-review-bg:    #fff0d0; --status-review-text:   #8a5c08;
-  --status-stopped-bg:   #fde8e8; --status-stopped-text:  #9a1818;
-  --status-paused-bg:    #edf0f8; --status-paused-text:   #4a5880;
-  --status-neutral-bg:   #edf0f8; --status-neutral-text:  #5a6880;
+  --color-border-subtle: #dde3ef;
+
+  --status-queued-bg: #e8edf8;
+  --status-queued-text: #445888;
+  --status-running-bg: #dce8ff;
+  --status-running-text: #1a47c0;
+  --status-success-bg: #d6f4e0;
+  --status-success-text: #126636;
+  --status-failed-bg: #fde8e8;
+  --status-failed-text: #c22020;
+  --status-review-bg: #fff0d0;
+  --status-review-text: #8a5c08;
+  --status-stopped-bg: #fde8e8;
+  --status-stopped-text: #9a1818;
+  --status-paused-bg: #edf0f8;
+  --status-paused-text: #4a5880;
+  --status-neutral-bg: #edf0f8;
+  --status-neutral-text: #5a6880;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
+}
+
+/* ---- Crimson palette (dark base, red accent) ------------------
+   Same near-black instrument panel as the primary dark theme, warmed a few
+   degrees toward red so the crimson accent reads as the room's own light.
+   Accent (pink-red crimson) and danger (orange-red vermilion) sit on
+   different hue lanes so the Emergency Stop never blends into accent chrome.
+   Success stays green - meaning outranks palette. UI = Rajdhani (sharp
+   condensed), display = Oxanium. */
+[data-theme="red"] {
+  color-scheme: dark;
+
+  --font-ui: "Rajdhani", "JetBrains Mono", ui-monospace, sans-serif;
+  --font-display: "Oxanium", "Rajdhani", ui-monospace, sans-serif;
+
+  --color-bg: #0b0708;
+  --color-surface: #150a0d;
+  --color-surface-2: #1d0f13;
+  --color-surface-3: #27151a;
+  --color-surface-hover: #311a20;
+  --color-surface-sunken: #070405;
+  --color-surface-raised: #221317;
+
+  --color-border: #351b21;
+  --color-border-strong: #4c2831;
+  --color-border-subtle: #1e1014;
+
+  --color-text: #f2dde1;
+  --color-text-2: #c68f99;
+  --color-text-muted: #7e4a55;
+  --color-text-inverse: #0b0708;
+
+  --color-accent: #e0273f;
+  --color-accent-dim: #380c12;
+  --color-accent-text: #ff909c;
+  --color-accent-hover: #f43b52;
+
+  --color-danger: #ff5a34;
+  --color-danger-dim: #351305;
+  --color-danger-hover: #ff704d;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.48);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.34);
+
+  --status-queued-bg: #1e1014;
+  --status-queued-text: #b08088;
+  --status-running-bg: #380c12;
+  --status-running-text: #e0273f;
+  --status-success-bg: #0b2416;
+  --status-success-text: #33c266;
+  --status-failed-bg: #351305;
+  --status-failed-text: #ff5a34;
+  --status-review-bg: #2a1a06;
+  --status-review-text: #e0a422;
+  --status-stopped-bg: #2a0c0e;
+  --status-stopped-text: #c0212f;
+  --status-paused-bg: #241016;
+  --status-paused-text: #b26a76;
+  --status-neutral-bg: #1d0f13;
+  --status-neutral-text: #9a6a74;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
+}
+
+/* ---- Solo-Leveling palette (dark base, system-window blue/violet) ----
+   The anime "system" panels: a near-black midnight-blue field lit by glowing
+   azure edges, with violet as the secondary hum (paused/queued lanes). Accent
+   is the bright system azure; danger is rose so it stays legible against all
+   the blue. UI = Chakra Petch (readable techy sans), display = Orbitron (the
+   angular status-window wordmark face). */
+[data-theme="solo-leveling"] {
+  color-scheme: dark;
+
+  --font-ui: "Chakra Petch", "JetBrains Mono", ui-monospace, sans-serif;
+  --font-display: "Orbitron", "Chakra Petch", ui-monospace, sans-serif;
+
+  --color-bg: #05060f;
+  --color-surface: #0a0e20;
+  --color-surface-2: #0f1531;
+  --color-surface-3: #161d41;
+  --color-surface-hover: #1d2653;
+  --color-surface-sunken: #03040a;
+  --color-surface-raised: #141b3b;
+
+  --color-border: #223066;
+  --color-border-strong: #35468f;
+  --color-border-subtle: #16203f;
+
+  --color-text: #dfe6ff;
+  --color-text-2: #90a2da;
+  --color-text-muted: #4c5a92;
+  --color-text-inverse: #05060f;
+
+  --color-accent: #4d8bff;
+  --color-accent-dim: #0e1b4c;
+  --color-accent-text: #9cbcff;
+  --color-accent-hover: #6ea0ff;
+
+  --color-danger: #ff3b5c;
+  --color-danger-dim: #2e0a15;
+  --color-danger-hover: #ff5673;
+
+  /* Blue-black shadows with an azure rim so panels feel back-lit, not just dark. */
+  --shadow-1: 0 1px 2px rgba(0, 6, 24, 0.5);
+  --shadow-2: 0 4px 14px rgba(0, 6, 24, 0.55);
+  --shadow-3: 0 12px 36px rgba(2, 10, 40, 0.62);
+  --shadow-inset: inset 0 1px 2px rgba(0, 4, 20, 0.5);
+
+  --status-queued-bg: #141a38;
+  --status-queued-text: #8090c8;
+  --status-running-bg: #0e1b4c;
+  --status-running-text: #4d8bff;
+  --status-success-bg: #08221e;
+  --status-success-text: #22d3aa;
+  --status-failed-bg: #2e0a15;
+  --status-failed-text: #ff3b5c;
+  --status-review-bg: #231d08;
+  --status-review-text: #e0b23a;
+  --status-stopped-bg: #2a0a13;
+  --status-stopped-text: #d0264a;
+  --status-paused-bg: #1a1a3c;
+  --status-paused-text: #8f8fe0;
+  --status-neutral-bg: #0f1531;
+  --status-neutral-text: #6878b0;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
 }
 
 /* ---- Base ----------------------------------------------------- */
-html, body {
+html,
+body {
   background-color: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-ui);
@@ -168,7 +365,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Global focus ring – visible on every keyboard-reachable element */
+/* Global focus ring - visible on every keyboard-reachable element */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -177,7 +374,7 @@ html, body {
 /* Reduced-effects guard: kills all transitions/animations */
 html.reduced-effects * {
   transition-duration: 0.001ms !important;
-  animation-duration:  0.001ms !important;
+  animation-duration: 0.001ms !important;
 }
 
 /* ================================================================
@@ -189,33 +386,137 @@ html.reduced-effects * {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  transition: grid-template-columns var(--tx-base);
+}
+
+html.sidebar-collapsed .app-shell {
+  grid-template-columns: var(--sidebar-w-collapsed) 1fr;
+}
+
+html.reduced-effects .app-shell {
+  transition: none;
 }
 
 /* ---- Sidebar -------------------------------------------------- */
 .sidebar {
-  background-color: var(--color-surface);
+  background: linear-gradient(
+    180deg,
+    var(--color-surface) 0%,
+    color-mix(in srgb, var(--color-surface) 65%, var(--color-bg)) 100%
+  );
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
-.sidebar-header {
+/* ---- Sidebar head: brand row + identity chips ---- */
+.sidebar-head {
   display: flex;
-  align-items: center;
-  padding: 0 var(--sp-4);
-  height: var(--topbar-h);
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+.sidebar-head__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 24px;
+}
+
+.sidebar-hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-2);
+  cursor: pointer;
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast),
+    border-color var(--tx-fast);
+  flex-shrink: 0;
+}
+.sidebar-hamburger:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.sidebar-hamburger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.sidebar--collapsed .sidebar-head {
+  padding: var(--sp-2);
+  align-items: center;
+}
+.sidebar--collapsed .sidebar-head__row {
+  justify-content: center;
 }
 
 .sidebar-brand {
   font-size: var(--text-sm);
   font-weight: var(--fw-bold);
-  letter-spacing: 0.10em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-accent);
+  font-family: var(--font-display);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html.reduced-effects .sidebar-brand {
+  text-shadow: none;
+}
+
+/* Small stacked identity chips inside the sidebar head. */
+.sidebar-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.sidebar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 22px;
+  padding: 0 var(--sp-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
   font-family: var(--font-mono);
+  color: var(--color-text-2);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sidebar-chip__key {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.sidebar-chip__val {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .sidebar-nav {
@@ -224,6 +525,10 @@ html.reduced-effects * {
   padding: var(--sp-2);
   list-style: none;
   margin: 0;
+}
+
+.sidebar--collapsed .sidebar-nav {
+  padding: var(--sp-1);
 }
 
 .nav-group {
@@ -235,10 +540,20 @@ html.reduced-effects * {
   padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-3);
   font-size: var(--text-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.14em;
+  letter-spacing: var(--ls-widest);
   text-transform: uppercase;
   color: var(--color-text-muted);
   user-select: none;
+}
+
+.sidebar--collapsed .nav-group {
+  margin-bottom: var(--sp-2);
+  padding-top: var(--sp-1);
+  border-top: 1px solid var(--color-border);
+}
+.sidebar--collapsed .nav-group:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .nav-group > ul {
@@ -248,17 +563,31 @@ html.reduced-effects * {
 }
 
 .nav-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius);
   color: var(--color-text-2);
   text-decoration: none;
   font-size: var(--text-sm);
   line-height: 1.4;
-  transition: background-color var(--tx-fast), color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
   white-space: nowrap;
   overflow: hidden;
+}
+
+.nav-link__label {
+  overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sidebar--collapsed .nav-link {
+  justify-content: center;
+  padding: var(--sp-2) 0;
 }
 
 .nav-link:hover {
@@ -270,11 +599,106 @@ html.reduced-effects * {
   background-color: var(--color-accent-dim);
   color: var(--color-accent);
   font-weight: var(--fw-medium);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .nav-link:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
+}
+
+/* ---- Sidebar foot: session badges, toggles, pinned E-STOP ---- */
+.sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 80%, var(--color-bg));
+  flex-shrink: 0;
+}
+
+.sidebar--collapsed .sidebar-foot {
+  padding: var(--sp-2);
+  align-items: center;
+}
+
+.sidebar-foot__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+.sidebar-event-badge {
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar-foot__toggles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-1);
+}
+
+.sidebar-foot__toggles--stack {
+  grid-template-columns: 1fr;
+}
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  height: 24px;
+  padding: 0 var(--sp-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-2);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast),
+    border-color var(--tx-fast);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-toggle:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.sidebar-toggle[aria-pressed="true"] {
+  border-color: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.sidebar-foot__estop {
+  display: flex;
+  justify-content: stretch;
+}
+
+.sidebar-foot__estop .emergency-stop-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 /* ---- App main ------------------------------------------------- */
@@ -285,77 +709,46 @@ html.reduced-effects * {
   min-width: 0;
 }
 
-/* ---- Topbar --------------------------------------------------- */
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-4);
-  height: var(--topbar-h);
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+/* ---- Status dots (used inline by StatusDot) -------------------- */
+.dot--queued {
+  background: var(--status-queued-text);
 }
-
-.topbar-route {
-  font-size: var(--text-sm);
-  font-weight: var(--fw-semibold);
-  color: var(--color-text);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
+.dot--running {
+  background: var(--status-running-text);
+  animation: blink 1.6s ease-in-out infinite;
 }
-
-.topbar-sep {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  flex-shrink: 0;
+.dot--success {
+  background: var(--status-success-text);
 }
-
-.topbar-state {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-2);
-  white-space: nowrap;
+.dot--failed {
+  background: var(--status-failed-text);
 }
-
-.topbar-state-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.dot--review {
+  background: var(--status-review-text);
 }
-
-.dot--queued  { background: var(--status-queued-text); }
-.dot--running { background: var(--status-running-text); animation: blink 1.6s ease-in-out infinite; }
-.dot--success { background: var(--status-success-text); }
-.dot--failed  { background: var(--status-failed-text); }
-.dot--review  { background: var(--status-review-text); }
-.dot--stopped { background: var(--status-stopped-text); }
-.dot--paused  { background: var(--status-paused-text); }
-.dot--neutral { background: var(--status-neutral-text); }
+.dot--stopped {
+  background: var(--status-stopped-text);
+}
+.dot--paused {
+  background: var(--status-paused-text);
+}
+.dot--neutral {
+  background: var(--status-neutral-text);
+}
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
-html.reduced-effects .dot--running { animation: none; }
-
-.topbar-event-badge {
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-muted);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 1px 6px;
-  white-space: nowrap;
+html.reduced-effects .dot--running {
+  animation: none;
 }
-
-.topbar-spacer { flex: 1; }
 
 /* ---- Emergency stop button ------------------------------------ */
 .emergency-stop-btn {
@@ -375,7 +768,9 @@ html.reduced-effects .dot--running { animation: none; }
   text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color var(--tx-fast), color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
 }
 
 .emergency-stop-btn:hover {
@@ -388,7 +783,17 @@ html.reduced-effects .dot--running { animation: none; }
   outline-offset: 2px;
 }
 
-.emergency-stop-btn:active { transform: scale(0.97); }
+.emergency-stop-btn:active {
+  transform: scale(0.97);
+}
+
+/* Icon-only rail variant for the collapsed sidebar footer. */
+.emergency-stop-btn--compact {
+  padding: 0;
+  width: 40px;
+  justify-content: center;
+  gap: 0;
+}
 
 /* ---- App body ------------------------------------------------- */
 .app-body {
@@ -404,33 +809,6 @@ html.reduced-effects .dot--running { animation: none; }
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-/* ---- Status strip --------------------------------------------- */
-.status-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  padding: 0 var(--sp-4);
-  height: var(--statusbar-h);
-  background-color: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-muted);
-  user-select: none;
-}
-
-.status-strip-sep { color: var(--color-border-strong); }
-
-.status-strip-kbd {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: 2px;
-  padding: 0 3px;
-  font-size: 9px;
-  font-family: var(--font-mono);
 }
 
 /* ---- Event log drawer ----------------------------------------- */
@@ -460,6 +838,55 @@ html.reduced-effects .dot--running { animation: none; }
   margin: 0;
 }
 
+.event-log-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  margin-right: var(--sp-2);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.event-log-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted, #6b7280);
+  flex-shrink: 0;
+}
+
+.event-log-status--live .event-log-status-dot {
+  background: var(--color-success, #3fb950);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success, #3fb950) 25%, transparent);
+}
+
+.event-log-status--connecting .event-log-status-dot {
+  background: var(--color-warning, #d29922);
+  animation: event-log-pulse 1.2s ease-in-out infinite;
+}
+
+.event-log-status--error {
+  color: var(--color-danger, #f85149);
+}
+
+.event-log-status--error .event-log-status-dot {
+  background: var(--color-danger, #f85149);
+}
+
+@keyframes event-log-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .event-log-clear-btn {
   background: none;
   border: none;
@@ -469,11 +896,19 @@ html.reduced-effects .dot--running { animation: none; }
   cursor: pointer;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  transition: color var(--tx-fast), background-color var(--tx-fast);
+  transition:
+    color var(--tx-fast),
+    background-color var(--tx-fast);
 }
 
-.event-log-clear-btn:hover { background: var(--color-surface-3); color: var(--color-text); }
-.event-log-clear-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.event-log-clear-btn:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.event-log-clear-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
 
 .event-log-body {
   flex: 1;
@@ -503,7 +938,9 @@ html.reduced-effects .dot--running { animation: none; }
   transition: background-color var(--tx-fast);
 }
 
-.event-log-item:hover { background-color: var(--color-surface-2); }
+.event-log-item:hover {
+  background-color: var(--color-surface-2);
+}
 
 .event-log-type {
   font-size: var(--text-xs);
@@ -513,12 +950,24 @@ html.reduced-effects .dot--running { animation: none; }
   line-height: 1.5;
 }
 
-.evt--success { color: var(--status-success-text); }
-.evt--failed  { color: var(--status-failed-text); }
-.evt--review  { color: var(--status-review-text); }
-.evt--running { color: var(--status-running-text); }
-.evt--stopped { color: var(--status-stopped-text); }
-.evt--paused  { color: var(--status-paused-text); }
+.evt--success {
+  color: var(--status-success-text);
+}
+.evt--failed {
+  color: var(--status-failed-text);
+}
+.evt--review {
+  color: var(--status-review-text);
+}
+.evt--running {
+  color: var(--status-running-text);
+}
+.evt--stopped {
+  color: var(--status-stopped-text);
+}
+.evt--paused {
+  color: var(--status-paused-text);
+}
 
 .event-log-time {
   font-size: var(--text-xs);
@@ -539,7 +988,7 @@ html.reduced-effects .dot--running { animation: none; }
   gap: var(--sp-4);
 }
 
-/* Full-height page (job search, etc.) – inner panels scroll */
+/* Full-height page (job search, etc.) - inner panels scroll */
 .page--fill {
   flex: 1;
   overflow: hidden;
@@ -557,6 +1006,7 @@ html.reduced-effects .dot--running { animation: none; }
 .page-title {
   font-size: var(--text-lg);
   font-weight: var(--fw-semibold);
+  font-family: var(--font-display);
   color: var(--color-text);
   margin: 0;
   line-height: 1.2;
@@ -564,7 +1014,7 @@ html.reduced-effects .dot--running { animation: none; }
 
 .page-subtitle {
   font-size: var(--text-sm);
-  color: var(--color-text-muted);
+  color: var(--color-text-2);
 }
 
 /* ---- Toolbar -------------------------------------------------- */
@@ -589,7 +1039,9 @@ html.reduced-effects .dot--running { animation: none; }
   flex-shrink: 0;
 }
 
-.toolbar-spacer { flex: 1; }
+.toolbar-spacer {
+  flex: 1;
+}
 
 /* ---- Buttons -------------------------------------------------- */
 .btn {
@@ -604,41 +1056,69 @@ html.reduced-effects .dot--running { animation: none; }
   font-family: var(--font-ui);
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background-color var(--tx-fast), color var(--tx-fast), border-color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast),
+    border-color var(--tx-fast);
   white-space: nowrap;
   text-decoration: none;
   line-height: 1;
 }
 
-.btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.btn:active { transform: scale(0.97); }
+.btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.btn:active {
+  transform: scale(0.97);
+}
 
 .btn--primary {
   background: var(--color-accent);
   color: var(--color-text-inverse);
   border-color: var(--color-accent);
 }
-.btn--primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
 
 .btn--ghost {
   background: transparent;
   color: var(--color-text-2);
   border-color: var(--color-border);
 }
-.btn--ghost:hover { background: var(--color-surface-3); color: var(--color-text); }
+.btn--ghost:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
 
 .btn--danger {
   background: var(--color-danger-dim);
   color: var(--color-danger);
   border-color: var(--color-danger);
 }
-.btn--danger:hover { background: var(--color-danger); color: var(--color-text-inverse); }
+.btn--danger:hover {
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
+}
 
-.btn--sm { height: 24px; padding: 0 var(--sp-2); font-size: var(--text-xs); }
-.btn--lg { height: 34px; padding: 0 var(--sp-5); font-size: var(--text-md); }
+.btn--sm {
+  height: 24px;
+  padding: 0 var(--sp-2);
+  font-size: var(--text-xs);
+}
+.btn--lg {
+  height: 34px;
+  padding: 0 var(--sp-5);
+  font-size: var(--text-md);
+}
 
 .btn:disabled,
-.btn[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+.btn[aria-disabled="true"] {
+  opacity: 0.4;
+  pointer-events: none;
+}
 
 /* ---- Badges --------------------------------------------------- */
 .badge {
@@ -653,14 +1133,38 @@ html.reduced-effects .dot--running { animation: none; }
   line-height: 1.5;
 }
 
-.badge--queued  { background: var(--status-queued-bg);  color: var(--status-queued-text); }
-.badge--running { background: var(--status-running-bg); color: var(--status-running-text); }
-.badge--success { background: var(--status-success-bg); color: var(--status-success-text); }
-.badge--failed  { background: var(--status-failed-bg);  color: var(--status-failed-text); }
-.badge--review  { background: var(--status-review-bg);  color: var(--status-review-text); }
-.badge--stopped { background: var(--status-stopped-bg); color: var(--status-stopped-text); }
-.badge--paused  { background: var(--status-paused-bg);  color: var(--status-paused-text); }
-.badge--neutral { background: var(--status-neutral-bg); color: var(--status-neutral-text); }
+.badge--queued {
+  background: var(--status-queued-bg);
+  color: var(--status-queued-text);
+}
+.badge--running {
+  background: var(--status-running-bg);
+  color: var(--status-running-text);
+}
+.badge--success {
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+.badge--failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+}
+.badge--review {
+  background: var(--status-review-bg);
+  color: var(--status-review-text);
+}
+.badge--stopped {
+  background: var(--status-stopped-bg);
+  color: var(--status-stopped-text);
+}
+.badge--paused {
+  background: var(--status-paused-bg);
+  color: var(--status-paused-text);
+}
+.badge--neutral {
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
 
 /* ---- Stat tiles ----------------------------------------------- */
 .stat-grid {
@@ -682,7 +1186,7 @@ html.reduced-effects .dot--running { animation: none; }
 
 .stat-tile__label {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--color-text-2);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: var(--fw-medium);
@@ -706,14 +1210,26 @@ html.reduced-effects .dot--running { animation: none; }
   font-family: var(--font-mono);
 }
 
-.stat-tile--accent { border-color: var(--color-accent-dim); }
-.stat-tile--accent .stat-tile__value { color: var(--color-accent); }
+.stat-tile--accent {
+  border-color: var(--color-accent-dim);
+}
+.stat-tile--accent .stat-tile__value {
+  color: var(--color-accent);
+}
 
-.stat-tile--danger { border-color: var(--color-danger-dim); }
-.stat-tile--danger .stat-tile__value { color: var(--color-danger); }
+.stat-tile--danger {
+  border-color: var(--color-danger-dim);
+}
+.stat-tile--danger .stat-tile__value {
+  color: var(--color-danger);
+}
 
-.stat-tile--success .stat-tile__value { color: var(--status-success-text); }
-.stat-tile--review  .stat-tile__value { color: var(--status-review-text); }
+.stat-tile--success .stat-tile__value {
+  color: var(--status-success-text);
+}
+.stat-tile--review .stat-tile__value {
+  color: var(--status-review-text);
+}
 
 /* ---- Card ----------------------------------------------------- */
 .card {
@@ -741,7 +1257,7 @@ html.reduced-effects .dot--running { animation: none; }
   color: var(--color-text-muted);
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.10em;
+  letter-spacing: 0.1em;
 }
 
 .card__body {
@@ -749,7 +1265,10 @@ html.reduced-effects .dot--running { animation: none; }
   flex: 1;
 }
 
-.card__body--compact { padding: 0; overflow-y: auto; }
+.card__body--compact {
+  padding: 0;
+  overflow-y: auto;
+}
 
 /* ---- Data table ----------------------------------------------- */
 .table-wrapper {
@@ -770,7 +1289,7 @@ html.reduced-effects .dot--running { animation: none; }
   padding: var(--sp-2) var(--sp-3);
   font-size: var(--text-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.10em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
@@ -789,10 +1308,20 @@ html.reduced-effects .dot--running { animation: none; }
   white-space: nowrap;
 }
 
-.data-table tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover td { background-color: var(--color-surface-2); }
-.data-table .cell-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.data-table .cell-primary { color: var(--color-text); font-weight: var(--fw-medium); }
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+.data-table tbody tr:hover td {
+  background-color: var(--color-surface-2);
+}
+.data-table .cell-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.data-table .cell-primary {
+  color: var(--color-text);
+  font-weight: var(--fw-medium);
+}
 
 /* ---- Two-pane layout ------------------------------------------ */
 .two-pane {
@@ -805,7 +1334,9 @@ html.reduced-effects .dot--running { animation: none; }
   flex: 1;
 }
 
-.two-pane--narrow { grid-template-columns: 220px 1fr; }
+.two-pane--narrow {
+  grid-template-columns: 220px 1fr;
+}
 
 .two-pane__list {
   border-right: 1px solid var(--color-border);
@@ -841,16 +1372,23 @@ html.reduced-effects .dot--running { animation: none; }
   gap: var(--sp-2);
 }
 
-.list-item:last-child { border-bottom: none; }
-.list-item:hover      { background: var(--color-surface-2); }
+.list-item:last-child {
+  border-bottom: none;
+}
+.list-item:hover {
+  background: var(--color-surface-2);
+}
 
-.list-item.selected   {
+.list-item.selected {
   background: var(--color-accent-dim);
   border-left: 2px solid var(--color-accent);
   padding-left: calc(var(--sp-3) - 2px);
 }
 
-.list-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.list-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
 
 .list-item__name {
   font-size: var(--text-sm);
@@ -868,11 +1406,18 @@ html.reduced-effects .dot--running { animation: none; }
   white-space: nowrap;
 }
 
-/* ---- Form fields ---------------------------------------------- */
+/* ---- Form fields ----------------------------------------------
+   The `.field` block is the labelled column: label → control → helper/error.
+   Inputs, textareas and selects share the same shell (background, border,
+   radius, height, padding) so a row of mixed controls lines up pixel-perfect.
+   Focus state adds a tinted 2px ring on top of the accent border, so the
+   ring reads at a glance without shifting layout. See <Input>, <Textarea>,
+   <Select>, <Field>, <FormRow> in src/components/ui/. */
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
+  min-width: 0;
 }
 
 .field__label {
@@ -880,6 +1425,13 @@ html.reduced-effects .dot--running { animation: none; }
   font-weight: var(--fw-medium);
   color: var(--color-text-2);
   letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+.field__label--required::after {
+  content: "*";
+  color: var(--color-danger);
+  margin-left: 2px;
 }
 
 .field__input,
@@ -892,21 +1444,87 @@ html.reduced-effects .dot--running { animation: none; }
   font-size: var(--text-sm);
   font-family: var(--font-ui);
   padding: var(--sp-1) var(--sp-3);
-  transition: border-color var(--tx-fast);
+  transition:
+    border-color var(--tx-fast),
+    background-color var(--tx-fast),
+    box-shadow var(--tx-fast);
   width: 100%;
+  min-width: 0;
+  line-height: 1.4;
 }
 
-.field__input  { height: 30px; }
-.field__select { height: 30px; cursor: pointer; }
+.field__input {
+  height: 30px;
+}
 
-.field__input:hover,
-.field__select:hover  { border-color: var(--color-border-strong); }
+/* Native <select> chevron: appearance:none strips the OS glyph so we can
+   paint our own SVG. Data-URL keeps the icon single-file, tinted via the
+   accent-text color per theme. */
+.field__select {
+  height: 30px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--sp-6) + var(--sp-1));
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(-45deg, transparent 50%, currentColor 50%);
+  background-position:
+    calc(100% - var(--sp-3) - 4px) center,
+    calc(100% - var(--sp-3)) center;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  color: var(--color-text);
+}
+
+/* Firefox: kill the dotted focus outline inside the native <select> - our
+   own :focus-visible ring is drawn on the wrapper element. */
+.field__select::-moz-focus-inner {
+  border: 0;
+}
+
+.field__input::placeholder,
+.field__textarea::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1; /* Firefox lightens by default */
+}
+
+.field__input:hover:not(:disabled),
+.field__select:hover:not(:disabled),
+.field__textarea:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
 
 .field__input:focus,
-.field__select:focus  {
+.field__select:focus,
+.field__textarea:focus {
   outline: none;
   border-color: var(--color-accent);
   background: var(--color-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.field__input:disabled,
+.field__select:disabled,
+.field__textarea:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  background: var(--color-surface);
+}
+
+/* Invalid state: red border + tinted ring on focus. Pair with aria-invalid
+   on the control and a <div class="field__error"> below it. */
+.field__input[aria-invalid="true"],
+.field__select[aria-invalid="true"],
+.field__textarea[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+.field__input[aria-invalid="true"]:focus,
+.field__select[aria-invalid="true"]:focus,
+.field__textarea[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 24%, transparent);
 }
 
 .field__textarea {
@@ -914,10 +1532,23 @@ html.reduced-effects .dot--running { animation: none; }
   min-height: 72px;
   font-family: var(--font-mono);
   line-height: 1.5;
+  padding: var(--sp-2) var(--sp-3);
+  height: auto;
 }
-.field__textarea:focus { outline: none; border-color: var(--color-accent); }
 
-.field__helper { font-size: var(--text-xs); color: var(--color-text-muted); }
+.field__helper {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+.field__error {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
 
 /* ---- Filter tabs ---------------------------------------------- */
 .filter-tabs {
@@ -943,12 +1574,23 @@ html.reduced-effects .dot--running { animation: none; }
   cursor: pointer;
   font-family: var(--font-ui);
   white-space: nowrap;
-  transition: background-color var(--tx-fast), color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
 }
 
-.filter-tab:hover  { background: var(--color-surface-3); color: var(--color-text); }
-.filter-tab.active { background: var(--color-accent); color: var(--color-text-inverse); }
-.filter-tab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.filter-tab:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.filter-tab.active {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+.filter-tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
 
 /* ---- Tag input ------------------------------------------------ */
 .tag-list {
@@ -964,7 +1606,9 @@ html.reduced-effects .dot--running { animation: none; }
   transition: border-color var(--tx-fast);
 }
 
-.tag-list:focus-within { border-color: var(--color-accent); }
+.tag-list:focus-within {
+  border-color: var(--color-accent);
+}
 
 .tag {
   display: inline-flex;
@@ -985,14 +1629,18 @@ html.reduced-effects .dot--running { animation: none; }
   color: var(--color-text-muted);
   cursor: pointer;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1;
   display: flex;
   align-items: center;
 }
 
-.tag-remove:hover { color: var(--color-danger); }
-.tag-remove:focus-visible { outline: 1px solid var(--color-accent); }
+.tag-remove:hover {
+  color: var(--color-danger);
+}
+.tag-remove:focus-visible {
+  outline: 1px solid var(--color-accent);
+}
 
 .tag-input {
   border: none;
@@ -1006,32 +1654,129 @@ html.reduced-effects .dot--running { animation: none; }
   padding: 0;
 }
 
-.tag-input::placeholder { color: var(--color-text-muted); }
+.tag-input::placeholder {
+  color: var(--color-text-2);
+}
 
-/* ---- Checkbox groups ------------------------------------------ */
+/* ---- Checkbox groups & custom-drawn checkbox / radio -----------
+   `appearance: none` strips the native glyph so we own every pixel:
+   uniform 16px box, tokenised border/hover/focus, dark+light parity,
+   and a real indeterminate dash (browsers' native one is invisible
+   against most palettes). Keyboard + AT semantics stay native - the
+   ring rides the input, not the label, so screen readers still hear
+   the checkbox as it moves through Tab order. */
 .check-group {
   display: flex;
   flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.check-group--stack {
+  flex-direction: column;
   gap: var(--sp-2);
 }
 
 .check-label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
   font-size: var(--text-sm);
-  color: var(--color-text-2);
+  color: var(--color-text);
   cursor: pointer;
   padding: 2px 0;
+  user-select: none;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.check-label:has(input:disabled) {
+  cursor: not-allowed;
+  color: var(--color-text-muted);
 }
 
 .check-label input[type="checkbox"],
 .check-label input[type="radio"] {
-  accent-color: var(--color-accent);
-  width: 14px;
-  height: 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
   cursor: pointer;
   flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  position: relative;
+  transition:
+    background-color var(--tx-fast),
+    border-color var(--tx-fast),
+    box-shadow var(--tx-fast);
+}
+
+.check-label input[type="checkbox"] {
+  border-radius: var(--radius-sm);
+}
+.check-label input[type="radio"] {
+  border-radius: 50%;
+}
+
+.check-label input[type="checkbox"]:hover:not(:disabled),
+.check-label input[type="radio"]:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+}
+
+.check-label input[type="checkbox"]:checked,
+.check-label input[type="checkbox"]:indeterminate,
+.check-label input[type="radio"]:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Checkmark: 10×10 SVG mask, currentColor drives the tick so it stays crisp
+   at any zoom and doesn't need a second color token. */
+.check-label input[type="checkbox"]:checked::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--color-text-inverse);
+  clip-path: polygon(14% 44%, 0% 60%, 40% 100%, 100% 22%, 84% 8%, 40% 68%);
+}
+
+/* Indeterminate: horizontal dash. Overrides :checked visuals if both fire. */
+.check-label input[type="checkbox"]:indeterminate::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-text-inverse);
+  clip-path: none;
+}
+
+.check-label input[type="radio"]:checked::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-inverse);
+}
+
+.check-label input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.check-label input:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.check-label input:disabled:checked,
+.check-label input:disabled:indeterminate {
+  background: var(--color-border-strong);
+  border-color: var(--color-border-strong);
 }
 
 /* ---- Form grid ------------------------------------------------ */
@@ -1039,6 +1784,46 @@ html.reduced-effects .dot--running { animation: none; }
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--sp-3) var(--sp-4);
+}
+
+.field--full {
+  grid-column: 1 / -1;
+}
+
+/* ---- Locked settings (read-only rule display) ----------------- */
+.locked-settings {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.locked-settings__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.locked-settings__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+
+.locked-settings__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.locked-settings__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
 /* ---- Section group -------------------------------------------- */
@@ -1080,14 +1865,14 @@ html.reduced-effects .dot--running { animation: none; }
 .state-display__label {
   font-size: var(--text-2xl);
   font-weight: var(--fw-bold);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   color: var(--color-text);
   line-height: 1;
 }
 
 .state-display__sub {
   font-size: var(--text-sm);
-  color: var(--color-text-muted);
+  color: var(--color-text-2);
   font-family: var(--font-mono);
   margin-top: var(--sp-1);
 }
@@ -1169,12 +1954,24 @@ html.reduced-effects .dot--running { animation: none; }
   border: none;
   cursor: pointer;
   font-family: var(--font-ui);
-  transition: background-color var(--tx-fast), color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
 }
 
-.settings-tab-btn:hover  { background: var(--color-surface-3); color: var(--color-text); }
-.settings-tab-btn.active { background: var(--color-accent-dim); color: var(--color-accent); font-weight: var(--fw-medium); }
-.settings-tab-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.settings-tab-btn:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-tab-btn.active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  font-weight: var(--fw-medium);
+}
+.settings-tab-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
 
 .settings-content {
   padding: var(--sp-5);
@@ -1204,8 +2001,13 @@ html.reduced-effects .dot--running { animation: none; }
   transition: border-color var(--tx-fast);
 }
 
-.cv-card:hover { border-color: var(--color-accent); }
-.cv-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.cv-card:hover {
+  border-color: var(--color-accent);
+}
+.cv-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 .cv-card__preview {
   aspect-ratio: 8.5 / 11;
@@ -1317,7 +2119,7 @@ html.reduced-effects .dot--running { animation: none; }
 
 .empty-state__body {
   font-size: var(--text-sm);
-  color: var(--color-text-muted);
+  color: var(--color-text-2);
   margin: 0;
   max-width: 260px;
   line-height: 1.5;
@@ -1408,13 +2210,15 @@ html.reduced-effects .dot--running { animation: none; }
   min-width: 16px;
   padding: 0 4px;
   height: 16px;
-  border-radius: 8px;
-  font-size: 10px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   background: var(--color-surface-3);
   color: var(--color-text-muted);
-  transition: background-color var(--tx-fast), color var(--tx-fast);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
 }
 .filter-tab.active .filter-tab__count {
   background: color-mix(in srgb, var(--color-text-inverse) 20%, transparent);
@@ -1425,6 +2229,34 @@ html.reduced-effects .dot--running { animation: none; }
 .cv-card--selected {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* ---- Browser preview ------------------------------------------ */
+.browser-preview {
+  position: relative;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 180px;
+}
+
+.browser-preview__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.browser-preview__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-2);
 }
 
 /* ---- evidence placeholder ------------------------------------- */
@@ -1452,8 +2284,12 @@ html.reduced-effects .dot--running { animation: none; }
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
-.event-log-scroll::-webkit-scrollbar { width: 4px; }
-.event-log-scroll::-webkit-scrollbar-track { background: transparent; }
+.event-log-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.event-log-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
 .event-log-scroll::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 2px;
@@ -1473,17 +2309,12 @@ html.reduced-effects .dot--running { animation: none; }
 }
 
 /* ================================================================
-   Top command bar — clusters, status chips, inline toggles
-   Consumed by <TopCommandBar> (see src/components/TopCommandBar.tsx).
+   Chip primitive - reused by <BrowserSessionBadge>. The topbar was
+   removed (its controls live in <Sidebar>), but the chip vocabulary
+   stays because badges still render inline in the sidebar footer and
+   in a few page toolbars. `.topbar-chip` keeps its class name for
+   backward-compat; `.sidebar-chip` above is the canonical alias.
    ================================================================ */
-.topbar-cluster {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-}
-
-/* Read-only status chip: KEY value (profile, variant, sessions) */
 .topbar-chip {
   display: inline-flex;
   align-items: center;
@@ -1517,31 +2348,6 @@ html.reduced-effects .dot--running { animation: none; }
   min-width: 0;
 }
 
-/* Interactive chip: theme / reduced-effects toggles */
-.topbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  height: 22px;
-  padding: 0 var(--sp-2);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text-2);
-  font-size: var(--text-xs);
-  font-family: var(--font-mono);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color var(--tx-fast), color var(--tx-fast), border-color var(--tx-fast);
-}
-
-.topbar-toggle:hover { background: var(--color-surface-3); color: var(--color-text); }
-.topbar-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
-.topbar-toggle[aria-pressed="true"] {
-  border-color: var(--color-accent-dim);
-  color: var(--color-accent);
-}
-
 /* Dot + label pairing used by <AutomationStatusBadge> and friends */
 .status-inline {
   display: inline-flex;
@@ -1557,7 +2363,7 @@ html.reduced-effects .dot--running { animation: none; }
 }
 
 /* ================================================================
-   Inline warning banner — <DuplicateUrlWarning> and future notices
+   Inline warning banner - <DuplicateUrlWarning> and future notices
    ================================================================ */
 .inline-warning {
   display: flex;
@@ -1577,7 +2383,16 @@ html.reduced-effects .dot--running { animation: none; }
   color: var(--color-text-2);
 }
 
-.inline-warning__body { flex: 1; min-width: 0; }
+.inline-warning--danger {
+  background: var(--color-danger-dim);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.inline-warning__body {
+  flex: 1;
+  min-width: 0;
+}
 
 .inline-warning__url {
   font-family: var(--font-mono);
@@ -1593,16 +2408,21 @@ html.reduced-effects .dot--running { animation: none; }
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 1;
   flex-shrink: 0;
   opacity: 0.75;
 }
-.inline-warning__dismiss:hover { opacity: 1; }
-.inline-warning__dismiss:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.inline-warning__dismiss:hover {
+  opacity: 1;
+}
+.inline-warning__dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
 
 /* ================================================================
-   Chart card — <ChartCard> gives a titled, fixed-min-height canvas
+   Chart card - <ChartCard> gives a titled, fixed-min-height canvas
    ================================================================ */
 .chart-card__canvas {
   min-height: 160px;
@@ -1616,7 +2436,7 @@ html.reduced-effects .dot--running { animation: none; }
 }
 
 /* ================================================================
-   Skip navigation link — appears on keyboard focus only.
+   Skip navigation link - appears on keyboard focus only.
    position:fixed escapes the overflow:hidden on .app-shell.
    ================================================================ */
 .skip-link {
@@ -1633,7 +2453,7 @@ html.reduced-effects .dot--running { animation: none; }
   font-family: var(--font-ui);
   text-decoration: none;
   white-space: nowrap;
-  /* Hidden visually until focused — clip-path avoids layout shift */
+  /* Hidden visually until focused - clip-path avoids layout shift */
   clip-path: inset(50%);
   width: 1px;
   height: 1px;
@@ -1651,11 +2471,464 @@ html.reduced-effects .dot--running { animation: none; }
 }
 
 /* ================================================================
-   Overlay surface helper — menus/popovers inherit elevation tokens
+   Overlay surface helper - menus/popovers inherit elevation tokens
    ================================================================ */
 .overlay-surface {
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-2);
+}
+
+/* ================================================================
+   Event-log toggle - collapses the right rail; body reflows to 1col
+   Consumed by <AppLayout> via .app-body--no-drawer.
+   ================================================================ */
+.app-body--no-drawer {
+  grid-template-columns: 1fr;
+}
+
+/* ================================================================
+   Switch - <Switch> toggle. button[role="switch"] + CSS-only knob.
+   ================================================================ */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* WCAG 2.5.8: guarantee a >=24px pointer target. The knob track stays a
+     visual 34x20; min-height centres it in a 24px hit box (no visual change). */
+  min-height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+
+.switch__track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  transition:
+    background-color var(--tx-fast),
+    border-color var(--tx-fast),
+    box-shadow var(--tx-fast);
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  transition:
+    transform var(--tx-base),
+    background-color var(--tx-fast),
+    box-shadow var(--tx-fast);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.switch[aria-checked="true"] .switch__track {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.switch[aria-checked="true"] .switch__thumb {
+  transform: translateX(14px);
+  background: var(--color-text-inverse);
+}
+
+.switch:hover:not(:disabled) .switch__track {
+  border-color: var(--color-border-strong);
+}
+.switch:hover:not(:disabled)[aria-checked="true"] .switch__track {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+.switch:focus-visible {
+  outline: none;
+}
+.switch:focus-visible .switch__track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.switch__label {
+  line-height: 1;
+}
+
+/* ── AI provider settings (Settings ▸ AI Providers) ──────────────────────── */
+/* First-class default-provider picker: a row of selectable, icon-led pills. */
+.ai-provider-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.ai-provider-picker__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.ai-provider-picker__item:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ai-provider-picker__item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.ai-provider-picker__item.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+  color: var(--color-accent-text);
+}
+
+.ai-provider-picker__label {
+  line-height: 1;
+}
+
+.ai-provider-picker__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.ai-provider-picker__dot.is-configured {
+  background: var(--color-success);
+  opacity: 1;
+}
+
+/* Provider card header: icon-led title + configured/default status cluster. */
+.ai-provider__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ai-provider__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ai-provider__status {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ai-provider__status.is-configured {
+  color: var(--color-success);
+}
+
+/* ── Screen-reader only utility ─────────────────────────────────────── */
+/* Hides content visually while keeping it in the AT reading order.
+   Used by KpiCard to expose the final (non-animated) value to SR
+   independently of the aria-hidden animating sibling.                  */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ================================================================
+   Form-row grid - pair fields side-by-side.
+   Used by <FormRow> and directly on markup (`.form-row`). Fields
+   collapse to a single column below the container breakpoint so
+   narrow drawers stay legible without special-casing every page.
+   ================================================================ */
+.form-row {
+  display: grid;
+  gap: var(--sp-3) var(--sp-4);
+  grid-template-columns: repeat(var(--form-row-cols, 2), minmax(0, 1fr));
+  align-items: start;
+}
+.form-row--3 {
+  --form-row-cols: 3;
+}
+.form-row--4 {
+  --form-row-cols: 4;
+}
+
+.form-row > .field--span-2 {
+  grid-column: span 2;
+}
+.form-row > .field--span-full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .form-row,
+  .form-row--3,
+  .form-row--4 {
+    grid-template-columns: 1fr;
+  }
+  .form-row > .field--span-2,
+  .form-row > .field--span-full {
+    grid-column: auto;
+  }
+}
+
+/* ================================================================
+   Responsive shell.
+   The cockpit is a desktop-first Tauri window (frontend framework
+   for BackupRestorePanel, ApplicationsQueue, AutomationCockpit &
+   friends), but the window is resizable and users routinely dock
+   it to a half-screen split. Rules below keep the three-pane grid
+   readable down to ~640px without JS layout changes and without
+   collapsing the sidebar into a hamburger drawer (nav is only ~6
+   text links - truncation reads better than an off-screen menu).
+
+   Break points:
+     ≤ 1180px  → event-log drawer collapses (redundant with the
+                 status bar and easy to re-open via the topbar).
+     ≤ 900px   → sidebar narrows so ~60% of viewport goes to
+                 primary content.
+     ≤ 720px   → topbar chip cluster overflows horizontally rather
+                 than wrapping onto row 2 (never wanted to steal
+                 vertical space from the main region).
+   ================================================================ */
+@media (max-width: 1180px) {
+  .app-body {
+    grid-template-columns: 1fr !important;
+  }
+  .event-log-drawer {
+    display: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --sidebar-w: 168px;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --sidebar-w: 152px;
+    --topbar-h: 44px; /* chips get one extra px each edge on touch-ish */
+  }
+  .topbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar > * {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --sidebar-w: 48px;
+  }
+  .sidebar-brand,
+  .nav-group__label,
+  .nav-link__label {
+    /* Fall back to icon-only rows once page lanes provide nav-icons.
+       Until then, keep labels but rely on truncate. */
+    max-width: 100%;
+  }
+}
+
+/* ---- Content-grid reflow --------------------------------------
+   The fixed-column workspace grids (dashboard, cockpit, analysis, the two/
+   three-pane master-detail layouts) are sized for a full desktop window. When
+   the window is docked to a half-screen split they'd otherwise crush their
+   side rails to unreadable widths, so collapse them in two steps. This is the
+   GLOBAL shell only - page lanes still own their intra-panel tweaks.
+     .stat-grid / .form-grid are auto-fill and already reflow on their own;
+     .form-grid still gets a hard single-column at narrow so labelled controls
+     stop sitting two-up in a phone-width drawer.
+
+     ≤ 900px (tablet / half-screen) → side rails drop under main content.
+     ≤ 640px (narrow)              → every workspace grid is a single column. */
+@media (max-width: 900px) {
+  .dash-grid,
+  .cockpit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .two-pane,
+  .two-pane--narrow {
+    grid-template-columns: 180px 1fr;
+  }
+
+  /* Keep list + main side by side, push the third (detail) panel full-width
+     below so it isn't squeezed into a sliver. */
+  .three-pane {
+    grid-template-columns: 200px 1fr;
+  }
+  .three-pane__panel:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .three-pane__panel:nth-child(3) + .three-pane__panel {
+    border-left: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .analysis-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Master-detail panes stack: list on top with a capped height so the detail
+     region below always stays reachable without an inner scroll trap. */
+  .two-pane,
+  .two-pane--narrow,
+  .three-pane {
+    grid-template-columns: 1fr;
+  }
+
+  .two-pane__list {
+    max-height: 42vh;
+  }
+
+  .three-pane__panel + .three-pane__panel {
+    border-left: none;
+  }
+  .three-pane__panel:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+/* Any grid container with `.grid-template-columns: repeat(N, 1fr)` from
+   inline styles used by legacy pages still needs a min-width:0 escape
+   valve so long text (URLs, provider names, filenames) never blows the
+   layout. Applying globally to descendants of `.app-main` is safe. */
+.app-main :is(.field, .card, .stat-tile, .panel, .three-panel__panel) {
+  min-width: 0;
+}
+.app-main :is(input, select, textarea) {
+  max-width: 100%;
+}
+
+/* ================================================================
+   Small shared primitives - motion & focus ring.
+   These are used across new form controls and reused by page lanes.
+   ================================================================ */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Sub-label, e.g. inline "optional" or "auto-filled" hint next to a
+   field label. Kept intentionally small - larger than field__helper
+   would fight for attention with real error text. */
+.field__hint {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  margin-left: var(--sp-1);
+  font-weight: var(--fw-medium);
+}
+
+/* Kbd hint used inside input helper rows and Command-Palette entries. */
+.kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* ================================================================
+   Drag-to-pan navigation - scroll like a phone.
+   The app hides scrollbar chrome everywhere while keeping scrolling
+   fully functional (wheel / keyboard / drag / native touch). NO
+   `overflow` value is changed here - only the visible bar is removed,
+   matching the existing precedent on .topbar and .event-log-scroll.
+   ================================================================ */
+* {
+  scrollbar-width: none; /* Firefox */
+}
+*::-webkit-scrollbar {
+  display: none; /* WebKit / Blink (Tauri = WebKitGTK) */
+}
+
+/* Grab-cursor affordance across the workspace subtree so the pan gesture
+   is discoverable. Interactive controls reassert their own cursors below,
+   so text fields, links and buttons are never given the grab hint.
+   `touch-action` is deliberately left at its default so native kinetic
+   touch scrolling keeps working on touch devices. */
+.app-main {
+  cursor: grab;
+}
+.app-main :is(button, a, label, [role="button"], [role="switch"], .switch) {
+  cursor: pointer;
+}
+.app-main :is(input, textarea, select, [contenteditable]) {
+  cursor: auto;
+}
+.app-main
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    [contenteditable]
+  ) {
+  cursor: text;
+}
+
+/* Active-drag state set by useDragScroll on <html>: lock the grabbing
+   cursor everywhere and suppress text selection for the duration of a pan. */
+html.is-dragscroll,
+html.is-dragscroll * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }

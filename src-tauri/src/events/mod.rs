@@ -43,6 +43,11 @@ pub enum AppEventType {
     AutomationEvidenceSaved,
     #[serde(rename = "automation.stopped")]
     AutomationStopped,
+    /// Authoritative automation lifecycle state for the cockpit, driven by the
+    /// backend engine (never guessed optimistically by the frontend). Payload:
+    /// `{ state: "<AutomationState>", taskId?: string, detail?: string }`.
+    #[serde(rename = "automation.state")]
+    AutomationStateChanged,
     #[serde(rename = "log")]
     Log,
 }

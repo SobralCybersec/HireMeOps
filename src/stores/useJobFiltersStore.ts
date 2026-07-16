@@ -21,7 +21,6 @@ interface JobFiltersStoreState {
 
 export const useJobFiltersStore = create<JobFiltersStoreState>((set) => ({
   filters: DEFAULT_FILTERS,
-  setFilter: (key, value) =>
-    set((state) => ({ filters: { ...state.filters, [key]: value } })),
+  setFilter: (key, value) => set((state) => ({ filters: { ...state.filters, [key]: value } })),
   reset: () => set({ filters: DEFAULT_FILTERS }),
 }));

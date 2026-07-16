@@ -1,8 +1,8 @@
-// pdf.js integration — worker config, a document cache, and a page-1 thumbnail
+// pdf.js integration - worker config, a document cache, and a page-1 thumbnail
 // cache. Everything renders against the `CvBytesLoader` seam (see types.ts).
 //
 // The worker is imported with Vite's `?url` suffix so it is fingerprinted and
-// bundled into the app — no network / CDN fetch, which matters for an offline
+// bundled into the app - no network / CDN fetch, which matters for an offline
 // Tauri desktop build.
 
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
@@ -13,7 +13,7 @@ import type { CvBytesLoader } from "./types";
 GlobalWorkerOptions.workerSrc = PdfWorkerUrl;
 
 /**
- * SEAM — proposed backend command name. NOT yet implemented on the Rust side;
+ * SEAM - proposed backend command name. NOT yet implemented on the Rust side;
  * `safeInvoke` swallows the "command not found" rejection and returns null, so
  * the UI degrades gracefully until this command exists. When wiring the
  * backend, implement a `#[tauri::command] cv_read_bytes(cv_id) -> Vec<u8>` (or
@@ -34,14 +34,17 @@ export const defaultCvBytesLoader: CvBytesLoader = async (cvId) => {
 
 const docCache = new Map<string, Promise<PDFDocumentProxy | null>>();
 
-export function loadCvDocument(cvId: string, loader: CvBytesLoader): Promise<PDFDocumentProxy | null> {
+export function loadCvDocument(
+  cvId: string,
+  loader: CvBytesLoader,
+): Promise<PDFDocumentProxy | null> {
   const existing = docCache.get(cvId);
   if (existing) return existing;
 
   const pending = (async (): Promise<PDFDocumentProxy | null> => {
     const bytes = await loader(cvId);
     if (!bytes) return null;
-    // getDocument transfers/consumes the buffer — hand it a private copy so the
+    // getDocument transfers/consumes the buffer - hand it a private copy so the
     // cached array (and any re-load) stays valid.
     const data = bytes.slice(0);
     return await getDocument({ data }).promise;
@@ -71,7 +74,7 @@ export function clearCvDocumentCache(): void {
 const thumbCache = new Map<string, string>();
 const thumbInflight = new Map<string, Promise<string | null>>();
 
-/** Synchronous cache peek — lets components render instantly on re-mount. */
+/** Synchronous cache peek - lets components render instantly on re-mount. */
 export function getCachedThumb(cvId: string): string | null {
   return thumbCache.get(cvId) ?? null;
 }

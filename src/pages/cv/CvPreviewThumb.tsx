@@ -43,7 +43,12 @@ export function CvPreviewThumb({ cv, loader }: CvPreviewThumbProps) {
   return (
     <div ref={rootRef} className="cv-card__preview cvx-thumb" data-status={status}>
       {status === "ready" && src ? (
-        <img className="cvx-thumb__img" src={src} alt={`First page of ${cv.fileName}`} loading="lazy" />
+        <img
+          className="cvx-thumb__img"
+          src={src}
+          alt={`First page of ${cv.fileName}`}
+          loading="lazy"
+        />
       ) : status === "loading" ? (
         <div className="cvx-skel" aria-hidden="true" />
       ) : (

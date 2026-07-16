@@ -1,6 +1,23 @@
 import { useState } from "react";
-import { Card, Button, Badge } from "../../components/ui";
+import { Badge, Button, Card } from "../../components/ui";
 import type { AiProviderSettings } from "../../types/settings";
+import { invokeStrict } from "../../lib/tauriInvoke";
+import { ProviderIcon } from "./ProviderIcon";
+import { isProviderConfigured } from "./providerMeta";
+import { BrowserProviderPanel } from "./BrowserProviderPanel";
+
+const META: Record<
+  AiProviderSettings["kind"],
+  { label: string; endpointHint: string; modelHint: string }
+> = {
+  browser: {
+    label: "Browser (free)",
+    // Browser has no endpoint/API key; the model hint documents the
+    // "<site>/<model>" encoding surfaced by BrowserProviderPanel.
+    endpointHint: "",
+    modelHint: "chatgpt/gpt-5",
+  },
+};
 
 export interface AiProviderFormProps {
   kind: AiProviderSettings["kind"];
@@ -9,32 +26,6 @@ export interface AiProviderFormProps {
   onUpdate: (patch: Partial<Omit<AiProviderSettings, "kind">>) => void;
   onSetDefault: () => void;
 }
-
-const META: Record<
-  AiProviderSettings["kind"],
-  { label: string; endpointHint: string; modelHint: string }
-> = {
-  openai: {
-    label: "OpenAI-compatible",
-    endpointHint: "https://api.openai.com/v1",
-    modelHint: "gpt-4o",
-  },
-  anthropic: {
-    label: "Anthropic-compatible",
-    endpointHint: "https://api.anthropic.com",
-    modelHint: "claude-3-5-sonnet-20241022",
-  },
-  ollama: {
-    label: "Ollama / local",
-    endpointHint: "http://localhost:11434",
-    modelHint: "llama3.2",
-  },
-  custom: {
-    label: "Custom proxy",
-    endpointHint: "https://proxy.example.com/v1",
-    modelHint: "provider/model",
-  },
-};
 
 /** Single AI-provider config card. Parent owns the aiProviders array. */
 export function AiProviderForm({
@@ -45,74 +36,62 @@ export function AiProviderForm({
   onSetDefault,
 }: AiProviderFormProps) {
   const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    errorKind?: string | null;
+  } | null>(null);
   const m = META[kind];
+  const configured = isProviderConfigured(value);
 
-  function handleTest() {
-    // ponytail: no test_provider backend command yet — visual stub only
+  /** Propagate field edits to the parent and clear any stale test result. */
+  function handleUpdate(patch: Partial<Omit<AiProviderSettings, "kind">>) {
+    setTestResult(null);
+    onUpdate(patch);
+  }
+
+  /** Fire a real end-to-end reachability probe via the Rust backend. */
+  async function handleTest() {
     setTesting(true);
-    setTimeout(() => setTesting(false), 800);
+    setTestResult(null);
+    try {
+      const result = await invokeStrict<{
+        ok: boolean;
+        message: string;
+        errorKind?: string | null;
+      }>("test_provider", {
+        kind: value.kind,
+        endpointUrl: value.endpointUrl,
+        defaultModel: value.defaultModel,
+        authKind: value.authKind,
+      });
+      setTestResult(result);
+    } catch (err) {
+      setTestResult({ ok: false, message: String(err) });
+    } finally {
+      setTesting(false);
+    }
   }
 
   return (
     <div style={{ marginBottom: "var(--sp-3)" }}>
       <Card
-        title={m.label}
-        actions={isDefault ? <Badge variant="success">Default</Badge> : null}
+        title={
+          <span className="ai-provider__title">
+            <ProviderIcon kind={kind} size={18} />
+            {m.label}
+          </span>
+        }
+        actions={
+          <span className="ai-provider__meta">
+            <span className={`ai-provider__status${configured ? " is-configured" : ""}`}>
+              {configured ? "Configured" : "Not configured"}
+            </span>
+            {isDefault ? <Badge variant="success">Default</Badge> : null}
+          </span>
+        }
       >
-        <div className="form-grid">
-          <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label className="field__label" htmlFor={`ep-${kind}`}>
-              Endpoint URL
-            </label>
-            <input
-              id={`ep-${kind}`}
-              type="url"
-              className="field__input"
-              value={value.endpointUrl}
-              placeholder={m.endpointHint}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "var(--text-xs)",
-              }}
-              onChange={(e) => onUpdate({ endpointUrl: e.target.value })}
-            />
-          </div>
-
-          <div className="field">
-            <label className="field__label" htmlFor={`mdl-${kind}`}>
-              Default model
-            </label>
-            <input
-              id={`mdl-${kind}`}
-              type="text"
-              className="field__input"
-              value={value.defaultModel}
-              placeholder={m.modelHint}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "var(--text-xs)",
-              }}
-              onChange={(e) => onUpdate({ defaultModel: e.target.value })}
-            />
-          </div>
-
-          <div className="field">
-            <span className="field__label">API key</span>
-            <label
-              className="check-label"
-              style={{ marginTop: "var(--sp-2)" }}
-            >
-              <input
-                type="checkbox"
-                checked={value.apiKeyStored}
-                onChange={(e) => onUpdate({ apiKeyStored: e.target.checked })}
-              />
-              {value.apiKeyStored
-                ? "Stored in system keychain"
-                : "Not stored"}
-            </label>
-          </div>
-        </div>
+        <BrowserProviderPanel value={value} onUpdate={handleUpdate} />
 
         <div
           style={{
@@ -121,13 +100,8 @@ export function AiProviderForm({
             marginTop: "var(--sp-3)",
           }}
         >
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={testing}
-            onClick={handleTest}
-          >
-            {testing ? "Testing…" : "Test provider"}
+          <Button variant="ghost" size="sm" disabled={testing} onClick={handleTest}>
+            {testing ? "Testing..." : "Test provider"}
           </Button>
           {!isDefault && (
             <Button variant="ghost" size="sm" onClick={onSetDefault}>
@@ -135,6 +109,21 @@ export function AiProviderForm({
             </Button>
           )}
         </div>
+
+        {testResult !== null && (
+          <div
+            className={`provider-test-result${testResult.ok ? " is-ok" : " is-error"}`}
+            style={{
+              marginTop: "var(--sp-2)",
+              fontSize: "var(--text-xs)",
+              color: testResult.ok
+                ? "var(--color-success, #22c55e)"
+                : "var(--color-danger, #ef4444)",
+            }}
+          >
+            {testResult.message}
+          </div>
+        )}
       </Card>
     </div>
   );

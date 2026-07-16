@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub const CV_ANALYSIS_PROMPT_VERSION: &str = "cv-analysis-v1";
 
 /// Bump when the application-draft prompt wording changes.
-pub const DRAFT_PROMPT_VERSION: &str = "app-draft-v1";
+pub const DRAFT_PROMPT_VERSION: &str = "app-draft-v2";
 
 /// Cap CV / job text fed to the model so a huge document can't blow the context
 /// window or the prompt-token budget. Generous enough for a multi-page CV.
@@ -131,6 +131,14 @@ pub struct DraftInput<'a> {
     pub cv_text: Option<&'a str>,
     /// The role-variant headline/target, when a variant is pinned.
     pub variant_target: Option<&'a str>,
+    /// Hiring-manager name scraped from the job page (if already known at
+    /// draft time).  When present the AI addresses the letter directly rather
+    /// than falling back to a generic salutation; the `{{hr_name}}` template
+    /// placeholder is still substituted in the automation layer for cases where
+    /// the name is discovered only at form-fill time.
+    pub hr_name: Option<&'a str>,
+    /// Hiring-manager LinkedIn profile URL (companion to `hr_name`).
+    pub hr_link: Option<&'a str>,
 }
 
 /// A single application-form question/answer pair produced by the model.
@@ -193,6 +201,12 @@ pub fn draft_prompt(input: &DraftInput) -> String {
         .filter(|t| !t.is_empty())
     {
         s.push_str(&format!("Summary: {sum}\n"));
+    }
+    if let Some(n) = input.hr_name.map(str::trim).filter(|t| !t.is_empty()) {
+        s.push_str(&format!("\nHIRING MANAGER\nName: {n}\n"));
+        if let Some(l) = input.hr_link.map(str::trim).filter(|t| !t.is_empty()) {
+            s.push_str(&format!("Profile: {l}\n"));
+        }
     }
     if let Some(cv) = input.cv_text.map(str::trim).filter(|t| !t.is_empty()) {
         s.push_str(&format!("\nCV CONTENT:\n{}", clip(cv)));
@@ -354,6 +368,8 @@ mod tests {
             candidate_summary: Some("10y backend."),
             cv_text: Some("EXPERIENCE: Rust everywhere."),
             variant_target: Some("Backend Engineer"),
+            hr_name: Some("Alice Wong"),
+            hr_link: Some("https://linkedin.com/in/awong"),
         };
         let p = draft_prompt(&input);
         assert!(p.contains("Senior Rust Engineer"));

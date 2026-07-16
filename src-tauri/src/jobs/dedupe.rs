@@ -126,4 +126,54 @@ mod tests {
             .unwrap();
         assert_eq!(out, DedupeOutcome::Unique);
     }
+
+    #[tokio::test]
+    async fn returns_earliest_when_multiple_exist() {
+        let pool = mem_pool().await;
+        // Late row inserted first, early row second — query must return the earliest.
+        sqlx::query(
+            "INSERT INTO job_posts (id, profile_id, platform, url, canonical_url, discovered_at) \
+             VALUES ('job-late', 'p1', 'linkedin', 'https://linkedin.com/jobs/1', \
+                     'https://linkedin.com/jobs/1', '2024-06-02T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO job_posts (id, profile_id, platform, url, canonical_url, discovered_at) \
+             VALUES ('job-early', 'p1', 'linkedin', 'https://linkedin.com/jobs/1', \
+                     'https://linkedin.com/jobs/1', '2024-06-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
+        assert_eq!(
+            out,
+            DedupeOutcome::Duplicate {
+                existing_id: "job-early".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn null_canonical_url_does_not_match_non_null() {
+        let pool = mem_pool().await;
+        sqlx::query(
+            "INSERT INTO job_posts (id, profile_id, platform, url, canonical_url) \
+             VALUES ('job-null', 'p1', 'linkedin', 'https://linkedin.com/jobs/1', NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // The WHERE clause is canonical_url = ?3, which is NULL != 'https://…' in SQL.
+        let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1")
+            .await
+            .unwrap();
+        assert_eq!(out, DedupeOutcome::Unique);
+    }
 }

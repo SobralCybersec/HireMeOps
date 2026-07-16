@@ -16,7 +16,7 @@ use super::{DomainError, DomainResult};
 use crate::ai::prompt::{
     draft_prompt, draft_system, parse_draft, DraftInput, DRAFT_PROMPT_VERSION,
 };
-use crate::ai::{api_key_from_env, complete_cached, input_hash, select_provider};
+use crate::ai::{complete_cached, input_hash, select_provider_resolved};
 use crate::cv::{self, DocKind};
 use crate::domain::ai::CompletionRequest;
 use crate::storage::settings::load_ai_providers;
@@ -162,10 +162,29 @@ impl ApplicationService for ApplicationServiceImpl {
             None => (None, None),
         };
 
+        // If an automation run already scraped the hiring-manager card for this
+        // job+profile pair, pull it through so the AI prompt can address them by
+        // name rather than falling back to a generic salutation.
+        let (hr_name_owned, hr_link_owned): (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT hr_name, hr_link
+             FROM automation_tasks
+             WHERE task_type = 'apply_job'
+               AND target_id  = ?1
+               AND profile_id = ?2
+               AND hr_name IS NOT NULL
+             ORDER BY updated_at DESC
+             LIMIT 1",
+        )
+        .bind(&job_id)
+        .bind(&profile_id)
+        .fetch_optional(&self.db)
+        .await?
+        .unwrap_or((None, None));
+
         // Select the configured provider; the API key is env-resolved (not stored
         // unencrypted). A disabled/empty provider surfaces a clear error on call.
         let (providers, default_index) = load_ai_providers(&self.db).await?;
-        let provider = select_provider(&providers, default_index, api_key_from_env());
+        let provider = select_provider_resolved(&providers, default_index).await;
         // Fail fast before building the prompt / touching the cache: a disabled
         // provider can never complete, so surface the clear error here.
         if provider.is_disabled() {
@@ -183,6 +202,11 @@ impl ApplicationService for ApplicationServiceImpl {
             candidate_summary: candidate_summary.as_deref(),
             cv_text: cv_text.as_deref(),
             variant_target: variant_target.as_deref(),
+            // If the automation engine already scraped the hiring-manager card
+            // for this job, hand it to the model so it can address the letter
+            // directly rather than relying on post-generation substitution.
+            hr_name: hr_name_owned.as_deref(),
+            hr_link: hr_link_owned.as_deref(),
         };
 
         let req = CompletionRequest {
@@ -232,6 +256,7 @@ impl ApplicationService for ApplicationServiceImpl {
     }
 
     async fn submit(&self, application_draft_id: &str) -> DomainResult<String> {
+        let mut tx = self.db.begin().await?;
         // Load the draft we're submitting.
         let (job_id, profile_id, cover_letter, form_answers_json): (
             String,
@@ -243,17 +268,30 @@ impl ApplicationService for ApplicationServiceImpl {
              FROM application_drafts WHERE id = ?1",
         )
         .bind(application_draft_id)
-        .fetch_optional(&self.db)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| {
             DomainError::InvalidInput(format!("unknown application_draft: {application_draft_id}"))
         })?;
 
+        // Repeated clicks/retries return the existing run instead of turning the
+        // draft into a false duplicate or enqueuing a second browser task.
+        if let Some(run_id) = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM application_runs WHERE draft_id = ?1 ORDER BY started_at LIMIT 1",
+        )
+        .bind(application_draft_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(run_id);
+        }
+
         // Resolve the job's platform + canonical URL (fall back to the raw url).
         let (platform, url, canonical_url): (String, String, Option<String>) =
             sqlx::query_as("SELECT platform, url, canonical_url FROM job_posts WHERE id = ?1")
                 .bind(&job_id)
-                .fetch_optional(&self.db)
+                .fetch_optional(&mut *tx)
                 .await?
                 .ok_or_else(|| {
                     DomainError::InvalidInput(format!("draft references unknown job: {job_id}"))
@@ -272,19 +310,38 @@ impl ApplicationService for ApplicationServiceImpl {
         .bind(&profile_id)
         .bind(&platform)
         .bind(&canonical)
-        .fetch_optional(&self.db)
+        .fetch_optional(&mut *tx)
         .await?;
 
         if existing_lock.is_some() {
             let run_id = Uuid::new_v4().to_string();
-            self.record_skipped_run(
-                &run_id,
-                application_draft_id,
-                &job_id,
-                &profile_id,
-                &platform,
+            sqlx::query(
+                "INSERT INTO application_runs
+                   (id, draft_id, job_id, profile_id, platform, mode, status, attempt,
+                    started_at, finished_at, failure_reason)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'skipped_duplicate_url', 1,
+                         ?6, ?6, 'duplicate application URL for this profile')",
             )
+            .bind(&run_id)
+            .bind(application_draft_id)
+            .bind(&job_id)
+            .bind(&profile_id)
+            .bind(&platform)
+            .bind(&now)
+            .execute(&mut *tx)
             .await?;
+            sqlx::query(
+                "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
+            )
+            .bind(&now)
+            .bind(application_draft_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
+                .bind(&job_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
             return Ok(run_id);
         }
 
@@ -303,7 +360,7 @@ impl ApplicationService for ApplicationServiceImpl {
         .bind(&profile_id)
         .bind(&platform)
         .bind(&now)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
 
         // Acquire the lock. The UNIQUE(profile_id, platform, canonical_url) index
@@ -320,7 +377,7 @@ impl ApplicationService for ApplicationServiceImpl {
         .bind(&job_id)
         .bind(&run_id)
         .bind(&now)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await;
 
         if let Err(e) = lock_result {
@@ -335,8 +392,20 @@ impl ApplicationService for ApplicationServiceImpl {
                 )
                 .bind(&now)
                 .bind(&run_id)
-                .execute(&self.db)
+                .execute(&mut *tx)
                 .await?;
+                sqlx::query(
+                    "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
+                )
+                .bind(&now)
+                .bind(application_draft_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
+                    .bind(&job_id)
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
                 return Ok(run_id);
             }
             return Err(DomainError::Storage(e));
@@ -361,7 +430,7 @@ impl ApplicationService for ApplicationServiceImpl {
         .bind(&run_id) // target_id -> the run this task fulfills
         .bind(&payload)
         .bind(&now)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
 
         // Move the draft + job into the in-flight state.
@@ -370,56 +439,15 @@ impl ApplicationService for ApplicationServiceImpl {
         )
         .bind(&now)
         .bind(application_draft_id)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
         sqlx::query("UPDATE job_posts SET status = 'queued' WHERE id = ?1")
             .bind(&job_id)
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await?;
 
+        tx.commit().await?;
         Ok(run_id)
-    }
-}
-
-impl ApplicationServiceImpl {
-    /// Record a run that was skipped because the URL is already locked for this
-    /// profile, and reflect the skip on the draft + job. Never applies.
-    async fn record_skipped_run(
-        &self,
-        run_id: &str,
-        draft_id: &str,
-        job_id: &str,
-        profile_id: &str,
-        platform: &str,
-    ) -> DomainResult<()> {
-        let now = now_iso();
-        sqlx::query(
-            "INSERT INTO application_runs
-               (id, draft_id, job_id, profile_id, platform, mode, status, attempt,
-                started_at, finished_at, failure_reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'skipped_duplicate_url', 1,
-                     ?6, ?6, 'duplicate application URL for this profile')",
-        )
-        .bind(run_id)
-        .bind(draft_id)
-        .bind(job_id)
-        .bind(profile_id)
-        .bind(platform)
-        .bind(&now)
-        .execute(&self.db)
-        .await?;
-        sqlx::query(
-            "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
-        )
-        .bind(&now)
-        .bind(draft_id)
-        .execute(&self.db)
-        .await?;
-        sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
-            .bind(job_id)
-            .execute(&self.db)
-            .await?;
-        Ok(())
     }
 }
 
@@ -572,6 +600,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(job_status, "queued");
+    }
+
+    #[tokio::test]
+    async fn repeated_submit_of_same_draft_is_idempotent() {
+        let pool = mem_pool().await;
+        insert_profile(&pool, "p1").await;
+        insert_job(&pool, "j1", "p1", "https://linkedin.com/jobs/view/2").await;
+        insert_draft(&pool, "d1", "j1", "p1").await;
+
+        let svc = service(pool.clone());
+        let first = svc.submit("d1").await.unwrap();
+        let second = svc.submit("d1").await.unwrap();
+
+        assert_eq!(second, first);
+        let runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM application_runs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM automation_tasks")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(runs, 1);
+        assert_eq!(tasks, 1);
     }
 
     #[tokio::test]

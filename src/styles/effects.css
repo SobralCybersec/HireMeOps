@@ -1,5 +1,5 @@
 /* ================================================================
-   HireMeOps — Central Effects / Motion Layer
+   HireMeOps - Central Effects / Motion Layer
    src/styles/effects.css
 
    Load order: after theme.css (see src/main.tsx).
@@ -8,19 +8,19 @@
    animations and motion utility classes in HireMeOps. It works in
    concert with two other pieces:
 
-     • src/styles/theme.css  — design tokens (--tx-*, --ease-*) and
+     • src/styles/theme.css  - design tokens (--tx-*, --ease-*) and
                                the .reduced-effects global guard, which
                                sets `animation-duration: 0.001ms !important`
                                on every element, auto-neutralising all
                                animations declared here.
 
-     • src/lib/effects.ts    — useReducedEffects() hook and motionSafe()
+     • src/lib/effects.ts    - useReducedEffects() hook and motionSafe()
                                helper for JS-driven animation branches
                                (e.g. skipping scroll-jank work, toggling
                                a CSS class conditionally).
 
    Conventions:
-     · Every value is a CSS custom property — no raw hex or px literals.
+     · Every value is a CSS custom property - no raw hex or px literals.
      · All keyframes use the fx-* namespace.
      · All utility classes use the .fx-* namespace.
      · Specific `html.reduced-effects` overrides are only added where
@@ -35,52 +35,78 @@
    ================================================================ */
 
 /**
- * fx-fade-up — primary entrance for cards, tiles, panels.
+ * fx-fade-up - primary entrance for cards, tiles, panels.
  * A 4-px lift (--sp-1) keeps the translate imperceptible on fast
  * machines while still reading as intentional motion.
  */
 @keyframes fx-fade-up {
-  from { opacity: 0; transform: translateY(var(--sp-1)); }
-  to   { opacity: 1; transform: translateY(0);           }
+  from {
+    opacity: 0;
+    transform: translateY(var(--sp-1));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /**
- * fx-fade-in — flat entrance for surfaces that shouldn't translate:
+ * fx-fade-in - flat entrance for surfaces that shouldn't translate:
  * chart canvases, modals, overlay panels, log stream items.
  */
 @keyframes fx-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /**
- * fx-scale-in — subtle scale for portal/popover surfaces (drawers,
+ * fx-scale-in - subtle scale for portal/popover surfaces (drawers,
  * hover-peek cards). Paired with opacity so it doesn't feel harsh.
  */
 @keyframes fx-scale-in {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1);    }
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /**
- * fx-shimmer — moving gradient sweep for skeleton/loading states.
+ * fx-shimmer - moving gradient sweep for skeleton/loading states.
  * Background-position trick; background-size must be 200% 100%.
  * Auto-neutralised by the global .reduced-effects guard.
  */
 @keyframes fx-shimmer {
-  from { background-position: 200% 0;  }
-  to   { background-position: -200% 0; }
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 /**
- * fx-pulse-ring — radiating box-shadow ring for "running" automation.
+ * fx-pulse-ring - radiating box-shadow ring for "running" automation.
  * Uses color-mix against --status-running-text so it tracks both
  * palette themes automatically.
  */
 @keyframes fx-pulse-ring {
-  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--status-running-text) 55%, transparent); }
-  65%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-running-text) 0%,  transparent); }
-  100% { box-shadow: 0 0 0 0   color-mix(in srgb, var(--status-running-text) 0%,  transparent); }
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-running-text) 55%, transparent);
+  }
+  65% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-running-text) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-running-text) 0%, transparent);
+  }
 }
 
 /* ================================================================
@@ -88,42 +114,54 @@
    ================================================================ */
 
 /**
- * .fx-entrance — standard card / tile entrance.
+ * .fx-entrance - standard card / tile entrance.
  * Fade + 4px lift, uses --tx-entrance (220ms emphasized curve).
  * animation-fill-mode: both holds the `from` state before delay fires
- * and the `to` state indefinitely after — prevents flicker.
+ * and the `to` state indefinitely after - prevents flicker.
  */
 .fx-entrance {
   animation: fx-fade-up var(--tx-entrance) both;
 }
 
-/** .fx-entrance--fade — flat entrance, no translate. */
+/** .fx-entrance--fade - flat entrance, no translate. */
 .fx-entrance--fade {
   animation: fx-fade-in var(--tx-entrance) both;
 }
 
-/** .fx-entrance--scale — modal / drawer / portal surface entrance. */
+/** .fx-entrance--scale - modal / drawer / portal surface entrance. */
 .fx-entrance--scale {
   animation: fx-scale-in var(--tx-entrance) both;
 }
 
 /**
- * .fx-stagger-N — apply alongside any .fx-entrance* class to offset
+ * .fx-stagger-N - apply alongside any .fx-entrance* class to offset
  * sibling items by multiples of --tx-stagger (40ms each).
  *
  * Example (Dashboard stat grid):
- *   <KpiCard className="fx-stagger-1" … />
- *   <KpiCard className="fx-stagger-2" … />
+ *   <KpiCard className="fx-stagger-1" ... />
+ *   <KpiCard className="fx-stagger-2" ... />
  */
-.fx-stagger-1 { animation-delay: calc(var(--tx-stagger) * 1); }
-.fx-stagger-2 { animation-delay: calc(var(--tx-stagger) * 2); }
-.fx-stagger-3 { animation-delay: calc(var(--tx-stagger) * 3); }
-.fx-stagger-4 { animation-delay: calc(var(--tx-stagger) * 4); }
-.fx-stagger-5 { animation-delay: calc(var(--tx-stagger) * 5); }
-.fx-stagger-6 { animation-delay: calc(var(--tx-stagger) * 6); }
+.fx-stagger-1 {
+  animation-delay: calc(var(--tx-stagger) * 1);
+}
+.fx-stagger-2 {
+  animation-delay: calc(var(--tx-stagger) * 2);
+}
+.fx-stagger-3 {
+  animation-delay: calc(var(--tx-stagger) * 3);
+}
+.fx-stagger-4 {
+  animation-delay: calc(var(--tx-stagger) * 4);
+}
+.fx-stagger-5 {
+  animation-delay: calc(var(--tx-stagger) * 5);
+}
+.fx-stagger-6 {
+  animation-delay: calc(var(--tx-stagger) * 6);
+}
 
 /**
- * .fx-pulse-ring — attach to a container to emit a radiating
+ * .fx-pulse-ring - attach to a container to emit a radiating
  * box-shadow ring that signals "running" state.
  *
  * The JS side (useReducedEffects) controls whether this class is
@@ -145,14 +183,14 @@ html.reduced-effects .fx-pulse-ring {
    ================================================================ */
 
 /**
- * .skeleton — shimmer loading placeholder, usable anywhere.
+ * .skeleton - shimmer loading placeholder, usable anywhere.
  * Set width + height in context; this class supplies the gradient.
  *
  *   <div className="skeleton" style={{ width: 96, height: 128 }} />
  *
  * Auto-neutralised by .reduced-effects (animation-duration → 0.001ms).
  * Pages that already define a local shimmer (e.g. cv.css .cvx-skel)
- * can migrate to this class or leave the local one in place — both
+ * can migrate to this class or leave the local one in place - both
  * use the same keyframe name and visual result.
  */
 .skeleton {
@@ -168,15 +206,15 @@ html.reduced-effects .fx-pulse-ring {
 }
 
 /* ================================================================
-   Applied motion — stat tiles
+   Applied motion - stat tiles
    ================================================================ */
 
 /*
- * .stat-tile — entrance animation on mount (per page navigation).
+ * .stat-tile - entrance animation on mount (per page navigation).
  * Pages that want stagger pass fx-stagger-N as a className to KpiCard.
  * The base animation fires without stagger; every tile fades+lifts in.
  *
- * No component-file change required — the CSS class already exists
+ * No component-file change required - the CSS class already exists
  * on every KpiCard output; effects.css extends it here.
  *
  * Auto-neutralised by .reduced-effects guard.
@@ -186,11 +224,11 @@ html.reduced-effects .fx-pulse-ring {
 }
 
 /* ================================================================
-   Applied motion — chart card canvas
+   Applied motion - chart card canvas
    ================================================================ */
 
 /*
- * .chart-card__canvas — fades in on mount using the longer --tx-chart
+ * .chart-card__canvas - fades in on mount using the longer --tx-chart
  * (300ms) so chart content, which often arrives asynchronously, enters
  * smoothly rather than snapping in.
  *
@@ -204,17 +242,95 @@ html.reduced-effects .fx-pulse-ring {
 }
 
 /* ================================================================
-   Applied motion — live event log
+   Applied motion - page header scan accent
    ================================================================ */
 
 /*
- * .event-log-item — each streamed event fades in when React appends
- * it to the list. Provides a clear "data arriving" affordance in the
- * Automation Cockpit and the right-side event drawer.
+ * .page-header - ambient scan-line gradient that sweeps once on mount.
+ * Reads as "system initialising" on the cockpit header without being
+ * distracting. Uses a pseudo-element so it's purely decorative (no
+ * layout impact, pointer-events: none).
  *
- * Uses --tx-fast (120ms) so rapid bursts don't queue-pile visually.
+ * The animation runs once (no infinite loop). Fully neutralised by
+ * .reduced-effects (animation-duration → 0.001ms kills it instantly).
+ */
+@keyframes fx-scan-accent {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateX(200%);
+    opacity: 0;
+  }
+}
+
+.page-header {
+  position: relative;
+  overflow: hidden;
+}
+
+.page-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-accent) 12%, transparent),
+    transparent
+  );
+  animation: fx-scan-accent 1.2s var(--ease-emphasized) both;
+}
+
+html.reduced-effects .page-header::after {
+  animation: none;
+  opacity: 0;
+}
+
+/* ================================================================
+   Applied motion - filter tab active transition
+   ================================================================ */
+
+/*
+ * .filter-tab - add a subtle scale+fade on activation. This
+ * complements the background-color transition already on filter tabs
+ * with a tactile "press" feel. Transform-only, no layout cost.
+ *
  * Auto-neutralised by .reduced-effects guard.
  */
-.event-log-item {
-  animation: fx-fade-in var(--tx-fast) both;
+@keyframes fx-tab-activate {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
+
+.filter-tab.active {
+  animation: fx-tab-activate 180ms var(--ease-emphasized) both;
+}
+
+/* ================================================================
+   Applied motion - live event log
+   ================================================================ */
+
+/*
+ * .event-log-item entrance is handled entirely by the JS animation in
+ * EventLogDrawer.tsx (anime.js, opacity:[0,1] + translateX:[12,0]).
+ * A CSS animation here would conflict with the JS inline-style on the
+ * same `opacity` property (anime.js inline-style wins specificity, but
+ * the CSS animation keeps running in parallel - redundant and causes a
+ * one-frame opacity:1 flash on initial mount if useEffect fires after
+ * the CSS `animation-fill-mode:both` has already set opacity:0).
+ * The JS path already respects useReducedEffects() so no CSS guard is
+ * needed here.
+ */

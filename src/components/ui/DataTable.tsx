@@ -48,11 +48,7 @@ export function DataTable<T>({
         <thead>
           <tr>
             {columns.map((col) => (
-              <th
-                key={col.key}
-                style={{ textAlign: col.align, width: col.width }}
-                scope="col"
-              >
+              <th key={col.key} style={{ textAlign: col.align, width: col.width }} scope="col">
                 {col.header}
               </th>
             ))}
@@ -66,12 +62,10 @@ export function DataTable<T>({
               style={onRowClick ? { cursor: "pointer" } : undefined}
             >
               {columns.map((col) => (
-                <td
-                  key={col.key}
-                  className={cellClass(col)}
-                  style={{ textAlign: col.align }}
-                >
-                  {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "")}
+                <td key={col.key} className={cellClass(col)} style={{ textAlign: col.align }}>
+                  {col.render
+                    ? col.render(row)
+                    : String((row as Record<string, unknown>)[col.key] ?? "")}
                 </td>
               ))}
             </tr>

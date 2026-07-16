@@ -154,4 +154,61 @@ mod tests {
         assert_eq!(sel.variant_id, "v_x");
         assert_eq!(sel.cv_document_id, None);
     }
+
+    #[test]
+    fn multiword_keyword_phrase_matches_in_job_text() {
+        let cands = vec![
+            cand("v_rn", "Mobile Dev", &["react native", "expo"], Some("cv_rn")),
+            cand("v_web", "Web Dev", &["angular", "vue"], Some("cv_web")),
+        ];
+        let sel = select_best_cv(
+            "React Native Developer",
+            "Build mobile apps using React Native and Expo",
+            &cands,
+        )
+        .unwrap();
+        assert_eq!(sel.variant_id, "v_rn");
+    }
+
+    #[test]
+    fn ties_broken_toward_first_candidate() {
+        // Both have the same title and no keywords → ratio 0.0 for both; first wins.
+        let cands = vec![
+            cand("first", "Unrelated Role", &[], Some("cv_1")),
+            cand("second", "Unrelated Role", &[], Some("cv_2")),
+        ];
+        let sel =
+            select_best_cv("Completely Different Job", "no matching text here", &cands).unwrap();
+        assert_eq!(sel.variant_id, "first");
+    }
+
+    #[test]
+    fn single_candidate_always_wins() {
+        let cands = vec![cand("only", "Any Title", &["anything"], None)];
+        let sel = select_best_cv("Unrelated Role", "unrelated text", &cands).unwrap();
+        assert_eq!(sel.variant_id, "only");
+        assert_eq!(sel.cv_document_id, None);
+    }
+
+    #[test]
+    fn match_ratio_is_between_zero_and_one() {
+        let cands = vec![cand(
+            "v",
+            "Backend Engineer",
+            &["Rust", "PostgreSQL"],
+            None,
+        )];
+        let sel = select_best_cv(
+            "Backend Engineer",
+            "We use Rust and PostgreSQL",
+            &cands,
+        )
+        .unwrap();
+        assert!(
+            (0.0..=1.0).contains(&sel.match_ratio),
+            "match_ratio out of range: {}",
+            sel.match_ratio
+        );
+        assert!(sel.match_ratio > 0.0, "strong match should be > 0");
+    }
 }

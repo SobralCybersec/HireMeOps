@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../../components/ui";
+import "./DataCleanupPanel.css";
 
 interface CleanupItem {
   key: string;
@@ -55,7 +56,7 @@ export function DataCleanupPanel() {
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
 
   function execute(key: string) {
-    // ponytail: cleanup backend commands not wired yet — stub only
+    // ponytail: cleanup backend commands not wired yet - stub only
     console.debug("[DataCleanupPanel] stub:", key);
     setConfirmKey(null);
   }
@@ -70,19 +71,8 @@ export function DataCleanupPanel() {
         }}
       >
         {ITEMS.map((item) => (
-          <div
-            key={item.key}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--sp-4)",
-              padding: "var(--sp-3) var(--sp-4)",
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div key={item.key} className="cleanup-row">
+            <div className="cleanup-row__info">
               <div
                 style={{
                   fontSize: "var(--text-sm)",
@@ -114,30 +104,18 @@ export function DataCleanupPanel() {
               </div>
             </div>
 
-            <div style={{ flexShrink: 0 }}>
+            <div className="cleanup-row__action">
               {confirmKey === item.key ? (
-                <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => execute(item.key)}
-                  >
+                <div className="cleanup-row__confirm">
+                  <Button variant="danger" size="sm" onClick={() => execute(item.key)}>
                     Confirm
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setConfirmKey(null)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmKey(null)}>
                     Cancel
                   </Button>
                 </div>
               ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmKey(item.key)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => setConfirmKey(item.key)}>
                   Clear
                 </Button>
               )}
@@ -150,15 +128,12 @@ export function DataCleanupPanel() {
       <div className="danger-zone">
         <p className="danger-zone__title">Factory reset</p>
         <p className="danger-zone__body">
-          Permanently wipes all profiles, jobs, applications, settings, and
-          stored data. This cannot be undone.
+          Permanently wipes all profiles, jobs, applications, settings, and stored data. This cannot
+          be undone.
         </p>
         {confirmKey === "factory_reset" ? (
-          <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-            <Button
-              variant="danger"
-              onClick={() => execute("factory_reset")}
-            >
+          <div className="danger-zone__actions">
+            <Button variant="danger" onClick={() => execute("factory_reset")}>
               Confirm factory reset
             </Button>
             <Button variant="ghost" onClick={() => setConfirmKey(null)}>
@@ -166,12 +141,8 @@ export function DataCleanupPanel() {
             </Button>
           </div>
         ) : (
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => setConfirmKey("factory_reset")}
-          >
-            Factory reset…
+          <Button variant="danger" size="sm" onClick={() => setConfirmKey("factory_reset")}>
+            Factory reset...
           </Button>
         )}
       </div>

@@ -10,7 +10,7 @@ interface StatusDotProps {
 
 /**
  * Small coloured status dot. `.dot--running` blinks unless reduced-effects
- * is active (both handled in theme.css). Decorative by default — pass a
+ * is active (both handled in theme.css). Decorative by default - pass a
  * `title` only when it carries meaning not present in adjacent text.
  */
 export function StatusDot({ variant, size = 8, title, className }: StatusDotProps) {

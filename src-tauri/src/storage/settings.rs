@@ -28,7 +28,14 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("default_ai_provider_index", "0"),
     ("audit_log_retention_days", "30"),
     ("automation_evidence_retention_days", "1"),
+    ("browser_extensions", "[]"),
 ];
+
+/// Default auth mode for a provider when the field is absent from older stored
+/// blobs. API-key (env-sourced) is the historical behaviour.
+fn default_auth_kind() -> String {
+    "api_key".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +45,11 @@ pub struct AiProviderSettings {
     pub endpoint_url: String,
     pub api_key_stored: bool,
     pub default_model: String,
+    /// How the provider authenticates: `"api_key"` (env var, default) or
+    /// `"oauth"` (subscription token held in the OS keyring). Defaulted so
+    /// provider blobs written before OAuth landed still deserialize.
+    #[serde(default = "default_auth_kind")]
+    pub auth_kind: String,
 }
 
 /// Mirrors the TypeScript `AppSettings` interface (camelCase on the wire).
@@ -56,6 +68,10 @@ pub struct AppSettings {
     pub database_path: String,
     pub audit_log_retention_days: i64,
     pub automation_evidence_retention_days: i64,
+    /// Filesystem paths to unpacked Chrome extensions loaded into the driven
+    /// browser via `--load-extension`. Empty by default.
+    #[serde(default)]
+    pub browser_extensions: Vec<String>,
 }
 
 pub async fn ensure_defaults(pool: &SqlitePool) -> Result<()> {
@@ -103,18 +119,26 @@ pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
     let get = |k: &str, d: &str| m.get(k).cloned().unwrap_or_else(|| d.to_string());
     let ai_providers: Vec<AiProviderSettings> =
         serde_json::from_str(&get("ai_providers", "[]")).unwrap_or_default();
+    let browser_extensions: Vec<String> =
+        serde_json::from_str(&get("browser_extensions", "[]")).unwrap_or_default();
 
     Ok(AppSettings {
-        active_profile_id: m
-            .get("active_profile_id")
-            .filter(|s| !s.is_empty())
-            .cloned(),
+        // Falls back to the canonical `default` profile seeded by migration
+        // 0003 so a fresh install always references a valid profiles(id) row
+        // (avoids FK 787 on the first CV upload before onboarding runs).
+        active_profile_id: Some(
+            m.get("active_profile_id")
+                .filter(|s| !s.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "default".to_string()),
+        ),
         app_language: get("app_language", "en"),
         startup_behavior: get("startup_behavior", "normal"),
         portable_mode: paths.portable,
         theme: get("theme", "system"),
         reduced_effects: get("reduced_effects", "auto"),
         ai_providers,
+        browser_extensions,
         default_ai_provider_index: get("default_ai_provider_index", "0").parse().unwrap_or(0),
         browser_profile_root_path: get("browser_profile_root_path", ""),
         database_path: paths.db_path.display().to_string(),
@@ -143,7 +167,7 @@ pub async fn load_ai_providers(pool: &SqlitePool) -> Result<(Vec<AiProviderSetti
 /// Persist the writable fields. Derived fields (`portable_mode`,
 /// `database_path`) are intentionally not written back.
 pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {
-    let pairs: [(&str, String); 10] = [
+    let pairs: [(&str, String); 11] = [
         (
             "active_profile_id",
             s.active_profile_id.clone().unwrap_or_default(),
@@ -155,6 +179,10 @@ pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {
         (
             "ai_providers",
             serde_json::to_string(&s.ai_providers).unwrap_or_else(|_| "[]".to_string()),
+        ),
+        (
+            "browser_extensions",
+            serde_json::to_string(&s.browser_extensions).unwrap_or_else(|_| "[]".to_string()),
         ),
         (
             "default_ai_provider_index",

@@ -3,11 +3,25 @@
 // zoom + page controls, and a metadata side panel. Keyboard-driven and focus
 // trapped. When document bytes aren't available (backend seam), it shows the
 // file facts and a calm "preview unavailable" state instead of failing.
+//
+// Layout note: each main-column page frame carries an inline `width/height`
+// pulled from `page.getViewport({ scale: 1 })` - resolved before any canvas
+// mounts. Without that, the frame collapses to the browser's 300×150 canvas
+// default during the async `getPage → render` handoff and the "big view" reads
+// as blank. The zoom multiplier is applied on top of the dimensions the PDF
+// itself declares, so non-Letter documents render at their real proportions.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { Badge, Button } from "../../components/ui";
+import {
+  Cancel01Icon,
+  ZoomInAreaIcon,
+  ZoomOutAreaIcon,
+  MaximizeScreenIcon,
+  MenuSquareIcon,
+} from "@hugeicons/core-free-icons";
+import { Badge, Button, Icon } from "../../components/ui";
 import { PdfPageCanvas } from "./PdfPageCanvas";
 import { loadCvDocument } from "./pdf";
 import { formatBytes, relativeTime } from "./mockData";
@@ -30,10 +44,16 @@ type Resolved =
   | { id: string; kind: "ready"; doc: PDFDocumentProxy; numPages: number }
   | { id: string; kind: "unavailable" };
 
-const ZOOM_STEPS = [0.6, 0.75, 0.9, 1, 1.25, 1.5, 2];
-const DEFAULT_ZOOM_INDEX = 3;
+// Zoom ladder for explicit user steps. "fit" is a virtual step that reads the
+// main-column width at render time - kept OUT of this array so numeric arith
+// stays clean.
+const ZOOM_STEPS = [0.5, 0.75, 0.9, 1, 1.25, 1.5, 2, 3];
+const ZOOM_FIT = -1;
+type ZoomMode = number; // index into ZOOM_STEPS, or ZOOM_FIT
 
-// One page frame in the main column: mounts its canvas only once near-visible.
+// One page frame in the main column. Prefetches the page's PDF-declared
+// dimensions BEFORE mounting the canvas, then locks the frame to those dims so
+// the layout never depends on the canvas's transient 300×150 default.
 function ViewerPage({
   doc,
   pageNumber,
@@ -47,7 +67,42 @@ function ViewerPage({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [render, setRender] = useState(false);
+  // Native page dimensions from `getViewport({ scale: 1 })`. `null` until the
+  // page metadata resolves - the skeleton uses a Letter-shaped placeholder in
+  // the meantime.
+  const [pageDims, setPageDims] = useState<{ w: number; h: number } | null>(null);
 
+  // Stabilise onEnter so the IO effect below doesn't reconnect on every parent
+  // re-render (which happens each time the active page changes).
+  const onEnterRef = useRef(onEnter);
+  useEffect(() => {
+    onEnterRef.current = onEnter;
+  }, [onEnter]);
+
+  // Prefetch the page's natural dimensions. Cheap: pdfjs caches `getPage`, and
+  // `getViewport` is synchronous arithmetic on the cached page.
+  useEffect(() => {
+    let alive = true;
+    void doc
+      .getPage(pageNumber)
+      .then((page) => {
+        if (!alive) return;
+        const vp = page.getViewport({ scale: 1 });
+        setPageDims({ w: vp.width, h: vp.height });
+      })
+      .catch(() => {
+        // Metadata failed - the Letter-shaped skeleton stays. Rendering below
+        // is gated on `pageDims` too, so we simply degrade to the placeholder.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [doc, pageNumber]);
+
+  // Visibility gate - only mount the (expensive) canvas once the frame is near
+  // the viewport. rootMargin is generous vertically so scrolling doesn't chase
+  // the reader with a spinner, but 0 horizontally so off-axis pages don't
+  // prewarm during rail navigation.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -56,22 +111,41 @@ function ViewerPage({
         for (const entry of entries) {
           if (entry.isIntersecting) {
             setRender(true);
-            if (entry.intersectionRatio >= 0.5) onEnter(pageNumber);
+            if (entry.intersectionRatio >= 0.5) onEnterRef.current(pageNumber);
           }
         }
       },
-      { rootMargin: "300px 0px", threshold: [0.1, 0.5] },
+      { rootMargin: "600px 0px", threshold: [0.05, 0.5] },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [pageNumber, onEnter]);
+  }, [pageNumber]);
+
+  // Fallback while metadata loads: Letter proportions at the requested scale
+  // so the frame reserves a plausible amount of space. Once real dims arrive
+  // the frame snaps to them - one lightweight reflow, no visual pop-in.
+  const frameW = Math.floor((pageDims?.w ?? 612) * scale);
+  const frameH = Math.floor((pageDims?.h ?? 792) * scale);
 
   return (
-    <div ref={ref} className="cvx-page" data-page={pageNumber} id={`cvx-page-${pageNumber}`}>
-      {render ? (
-        <PdfPageCanvas doc={doc} pageNumber={pageNumber} scale={scale} className="cvx-page__canvas" />
+    <div
+      ref={ref}
+      className="cvx-page"
+      data-page={pageNumber}
+      id={`cvx-page-${pageNumber}`}
+      style={{ width: frameW, height: frameH }}
+    >
+      {render && pageDims ? (
+        <PdfPageCanvas
+          doc={doc}
+          pageNumber={pageNumber}
+          scale={scale}
+          cssWidth={pageDims.w}
+          cssHeight={pageDims.h}
+          className="cvx-page__canvas"
+        />
       ) : (
-        <div className="cvx-page__skel" style={{ width: 612 * scale }} aria-hidden="true" />
+        <div className="cvx-page__skel" aria-hidden="true" />
       )}
       <span className="cvx-page__num" aria-hidden="true">
         {pageNumber}
@@ -83,16 +157,25 @@ function ViewerPage({
 export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
   const [resolved, setResolved] = useState<Resolved | null>(null);
   const [current, setCurrent] = useState(1);
-  const [zoomIdx, setZoomIdx] = useState(DEFAULT_ZOOM_INDEX);
+  // Zoom starts in fit-width mode: the main column measures itself and picks a
+  // scale that makes the PDF's real page-1 width fill the available room.
+  // Users bump into ZOOM_STEPS with the +/- controls; that flips them out of
+  // fit-width and into explicit steps.
+  const [zoomMode, setZoomMode] = useState<ZoomMode>(ZOOM_FIT);
   const [showMeta, setShowMeta] = useState(true);
+  // Page-1 dims (from getViewport at scale 1) - drive the fit-width formula.
+  const [nativePage1, setNativePage1] = useState<{ w: number; h: number } | null>(null);
+  // Live width of `.cvx-main` (after its padding). Recomputed on modal resize
+  // via ResizeObserver so fit-width tracks the reader's window.
+  const [mainInnerW, setMainInnerW] = useState<number>(0);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
-  const scale = ZOOM_STEPS[zoomIdx];
 
-  // Load the document (or resolve "unavailable"). State is written only from the
-  // async callback, so there is no synchronous setState inside the effect body.
+  // Load the document (or resolve "unavailable"). State is written only from
+  // the async callback, so there is no synchronous setState inside the effect
+  // body.
   useEffect(() => {
     let alive = true;
     void loadCvDocument(cv.id, loader).then((doc) => {
@@ -118,11 +201,78 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
       : { kind: "loading" };
   const pageCount = load.kind === "ready" ? load.numPages : 1;
 
+  // Prefetch page-1 native dimensions once the document is ready. Only page 1
+  // is needed for fit-width; ViewerPage prefetches per-page dims independently.
+  useEffect(() => {
+    if (load.kind !== "ready") {
+      setNativePage1(null);
+      return;
+    }
+    let alive = true;
+    void load.doc.getPage(1).then((page) => {
+      if (!alive) return;
+      const vp = page.getViewport({ scale: 1 });
+      setNativePage1({ w: vp.width, h: vp.height });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [load.kind === "ready" ? load.doc : null]);
+
+  // Measure the main column - fit-width needs the real inner width, which
+  // depends on modal size (min(1200px, 100%)) minus rail + meta + padding.
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const measure = () => {
+      const cs = window.getComputedStyle(el);
+      const padX = parseFloat(cs.paddingLeft || "0") + parseFloat(cs.paddingRight || "0");
+      setMainInnerW(Math.max(0, el.clientWidth - padX));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showMeta, load.kind]);
+
+  // Resolve the effective scale. Fit-width picks the largest ZOOM_STEPS entry
+  // that fits in the column (fallback to a computed ratio when nothing does),
+  // clamped so we never render at absurd sizes on very wide monitors.
+  const scale = useMemo(() => {
+    if (zoomMode !== ZOOM_FIT) return ZOOM_STEPS[zoomMode];
+    if (!nativePage1 || mainInnerW <= 0) return 1;
+    const raw = mainInnerW / nativePage1.w;
+    // Clamp: don't go below smallest step, don't exceed 2× (readable ceiling).
+    return Math.min(2, Math.max(ZOOM_STEPS[0], raw));
+  }, [zoomMode, nativePage1, mainInnerW]);
+
   const goToPage = useCallback((page: number, total: number) => {
     const clamped = Math.max(1, Math.min(total, page));
     setCurrent(clamped);
     document.getElementById(`cvx-page-${clamped}`)?.scrollIntoView({ block: "start" });
   }, []);
+
+  // Explicit zoom step - snap to the nearest ZOOM_STEPS index around the
+  // current effective scale, then step. Keeps +/- feeling native after a
+  // fit-width start.
+  const stepZoom = useCallback(
+    (delta: 1 | -1) => {
+      setZoomMode((prev) => {
+        const currentIdx =
+          prev === ZOOM_FIT
+            ? // Find nearest step to the currently-rendered scale.
+              ZOOM_STEPS.reduce(
+                (best, step, i) =>
+                  Math.abs(step - scale) < Math.abs(ZOOM_STEPS[best] - scale) ? i : best,
+                0,
+              )
+            : prev;
+        const next = Math.max(0, Math.min(ZOOM_STEPS.length - 1, currentIdx + delta));
+        return next;
+      });
+    },
+    [scale],
+  );
 
   // Focus management: trap focus in the panel, restore on close.
   useEffect(() => {
@@ -160,11 +310,18 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
         case "+":
         case "=":
           e.preventDefault();
-          setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1));
+          stepZoom(1);
           break;
         case "-":
           e.preventDefault();
-          setZoomIdx((i) => Math.max(0, i - 1));
+          stepZoom(-1);
+          break;
+        case "0":
+          // Reset to fit-width (matches "0 = actual size" convention adjusted
+          // for a modal viewer where "actual" isn't meaningful - fit-width is
+          // the useful home).
+          e.preventDefault();
+          setZoomMode(ZOOM_FIT);
           break;
         default:
           break;
@@ -172,13 +329,18 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, pageCount, goToPage, onClose]);
+  }, [current, pageCount, goToPage, onClose, stepZoom]);
 
   const total = load.kind === "ready" ? load.numPages : cv.pageCount;
   const pages = load.kind === "ready" ? Array.from({ length: load.numPages }, (_, i) => i + 1) : [];
 
+  const onPageEnter = useCallback((page: number) => setCurrent(page), []);
+
   return createPortal(
-    <div className="cvx-viewer-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="cvx-viewer-backdrop"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
         ref={panelRef}
         className="overlay-surface cvx-viewer"
@@ -222,22 +384,22 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
           <div className="toolbar-sep" />
 
           <div className="cvx-viewer__zoom" role="group" aria-label="Zoom">
-            <Button
-              size="sm"
-              aria-label="Zoom out"
-              disabled={zoomIdx <= 0}
-              onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
-            >
-              −
+            <Button size="sm" aria-label="Zoom out" onClick={() => stepZoom(-1)}>
+              <Icon icon={ZoomOutAreaIcon} size={16} />
             </Button>
-            <span className="cvx-viewer__pagenum">{Math.round(scale * 100)}%</span>
+            <span className="cvx-viewer__pagenum" aria-live="polite">
+              {Math.round(scale * 100)}%
+            </span>
+            <Button size="sm" aria-label="Zoom in" onClick={() => stepZoom(1)}>
+              <Icon icon={ZoomInAreaIcon} size={16} />
+            </Button>
             <Button
               size="sm"
-              aria-label="Zoom in"
-              disabled={zoomIdx >= ZOOM_STEPS.length - 1}
-              onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+              aria-label="Fit page width"
+              aria-pressed={zoomMode === ZOOM_FIT}
+              onClick={() => setZoomMode(ZOOM_FIT)}
             >
-              +
+              <Icon icon={MaximizeScreenIcon} size={16} />
             </Button>
           </div>
 
@@ -246,12 +408,14 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
           <Button
             size="sm"
             aria-pressed={showMeta}
+            aria-label="Toggle details panel"
             onClick={() => setShowMeta((v) => !v)}
+            icon={<Icon icon={MenuSquareIcon} size={14} />}
           >
             Details
           </Button>
           <Button size="sm" aria-label="Close viewer" onClick={onClose}>
-            ✕
+            <Icon icon={Cancel01Icon} size={16} />
           </Button>
         </div>
 
@@ -263,12 +427,19 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
                 <button
                   key={p}
                   type="button"
-                  className={p === current ? "cvx-rail__item cvx-rail__item--active" : "cvx-rail__item"}
+                  className={
+                    p === current ? "cvx-rail__item cvx-rail__item--active" : "cvx-rail__item"
+                  }
                   aria-current={p === current}
                   aria-label={`Go to page ${p}`}
                   onClick={() => goToPage(p, total)}
                 >
-                  <PdfPageCanvas doc={load.doc} pageNumber={p} scale={0.18} className="cvx-rail__canvas" />
+                  <PdfPageCanvas
+                    doc={load.doc}
+                    pageNumber={p}
+                    scale={0.18}
+                    className="cvx-rail__canvas"
+                  />
                   <span className="cvx-rail__num">{p}</span>
                 </button>
               ))}
@@ -276,15 +447,18 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
           )}
 
           <div ref={mainRef} className="cvx-main">
-            {load.kind === "loading" && <div className="cvx-main__skel cvx-skel" aria-label="Loading document" />}
+            {load.kind === "loading" && (
+              <div className="cvx-main__skel cvx-skel" aria-label="Loading document" />
+            )}
 
             {load.kind === "unavailable" && (
               <div className="empty-state cvx-unavailable">
                 <div className="empty-state__label">Preview unavailable</div>
                 <p className="empty-state__title">Document bytes not loaded</p>
                 <p className="empty-state__body">
-                  The renderer is ready, but this build has no CV file backend wired yet. Metadata is
-                  shown on the right; the full page render appears here once documents are readable.
+                  The renderer is ready, but this build has no CV file backend wired yet. Metadata
+                  is shown on the right; the full page render appears here once documents are
+                  readable.
                 </p>
               </div>
             )}
@@ -296,7 +470,7 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
                   doc={load.doc}
                   pageNumber={p}
                   scale={scale}
-                  onEnter={(page) => setCurrent(page)}
+                  onEnter={onPageEnter}
                 />
               ))}
           </div>
@@ -314,7 +488,7 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
                 <MetaRow label="Last used" value={relativeTime(cv.lastUsedAt)} />
                 <MetaRow
                   label="Score"
-                  value={cv.lastAnalysisScore !== null ? `${cv.lastAnalysisScore}%` : "–"}
+                  value={cv.lastAnalysisScore !== null ? `${cv.lastAnalysisScore}%` : "-"}
                   mono
                 />
               </dl>

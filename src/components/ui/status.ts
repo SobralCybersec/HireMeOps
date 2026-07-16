@@ -3,21 +3,10 @@
 // Variants correspond 1:1 to the `--status-*` tokens and `.badge--*` / `.dot--*`
 // modifier classes in src/styles/theme.css.
 
-import type {
-  ApplicationStatus,
-  AutomationState,
-  JobStatus,
-} from "../../types/domain";
+import type { ApplicationStatus, AutomationState, JobStatus } from "../../types/domain";
 
 export type StatusVariant =
-  | "queued"
-  | "running"
-  | "success"
-  | "failed"
-  | "review"
-  | "stopped"
-  | "paused"
-  | "neutral";
+  "queued" | "running" | "success" | "failed" | "review" | "stopped" | "paused" | "neutral";
 
 /* ---- Automation state machine --------------------------------- */
 export function automationVariant(state: AutomationState): StatusVariant {
@@ -39,7 +28,7 @@ export function automationVariant(state: AutomationState): StatusVariant {
     case "SkippedDuplicateUrl":
       return "neutral";
     default:
-      // All the "in-flight" states (PreparingBrowser, Searching, …)
+      // All the "in-flight" states (PreparingBrowser, Searching, ...)
       return "running";
   }
 }

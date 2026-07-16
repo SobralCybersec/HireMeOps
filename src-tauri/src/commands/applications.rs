@@ -23,3 +23,16 @@ pub async fn draft_application(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Queue a reviewed draft for the manual-assist browser automation flow.
+/// Returns the new `application_runs.id` (or a duplicate-skipped run id).
+#[tauri::command]
+pub async fn submit_application(
+    state: State<'_, AppState>,
+    application_draft_id: String,
+) -> Result<String, String> {
+    service(&state)
+        .submit(&application_draft_id)
+        .await
+        .map_err(|e| e.to_string())
+}

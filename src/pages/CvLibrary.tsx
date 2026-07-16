@@ -1,81 +1,262 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import {
   Badge,
   Button,
   Card,
   EmptyState,
+  Icon,
+  Input,
   Toolbar,
   ToolbarSep,
   ToolbarSpacer,
   matchScoreVariant,
 } from "../components/ui";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   CvCard,
   CvViewer,
-  MOCK_LIBRARY,
+  loadCvLibrary,
+  importCvDocument,
   defaultCvBytesLoader,
   formatBytes,
   relativeTime,
 } from "./cv";
+import type { CvLibraryDoc } from "./cv";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import "./cv/cv.css";
 
 /*
- * Bytes seam: swap `defaultCvBytesLoader` for the real Tauri-backed loader once
- * the CV file backend lands. Nothing else on this page — or in the co-located
- * `cv/` module — changes when that happens.
+ * Bytes seam: the viewer/thumbnails render against `defaultCvBytesLoader`, which
+ * invokes the real `cv_read_bytes` command (off-Tauri it degrades to a mock /
+ * skeleton). The document list comes from `loadCvLibrary` -> `list_cv_documents`.
  */
 const loader = defaultCvBytesLoader;
 
 export function CvLibrary() {
+  const activeProfileId = useSettingsStore((s) => s.settings?.activeProfileId ?? null);
+  const [docs, setDocs] = useState<CvLibraryDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // Bumped by the error-state Retry button to re-run the load effect even when
+  // the profile id is unchanged (a plain re-set of the same value is a no-op).
+  const [reloadNonce, setReloadNonce] = useState(0);
+  // Upload flow: null when idle, a message string while importing/on failure.
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  // Re-analyse flow: mirrors the import error pattern.
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
-  const visible = MOCK_LIBRARY.filter((c) =>
-    c.fileName.toLowerCase().includes(query.toLowerCase()),
-  );
+  // Reset transient load state when the request identity changes. Done during
+  // render (not synchronously inside the effect) so React folds it into the
+  // in-progress render instead of triggering an extra commit->render cascade --
+  // this is what satisfies react-hooks/set-state-in-effect. See react.dev
+  // "you-might-not-need-an-effect" (resetting all state when a prop changes).
+  const requestKey = `${activeProfileId ?? ""}:${reloadNonce}`;
+  const [loadingKey, setLoadingKey] = useState(requestKey);
+  if (loadingKey !== requestKey) {
+    setLoadingKey(requestKey);
+    setLoading(true);
+    setError(null);
+  }
 
-  const selected = MOCK_LIBRARY.find((c) => c.id === selectedId) ?? null;
-  const opened = MOCK_LIBRARY.find((c) => c.id === openId) ?? null;
+  // Load the active profile's real CV documents. Passing "" when there is no
+  // active profile yields an empty library from the backend (and, off-Tauri,
+  // the dev mock returns rows regardless so previews stay populated). A backend
+  // *error* sets `error` -- distinct from an empty `[]` -- so a failed load never
+  // masquerades as "no CVs uploaded yet".
+  useEffect(() => {
+    let cancelled = false;
+    loadCvLibrary(activeProfileId ?? "")
+      .then((rows) => {
+        if (cancelled) return;
+        setDocs(rows);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setDocs([]);
+        setError(errMessage(e));
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileId, reloadNonce]);
+
+  const visible = docs.filter((c) => c.fileName.toLowerCase().includes(query.toLowerCase()));
+
+  const selected = docs.find((c) => c.id === selectedId) ?? null;
+  const opened = docs.find((c) => c.id === openId) ?? null;
 
   function toggle(id: string) {
     setSelectedId((prev) => (prev === id ? null : id));
   }
 
+  // Open a native file picker for the given type, import the chosen file into
+  // the active profile, then reload the library. A backend DomainError (bad
+  // file, parse failure, unsupported type) surfaces via `importError`; the user
+  // cancelling the dialog is a no-op. Guarded so double-clicks can't overlap.
+  async function handleUpload(kind: "pdf" | "docx") {
+    if (importing) return;
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters:
+        kind === "pdf"
+          ? [{ name: "PDF", extensions: ["pdf"] }]
+          : [{ name: "Word document", extensions: ["docx"] }],
+    });
+    if (typeof selected !== "string") return; // cancelled
+    setImporting(true);
+    setImportError(null);
+    try {
+      await importCvDocument(activeProfileId ?? "", selected);
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setImportError(errMessage(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleAnalyze() {
+    if (isAnalyzing || selected === null) return;
+    setIsAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      await invokeStrict<string>("analyze_cv_document", { cvDocumentId: selected.id });
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setAnalyzeError(errMessage(e));
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  // Inspector metadata rows -- computed once when selected changes.
+  const inspectorRows = selected
+    ? [
+        { label: "File", value: selected.fileName },
+        { label: "Type", value: selected.fileType.toUpperCase() },
+        { label: "Pages", value: String(selected.pageCount) },
+        { label: "Size", value: formatBytes(selected.sizeBytes) },
+        { label: "Hash", value: selected.fileHash },
+        { label: "Profile ID", value: selected.profileId },
+        { label: "Added", value: relativeTime(selected.createdAt) },
+        { label: "Last used", value: relativeTime(selected.lastUsedAt) },
+        { label: "Active", value: selected.isActive ? "Yes" : "No" },
+        {
+          label: "Last Score",
+          value: selected.lastAnalysisScore !== null ? `${selected.lastAnalysisScore}%` : "-",
+        },
+      ]
+    : [];
+
   return (
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">CV Library</h1>
-        <span className="page-subtitle">{MOCK_LIBRARY.length} documents</span>
+        <span className="page-subtitle">{docs.length} documents</span>
       </div>
 
       <Toolbar>
-        <Button variant="primary" disabled>Upload PDF</Button>
-        <Button disabled>Upload DOCX</Button>
+        <Button variant="primary" disabled={importing} onClick={() => handleUpload("pdf")}>
+          {importing ? "Uploading..." : "Upload PDF"}
+        </Button>
+        <Button disabled={importing} onClick={() => handleUpload("docx")}>
+          Upload DOCX
+        </Button>
         <Button disabled>Import Profile</Button>
         <ToolbarSep />
-        <input
+        <Input
           type="search"
-          className="field__input"
-          placeholder="Search CVs…"
+          className="cvx-search"
+          placeholder="Search CVs..."
           aria-label="Search CVs"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{ width: 200 }}
         />
         <ToolbarSpacer />
         {selected !== null && (
           <>
-            <Button size="sm" onClick={() => setOpenId(selected.id)}>View</Button>
-            <Button size="sm" disabled>Re-parse</Button>
-            <Button size="sm" disabled>Re-analyse</Button>
-            <Button size="sm" variant="danger" disabled>Delete</Button>
+            <Button size="sm" onClick={() => setOpenId(selected.id)}>
+              View
+            </Button>
+            <Button size="sm" disabled>
+              Re-parse
+            </Button>
+            <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
+              {isAnalyzing ? "Analysing..." : "Re-analyse"}
+            </Button>
+            <Button size="sm" variant="danger" disabled>
+              Delete
+            </Button>
           </>
         )}
       </Toolbar>
 
-      {/* CV card grid ------------------------------------------------- */}
-      {visible.length === 0 ? (
+      {importError !== null && (
+        <div className="inline-warning inline-warning--danger" role="alert">
+          <div className="inline-warning__body">
+            <div>Upload failed. Your library is unchanged.</div>
+            <div className="inline-warning__url">{importError}</div>
+          </div>
+          <button
+            type="button"
+            className="inline-warning__dismiss"
+            onClick={() => setImportError(null)}
+            aria-label="Dismiss upload error"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        </div>
+      )}
+
+      {analyzeError !== null && (
+        <div className="inline-warning inline-warning--danger" role="alert">
+          <div className="inline-warning__body">
+            <div>Re-analyse failed. Your library is unchanged.</div>
+            <div className="inline-warning__url">{analyzeError}</div>
+          </div>
+          <button
+            type="button"
+            className="inline-warning__dismiss"
+            onClick={() => setAnalyzeError(null)}
+            aria-label="Dismiss analyse error"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Content area: grid-only when nothing selected, grid + inspector
+          side-by-side when a document is selected. The split gives the
+          inspector spatial proximity to the grid instead of floating
+          disconnected below it. */}
+      {loading ? (
+        <EmptyState
+          label="..."
+          title="Loading CVs..."
+          body="Reading this profile's document library."
+        />
+      ) : error !== null ? (
+        <EmptyState
+          label="Error"
+          title="Couldn't load your CV library"
+          body={`The document store returned an error, so your CVs aren't shown. This does not mean they were deleted. ${error}`}
+          action={
+            <Button variant="primary" onClick={() => setReloadNonce((n) => n + 1)}>
+              Retry
+            </Button>
+          }
+        />
+      ) : visible.length === 0 ? (
         <EmptyState
           label="Empty"
           title={query ? "No CVs match that search" : "No CVs uploaded yet"}
@@ -86,107 +267,88 @@ export function CvLibrary() {
           }
           action={
             !query && (
-              <Button variant="primary" disabled>
-                Upload your first CV
+              <Button variant="primary" disabled={importing} onClick={() => handleUpload("pdf")}>
+                {importing ? "Uploading..." : "Upload your first CV"}
               </Button>
             )
           }
         />
       ) : (
-        <div className="cv-grid">
-          {visible.map((cv) => (
-            <CvCard
-              key={cv.id}
-              cv={cv}
-              loader={loader}
-              selected={cv.id === selectedId}
-              onSelect={toggle}
-              onOpen={(id) => setOpenId(id)}
-            />
-          ))}
+        <div className="cvx-library-split" data-inspector={selected !== null ? "1" : "0"}>
+          {/* Card grid */}
+          <div className="cvx-library-cards">
+            <div className="cv-grid">
+              {visible.map((cv) => (
+                <CvCard
+                  key={cv.id}
+                  cv={cv}
+                  loader={loader}
+                  selected={cv.id === selectedId}
+                  onSelect={toggle}
+                  onOpen={(id) => setOpenId(id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Inspector panel -- only rendered when selected */}
+          {selected !== null && (
+            <div className="cvx-library-inspector">
+              <Card
+                title={selected.fileName}
+                actions={
+                  <div className="cvx-inspector__actions">
+                    <Button size="sm" onClick={() => setOpenId(selected.id)}>
+                      Open
+                    </Button>
+                    <Button
+                      size="sm"
+                      aria-label="Close inspector"
+                      onClick={() => setSelectedId(null)}
+                    >
+                      <Icon icon={Cancel01Icon} size={14} />
+                    </Button>
+                  </div>
+                }
+              >
+                {/* Metadata rows -- key/value pairs, mono values, truncated. */}
+                <dl className="cvx-inspector__list">
+                  {inspectorRows.map(({ label, value }) => (
+                    <div key={label} className="cvx-inspector__row">
+                      <dt>{label}</dt>
+                      <dd title={value}>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                {/* Assigned variants + score */}
+                <div className="cvx-inspector__variants">
+                  <span className="cvx-inspector__heading">Assigned variants</span>
+                  <div className="cvx-variants">
+                    {selected.assignedVariants.length > 0 ? (
+                      selected.assignedVariants.map((v) => (
+                        <span key={v.id} className="tag">
+                          {v.name}
+                        </span>
+                      ))
+                    ) : (
+                      <Badge variant="neutral">none</Badge>
+                    )}
+                    {selected.lastAnalysisScore !== null && (
+                      <Badge variant={matchScoreVariant(selected.lastAnalysisScore)}>
+                        match {selected.lastAnalysisScore}%
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Inspector ---------------------------------------------------- */}
-      {selected !== null && (
-        <Card
-          title={`Inspector — ${selected.fileName}`}
-          actions={
-            <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-              <Button size="sm" onClick={() => setOpenId(selected.id)}>
-                Open viewer
-              </Button>
-              <Button
-                size="sm"
-                aria-label="Close inspector"
-                onClick={() => setSelectedId(null)}
-              >
-                ✕
-              </Button>
-            </div>
-          }
-        >
-          <div className="form-grid">
-            {(
-              [
-                { label: "File",       value: selected.fileName },
-                { label: "Type",       value: selected.fileType.toUpperCase() },
-                { label: "Pages",      value: String(selected.pageCount) },
-                { label: "Size",       value: formatBytes(selected.sizeBytes) },
-                { label: "Hash",       value: selected.fileHash },
-                { label: "Profile ID", value: selected.profileId },
-                { label: "Added",      value: relativeTime(selected.createdAt) },
-                { label: "Last used",  value: relativeTime(selected.lastUsedAt) },
-                { label: "Active",     value: selected.isActive ? "Yes" : "No" },
-                {
-                  label: "Last Score",
-                  value:
-                    selected.lastAnalysisScore !== null
-                      ? `${selected.lastAnalysisScore}%`
-                      : "–",
-                },
-              ] as const
-            ).map(({ label, value }) => (
-              <div key={label} className="field">
-                <span className="field__label">{label}</span>
-                <span className="field__value--mono">{value}</span>
-              </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              marginTop: "var(--sp-4)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--sp-2)",
-            }}
-          >
-            <span className="field__label">Assigned variants</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}>
-              {selected.assignedVariants.length > 0 ? (
-                selected.assignedVariants.map((v) => (
-                  <span key={v.id} className="tag">
-                    {v.name}
-                  </span>
-                ))
-              ) : (
-                <Badge variant="neutral">none</Badge>
-              )}
-              {selected.lastAnalysisScore !== null && (
-                <Badge variant={matchScoreVariant(selected.lastAnalysisScore)}>
-                  match {selected.lastAnalysisScore}%
-                </Badge>
-              )}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Full-document viewer ---------------------------------------- */}
-      {opened !== null && (
-        <CvViewer cv={opened} loader={loader} onClose={() => setOpenId(null)} />
-      )}
+      {/* Full-document viewer */}
+      {opened !== null && <CvViewer cv={opened} loader={loader} onClose={() => setOpenId(null)} />}
     </div>
   );
 }

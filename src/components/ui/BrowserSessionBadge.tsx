@@ -23,17 +23,24 @@ const WORD: Record<SessionStatus, string> = {
   connected: "connected",
   launching: "launching",
   disconnected: "offline",
-  unknown: "—",
+  unknown: "-",
 };
 
 /**
  * Read-only session indicator for the command bar (browser / LinkedIn).
  * Presentational: pass `status` from the relevant store once wired.
  */
-export function BrowserSessionBadge({ status = "unknown", label, detail }: BrowserSessionBadgeProps) {
+export function BrowserSessionBadge({
+  status = "unknown",
+  label,
+  detail,
+}: BrowserSessionBadgeProps) {
   const text = detail ?? WORD[status];
   return (
-    <span className="topbar-chip" title={`${label}: ${WORD[status]}${detail ? ` (${detail})` : ""}`}>
+    <span
+      className="topbar-chip"
+      title={`${label}: ${WORD[status]}${detail ? ` (${detail})` : ""}`}
+    >
       <StatusDot variant={VARIANT[status]} size={6} />
       <span className="topbar-chip__key">{label}</span>
       <span className="topbar-chip__val">{text}</span>

@@ -1,7 +1,9 @@
 //! CV import / parsing / analysis service (Phase 2+).
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use serde::Serialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -9,11 +11,67 @@ use super::{DomainError, DomainResult};
 use crate::ai::prompt::{
     cv_analysis_prompt, cv_analysis_system, parse_cv_analysis, CV_ANALYSIS_PROMPT_VERSION,
 };
-use crate::ai::{api_key_from_env, complete_cached, input_hash, select_provider};
+use crate::ai::{complete_cached, input_hash, select_provider_resolved};
 use crate::cv::{self, DocKind};
 use crate::domain::ai::{AiProvider, CompletionRequest};
 use crate::storage::settings::load_ai_providers;
 use crate::util::now_iso;
+
+/// A role variant a CV is assigned to (for the library inspector).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CvVariantRef {
+    pub id: String,
+    pub name: String,
+}
+
+/// Library view-model for one stored CV document. Matches the frontend
+/// `CvLibraryDoc` shape so the CV Library page can render real rows directly.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CvDocumentSummary {
+    pub id: String,
+    pub profile_id: String,
+    pub file_name: String,
+    pub file_type: String,
+    pub is_active: bool,
+    pub last_analysis_score: Option<i64>,
+    pub size_bytes: i64,
+    pub page_count: i64,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub file_hash: String,
+    pub assigned_variants: Vec<CvVariantRef>,
+    /// Detected section headings — not persisted yet, always empty for now.
+    pub sections: Vec<String>,
+}
+
+/// A persisted CV analysis run, read back for the CV Analysis page. Mirrors a
+/// `cv_analysis_reports` row with the `*_json` columns decoded into lists and
+/// the document/variant names joined in for display.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CvAnalysisReport {
+    pub id: String,
+    pub cv_document_id: Option<String>,
+    /// Joined file name of the analysed document; empty if the document row was
+    /// since deleted (the report survives via `ON DELETE SET NULL`).
+    pub cv_file_name: String,
+    pub role_variant_id: Option<String>,
+    /// Joined variant name when the report targeted a specific variant.
+    pub variant_name: Option<String>,
+    pub model_provider: String,
+    pub model_name: String,
+    /// Overall 0–100 score, or null when the model didn't return one.
+    pub score: Option<i64>,
+    pub summary: String,
+    pub optimization_needed: bool,
+    pub missing_keywords: Vec<String>,
+    pub strengths: Vec<String>,
+    pub weaknesses: Vec<String>,
+    pub recommendations: Vec<String>,
+    pub created_at: String,
+}
 
 /// Ingests CV documents, parses them into structured profile facts, and runs
 /// gap/quality analysis producing `cv_analysis_reports`.
@@ -21,6 +79,14 @@ use crate::util::now_iso;
 pub trait CvService: Send + Sync {
     async fn import_document(&self, profile_id: &str, path: &str) -> DomainResult<String>;
     async fn analyze(&self, cv_document_id: &str) -> DomainResult<String>;
+    /// Read the raw bytes of a stored CV document (for the frontend PDF viewer).
+    async fn read_bytes(&self, cv_document_id: &str) -> DomainResult<Vec<u8>>;
+    /// List a profile's CV documents enriched for the library UI (active flag,
+    /// latest analysis score, and assigned variants).
+    async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>>;
+    /// List a profile's persisted CV analysis reports, newest first, with the
+    /// `*_json` columns decoded and document/variant names joined in.
+    async fn list_analysis_reports(&self, profile_id: &str) -> DomainResult<Vec<CvAnalysisReport>>;
 }
 
 /// Placeholder implementation (kept for reference / early Phase-1 wiring).
@@ -32,6 +98,20 @@ impl CvService for CvServiceStub {
     }
     async fn analyze(&self, _cv_document_id: &str) -> DomainResult<String> {
         Err(DomainError::NotImplemented("CvService::analyze"))
+    }
+    async fn read_bytes(&self, _cv_document_id: &str) -> DomainResult<Vec<u8>> {
+        Err(DomainError::NotImplemented("CvService::read_bytes"))
+    }
+    async fn list_documents(&self, _profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>> {
+        Err(DomainError::NotImplemented("CvService::list_documents"))
+    }
+    async fn list_analysis_reports(
+        &self,
+        _profile_id: &str,
+    ) -> DomainResult<Vec<CvAnalysisReport>> {
+        Err(DomainError::NotImplemented(
+            "CvService::list_analysis_reports",
+        ))
     }
 }
 
@@ -51,6 +131,182 @@ impl CvServiceImpl {
 }
 
 impl CvService for CvServiceImpl {
+    async fn read_bytes(&self, cv_document_id: &str) -> DomainResult<Vec<u8>> {
+        let stored_path: String =
+            sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
+                .bind(cv_document_id)
+                .fetch_optional(&self.db)
+                .await
+                .map_err(DomainError::Storage)?
+                .ok_or_else(|| {
+                    DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
+                })?;
+
+        std::fs::read(&stored_path)
+            .map_err(|e| DomainError::InvalidInput(format!("read {stored_path}: {e}")))
+    }
+
+    async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>> {
+        // Base rows — newest first. size_bytes / page_count are nullable
+        // (added in migration 0002), so coalesce to 0 for the view-model.
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<i64>,
+            String,
+        )> = sqlx::query_as(
+            "SELECT id, file_name, file_type, file_hash, size_bytes, page_count, created_at
+                 FROM cv_documents WHERE profile_id = ?1 ORDER BY created_at DESC",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+
+        // Documents currently marked active for this profile.
+        let active_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT cv_document_id FROM profile_active_cvs WHERE profile_id = ?1",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+        let active: HashSet<String> = active_rows.into_iter().map(|(id,)| id).collect();
+
+        // Assigned variants per document (only rows with a variant attached).
+        let variant_rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT pac.cv_document_id, pv.id, pv.name
+             FROM profile_active_cvs pac
+             JOIN profile_variants pv ON pv.id = pac.role_variant_id
+             WHERE pac.profile_id = ?1
+             ORDER BY pac.priority ASC",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+        let mut variants: HashMap<String, Vec<CvVariantRef>> = HashMap::new();
+        for (doc_id, vid, vname) in variant_rows {
+            variants.entry(doc_id).or_default().push(CvVariantRef {
+                id: vid,
+                name: vname,
+            });
+        }
+
+        // Latest analysis score per document (reports ordered newest first;
+        // first score we see per doc wins).
+        let score_rows: Vec<(Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT cv_document_id, score FROM cv_analysis_reports
+             WHERE profile_id = ?1 AND cv_document_id IS NOT NULL
+             ORDER BY created_at DESC",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+        let mut scores: HashMap<String, i64> = HashMap::new();
+        for (doc_id, score) in score_rows {
+            if let (Some(doc_id), Some(score)) = (doc_id, score) {
+                scores.entry(doc_id).or_insert(score);
+            }
+        }
+
+        let summaries = rows
+            .into_iter()
+            .map(
+                |(id, file_name, file_type, file_hash, size_bytes, page_count, created_at)| {
+                    let assigned_variants = variants.remove(&id).unwrap_or_default();
+                    let is_active = active.contains(&id);
+                    let last_analysis_score = scores.get(&id).copied();
+                    CvDocumentSummary {
+                        assigned_variants,
+                        is_active,
+                        last_analysis_score,
+                        size_bytes: size_bytes.unwrap_or(0),
+                        page_count: page_count.unwrap_or(0),
+                        created_at,
+                        // "Last used" tracking isn't persisted yet → never.
+                        last_used_at: None,
+                        file_hash,
+                        file_name,
+                        file_type,
+                        profile_id: profile_id.to_string(),
+                        sections: Vec::new(),
+                        id,
+                    }
+                },
+            )
+            .collect();
+
+        Ok(summaries)
+    }
+
+    async fn list_analysis_reports(&self, profile_id: &str) -> DomainResult<Vec<CvAnalysisReport>> {
+        // Newest first. LEFT JOINs so a report survives its document/variant
+        // being deleted (both FKs are ON DELETE SET NULL) — the joined name is
+        // then NULL and we fall back to an empty string / None in the view-model.
+        type Row = (
+            String,         // id
+            Option<String>, // cv_document_id
+            Option<String>, // joined file_name
+            Option<String>, // role_variant_id
+            Option<String>, // joined variant name
+            Option<String>, // model_provider
+            Option<String>, // model_name
+            Option<i64>,    // score
+            Option<String>, // summary
+            i64,            // optimization_needed
+            Option<String>, // missing_keywords_json
+            Option<String>, // strengths_json
+            Option<String>, // weaknesses_json
+            Option<String>, // recommendations_json
+            String,         // created_at
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
+                    r.model_provider, r.model_name, r.score, r.summary,
+                    r.optimization_needed, r.missing_keywords_json, r.strengths_json,
+                    r.weaknesses_json, r.recommendations_json, r.created_at
+             FROM cv_analysis_reports r
+             LEFT JOIN cv_documents d ON d.id = r.cv_document_id
+             LEFT JOIN profile_variants v ON v.id = r.role_variant_id
+             WHERE r.profile_id = ?1
+             ORDER BY r.created_at DESC",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.db)
+        .await?;
+
+        // Decode a nullable `*_json` TEXT column into a list, treating NULL or
+        // malformed JSON as an empty list rather than failing the whole read.
+        let decode = |s: Option<String>| -> Vec<String> {
+            s.and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                .unwrap_or_default()
+        };
+
+        let reports = rows
+            .into_iter()
+            .map(|r| CvAnalysisReport {
+                id: r.0,
+                cv_document_id: r.1,
+                cv_file_name: r.2.unwrap_or_default(),
+                role_variant_id: r.3,
+                variant_name: r.4,
+                model_provider: r.5.unwrap_or_default(),
+                model_name: r.6.unwrap_or_default(),
+                score: r.7,
+                summary: r.8.unwrap_or_default(),
+                optimization_needed: r.9 != 0,
+                missing_keywords: decode(r.10),
+                strengths: decode(r.11),
+                weaknesses: decode(r.12),
+                recommendations: decode(r.13),
+                created_at: r.14,
+            })
+            .collect();
+
+        Ok(reports)
+    }
+
     async fn import_document(&self, profile_id: &str, path: &str) -> DomainResult<String> {
         let src = std::path::Path::new(path);
         let file_name = src
@@ -170,7 +426,7 @@ impl CvService for CvServiceImpl {
         // Select the configured provider; the API key is env-resolved (not stored
         // unencrypted). A disabled/empty provider surfaces a clear error on call.
         let (providers, default_index) = load_ai_providers(&self.db).await?;
-        let provider = select_provider(&providers, default_index, api_key_from_env());
+        let provider = select_provider_resolved(&providers, default_index).await;
         // Fail fast before building the prompt / touching the cache: a disabled
         // provider can never complete, so surface the clear error here.
         if provider.is_disabled() {
@@ -275,6 +531,27 @@ mod tests {
             .join(name)
             .to_string_lossy()
             .into_owned()
+    }
+
+    #[tokio::test]
+    async fn read_bytes_returns_stored_content_and_errors_on_unknown_id() {
+        let pool = mem_pool().await;
+        insert_profile(&pool, "p1").await;
+        let tmp = unique_tmp_dir();
+        let svc = CvServiceImpl::new(pool.clone(), tmp.clone());
+        let pdf = fixture("sample.pdf");
+
+        let id = svc.import_document("p1", &pdf).await.unwrap();
+
+        // Bytes read back must be byte-for-byte identical to the source file.
+        let got = svc.read_bytes(&id).await.unwrap();
+        let expected = std::fs::read(&pdf).unwrap();
+        assert_eq!(got, expected);
+        assert!(!got.is_empty());
+
+        // Unknown id surfaces an InvalidInput error rather than panicking.
+        let err = svc.read_bytes("does-not-exist").await.unwrap_err();
+        assert!(matches!(err, DomainError::InvalidInput(_)));
     }
 
     #[tokio::test]

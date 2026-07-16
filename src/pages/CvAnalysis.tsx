@@ -1,27 +1,160 @@
-import { useState } from "react";
-import { MOCK_HISTORY, MOCK_LIBRARY } from "./cv";
+import { useEffect, useState } from "react";
+import { PlayIcon } from "@hugeicons/core-free-icons";
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Icon,
+  KpiCard,
+  ScoreBar,
+  Select,
+  Toolbar,
+  ToolbarSep,
+  matchScoreVariant,
+  type Column,
+} from "../components/ui";
+import type { KpiTone } from "../components/ui";
+import type { StatusVariant } from "../components/ui/status";
+import { loadCvAnalysisReports, loadCvLibrary, runCvAnalysis } from "./cv";
+import type { CvAnalysisReport, CvLibraryDoc } from "./cv";
+import { useSettingsStore } from "../stores/useSettingsStore";
+import { errMessage } from "../lib/tauriInvoke";
+import "./cv/cv.css";
 
-const SCORE_COLORS: Record<string, string> = {
-  high:   "var(--status-success-text)",
-  mid:    "var(--status-review-text)",
-  low:    "var(--status-failed-text)",
-};
-
-function scoreColor(n: number) {
-  if (n >= 75) return SCORE_COLORS.high;
-  if (n >= 50) return SCORE_COLORS.mid;
-  return SCORE_COLORS.low;
+// Match the KpiCard tone palette to the score-band variant so the tile border
+// and the fill of the score bar under it read as one signal. `matchScoreVariant`
+// only ever yields success / running / review / failed; "neutral" (no score)
+// and "running" both fall through to the default tone.
+function kpiTone(v: StatusVariant): KpiTone {
+  if (v === "success") return "success";
+  if (v === "review") return "review";
+  if (v === "failed") return "danger";
+  return "default";
 }
 
-// Unique variant names across the library — drives the variant picker so it
-// stays in step with what each CV is actually assigned to.
-const VARIANT_NAMES = [
-  ...new Set(MOCK_LIBRARY.flatMap((cv) => cv.assignedVariants.map((v) => v.name))),
-];
-
 export function CvAnalysis() {
-  const [selectedIdx, setSelectedIdx] = useState<number>(0);
-  const result = MOCK_HISTORY[selectedIdx] ?? null;
+  const activeProfileId = useSettingsStore((s) => s.settings?.activeProfileId ?? null);
+
+  const [reports, setReports] = useState<CvAnalysisReport[]>([]);
+  const [docs, setDocs] = useState<CvLibraryDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Which report is expanded. null => fall back to the newest (reports[0]).
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  // Which CV the Run picker targets. "" => fall back to the first document.
+  const [selectedCvId, setSelectedCvId] = useState<string>("");
+
+  // Bumped by the Retry button and after a successful run to re-run the load
+  // effect even when the profile id is unchanged (a plain re-set is a no-op).
+  const [reloadNonce, setReloadNonce] = useState(0);
+  // Run flow: mirrors CvLibrary's import/analyse error pattern.
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  // Reset transient load state when the request identity changes (profile
+  // switch or Retry). Done during render -- not synchronously inside the effect
+  // -- so React folds it into the in-progress render instead of a second
+  // commit->render pass. This is what satisfies react-hooks/set-state-in-effect;
+  // see CvLibrary for the full rationale.
+  const requestKey = `${activeProfileId ?? ""}:${reloadNonce}`;
+  const [loadingKey, setLoadingKey] = useState(requestKey);
+  if (loadingKey !== requestKey) {
+    setLoadingKey(requestKey);
+    setLoading(true);
+    setLoadError(null);
+  }
+
+  // Load the active profile's persisted reports (the page content) and its CV
+  // documents (the Run picker) together. A report-list failure gates the page
+  // via `loadError` -- distinct from an empty `[]`, so a failed load never
+  // masquerades as "no analyses yet". A document-list failure is tolerated: the
+  // picker ends up empty (Run disabled) but existing reports still render.
+  useEffect(() => {
+    let cancelled = false;
+    const pid = activeProfileId ?? "";
+    Promise.allSettled([loadCvAnalysisReports(pid), loadCvLibrary(pid)]).then(([rep, lib]) => {
+      if (cancelled) return;
+      if (rep.status === "fulfilled") {
+        setReports(rep.value);
+        setLoadError(null);
+      } else {
+        setReports([]);
+        setLoadError(errMessage(rep.reason));
+      }
+      setDocs(lib.status === "fulfilled" ? lib.value : []);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileId, reloadNonce]);
+
+  // Selected report with a newest-first fallback. After a run we reset the
+  // selection to null; since the fresh report sorts first, null resolves to it.
+  const selectedReport = reports.find((r) => r.id === selectedReportId) ?? reports[0] ?? null;
+
+  // Controlled CV picker value, clamped to a real document so the <select>
+  // never points at a stale id after the library reloads.
+  const cvValue = docs.some((d) => d.id === selectedCvId) ? selectedCvId : (docs[0]?.id ?? "");
+
+  // Run a fresh analysis for the picked CV, then reload. Resetting the report
+  // selection to null surfaces the new (newest-first) report automatically.
+  // A backend DomainError (missing document, no AI provider, model failure)
+  // surfaces via `runError`; guarded so double-clicks can't overlap.
+  async function handleRun() {
+    if (running || cvValue === "") return;
+    setRunning(true);
+    setRunError(null);
+    try {
+      await runCvAnalysis(cvValue);
+      setSelectedReportId(null);
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setRunError(errMessage(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const historyCols: Column<CvAnalysisReport>[] = [
+    { key: "cvFileName", header: "CV", primary: true, render: (r) => r.cvFileName },
+    {
+      key: "variantName",
+      header: "Variant",
+      render: (r) => r.variantName ?? "General",
+    },
+    {
+      key: "score",
+      header: "Score",
+      mono: true,
+      align: "right",
+      render: (r) =>
+        r.score !== null ? (
+          <span style={{ color: `var(--status-${matchScoreVariant(r.score)}-text)` }}>
+            {r.score}%
+          </span>
+        ) : (
+          "-"
+        ),
+    },
+    {
+      key: "modelProvider",
+      header: "Provider",
+      mono: true,
+      render: (r) => r.modelProvider,
+    },
+    {
+      key: "createdAt",
+      header: "Date",
+      mono: true,
+      align: "right",
+      render: (r) => new Date(r.createdAt).toLocaleDateString(),
+    },
+  ];
 
   return (
     <div className="page">
@@ -30,179 +163,244 @@ export function CvAnalysis() {
         <span className="page-subtitle">AI-powered match analysis</span>
       </div>
 
-      {/* Toolbar */}
-      <div className="toolbar">
-        <div className="field" style={{ display: "inline-flex", flexDirection: "row", gap: "var(--sp-2)", alignItems: "center" }}>
-          <label className="field__label" htmlFor="cv-sel" style={{ whiteSpace: "nowrap" }}>CV</label>
-          <select id="cv-sel" className="field__select" style={{ width: 220 }}>
-            {MOCK_LIBRARY.map((cv) => (
-              <option key={cv.id}>{cv.fileName}</option>
-            ))}
-          </select>
-        </div>
-        <div className="field" style={{ display: "inline-flex", flexDirection: "row", gap: "var(--sp-2)", alignItems: "center" }}>
-          <label className="field__label" htmlFor="var-sel" style={{ whiteSpace: "nowrap" }}>Variant</label>
-          <select id="var-sel" className="field__select" style={{ width: 200 }}>
-            {VARIANT_NAMES.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="toolbar-sep" />
-        <button type="button" className="btn btn--primary" disabled>
-          ▶ Run Analysis
-        </button>
-        <button type="button" className="btn btn--ghost" disabled>
-          Compare
-        </button>
-        <button type="button" className="btn btn--ghost" disabled>
-          Export JSON
-        </button>
-      </div>
-
-      {result === null ? (
-        <div className="empty-state">
-          <div className="empty-state__label">No analysis</div>
-          <p className="empty-state__title">Run your first analysis</p>
-          <p className="empty-state__body">
-            Select a CV and variant above, then press Run Analysis. Results will be stored in history.
-          </p>
-        </div>
+      {loading ? (
+        <EmptyState
+          label="..."
+          title="Loading analyses..."
+          body="Reading this profile's saved analysis reports."
+        />
+      ) : loadError !== null ? (
+        <EmptyState
+          label="Error"
+          title="Couldn't load your analysis history"
+          body={`The report store returned an error, so your analyses aren't shown. This does not mean they were deleted. ${loadError}`}
+          action={
+            <Button variant="primary" onClick={() => setReloadNonce((n) => n + 1)}>
+              Retry
+            </Button>
+          }
+        />
+      ) : docs.length === 0 && reports.length === 0 ? (
+        <EmptyState
+          label="Empty"
+          title="No CVs to analyse yet"
+          body="Upload a CV in the Library first. Analyses run against a stored document and appear here."
+        />
       ) : (
         <>
-          {/* Score tiles */}
-          <div className="analysis-grid">
-            {[
-              { label: "Overall Score",  val: result.overallScore  },
-              { label: "ATS Score",      val: result.atsScore      },
-              { label: "Keyword Match",  val: result.keywordMatch  },
-            ].map(({ label, val }) => (
-              <div key={label} className="stat-tile">
-                <span className="stat-tile__label">{label}</span>
-                <span className="stat-tile__value" style={{ color: scoreColor(val) }}>
-                  {val}
-                  <span style={{ fontSize: "var(--text-md)", fontWeight: "var(--fw-regular)" }}>%</span>
-                </span>
-                <div className="score-bar" style={{ marginTop: 4 }}>
-                  <div
-                    className="score-bar__fill"
-                    style={{ width: `${val}%`, background: scoreColor(val) }}
-                    role="progressbar"
-                    aria-valuenow={val}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          <Toolbar>
+            <Field label="CV" htmlFor="cv-sel" className="cvx-picker">
+              <Select
+                id="cv-sel"
+                value={cvValue}
+                onChange={(e) => setSelectedCvId(e.target.value)}
+                options={docs.map((d) => ({ value: d.id, label: d.fileName }))}
+                placeholder={docs.length === 0 ? "No CVs available" : undefined}
+              />
+            </Field>
+            <ToolbarSep />
+            <Button
+              variant="primary"
+              disabled={running || cvValue === ""}
+              icon={<Icon icon={PlayIcon} size={14} />}
+              onClick={handleRun}
+            >
+              {running ? "Running..." : "Run Analysis"}
+            </Button>
+          </Toolbar>
 
-          {/* Meta */}
-          <div style={{ display: "flex", gap: "var(--sp-4)", font: "var(--text-xs)/1.5 var(--font-mono)", color: "var(--color-text-muted)" }}>
-            <span>CV: <strong style={{ color: "var(--color-text-2)" }}>{result.cvName}</strong></span>
-            <span>Variant: <strong style={{ color: "var(--color-text-2)" }}>{result.variantName}</strong></span>
-            <span>Provider: <strong style={{ color: "var(--color-text-2)" }}>{result.provider}</strong></span>
-            <span>Run: <time dateTime={result.ranAt}>{new Date(result.ranAt).toLocaleString()}</time></span>
-          </div>
-
-          {/* Detail cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--sp-4)" }}>
-            <div className="card">
-              <div className="card__header">
-                <h2 className="card__title">Strengths</h2>
-                <span className="badge badge--success">{result.strengths.length}</span>
-              </div>
-              <div className="card__body">
-                <ul style={{ margin: 0, paddingLeft: "var(--sp-5)", display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}>
-                  {result.strengths.map((s) => (
-                    <li key={s} style={{ fontSize: "var(--text-sm)", color: "var(--color-text-2)" }}>{s}</li>
-                  ))}
-                </ul>
+          {runError !== null && (
+            <div className="inline-warning inline-warning--danger" role="alert">
+              <div className="inline-warning__body">
+                <div>Analysis failed. Your history is unchanged.</div>
+                <div className="inline-warning__url">{runError}</div>
               </div>
             </div>
+          )}
 
-            <div className="card">
-              <div className="card__header">
-                <h2 className="card__title">Weaknesses</h2>
-                <span className="badge badge--review">{result.weaknesses.length}</span>
-              </div>
-              <div className="card__body">
-                <ul style={{ margin: 0, paddingLeft: "var(--sp-5)", display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}>
-                  {result.weaknesses.map((w) => (
-                    <li key={w} style={{ fontSize: "var(--text-sm)", color: "var(--color-text-2)" }}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+          {selectedReport === null ? (
+            <EmptyState
+              label="No analysis"
+              title="Run your first analysis"
+              body="Pick a CV above and press Run Analysis. The result is saved to your history."
+            />
+          ) : (
+            <ReportDetail report={selectedReport} />
+          )}
 
-            <div className="card">
-              <div className="card__header">
-                <h2 className="card__title">Missing Keywords</h2>
-                <span className="badge badge--failed">{result.missingKeywords.length}</span>
-              </div>
-              <div className="card__body">
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}>
-                  {result.missingKeywords.map((kw) => (
-                    <span key={kw} className="badge badge--failed">{kw}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card__header">
-                <h2 className="card__title">Recommendations</h2>
-                <span className="badge badge--neutral">{result.recommendations.length}</span>
-              </div>
-              <div className="card__body">
-                <ol style={{ margin: 0, paddingLeft: "var(--sp-5)", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
-                  {result.recommendations.map((r) => (
-                    <li key={r} style={{ fontSize: "var(--text-sm)", color: "var(--color-text-2)" }}>{r}</li>
-                  ))}
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          {/* History */}
-          {MOCK_HISTORY.length > 1 && (
+          {reports.length > 1 && (
             <div className="section-group">
               <h2 className="section-title">Analysis History</h2>
-              <div className="table-wrapper">
-                <table className="data-table" aria-label="Analysis history">
-                  <thead>
-                    <tr>
-                      <th scope="col">CV</th>
-                      <th scope="col">Variant</th>
-                      <th scope="col">Score</th>
-                      <th scope="col">Provider</th>
-                      <th scope="col">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MOCK_HISTORY.map((h, i) => (
-                      <tr
-                        key={i}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => setSelectedIdx(i)}
-                        aria-selected={selectedIdx === i}
-                      >
-                        <td className="cell-primary">{h.cvName}</td>
-                        <td>{h.variantName}</td>
-                        <td className="cell-mono" style={{ color: scoreColor(h.overallScore) }}>
-                          {h.overallScore}%
-                        </td>
-                        <td className="cell-mono">{h.provider}</td>
-                        <td className="cell-mono">{new Date(h.ranAt).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={historyCols}
+                rows={reports}
+                getRowKey={(r) => r.id}
+                onRowClick={(r) => setSelectedReportId(r.id)}
+              />
             </div>
           )}
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The expanded view of a single report: score tiles, a match bar, the model's
+ * summary, a run-metadata strip, and the four detail lists. Split out so the
+ * page body stays a readable branch table.
+ */
+function ReportDetail({ report }: { report: CvAnalysisReport }) {
+  const scoreVariant: StatusVariant =
+    report.score !== null ? matchScoreVariant(report.score) : "neutral";
+
+  return (
+    <>
+      {/* Score + count tiles. The score tile's tone flips with the match band
+          so a red tile never sits next to a green ScoreBar. */}
+      <div className="stat-grid">
+        <KpiCard
+          label="Match Score"
+          tone={kpiTone(scoreVariant)}
+          accessibleValue={report.score !== null ? `${report.score} percent` : "not scored"}
+          value={
+            report.score !== null ? (
+              <>
+                {report.score}
+                <span
+                  style={{
+                    fontSize: "var(--text-md)",
+                    fontWeight: "var(--fw-regular)",
+                    marginLeft: 1,
+                  }}
+                >
+                  %
+                </span>
+              </>
+            ) : (
+              "n/a"
+            )
+          }
+        />
+        <KpiCard
+          label="Missing Keywords"
+          value={report.missingKeywords.length}
+          tone={report.missingKeywords.length > 0 ? "danger" : "success"}
+        />
+        <KpiCard label="Recommendations" value={report.recommendations.length} />
+      </div>
+
+      {report.score !== null && (
+        <Card compact>
+          <div className="cvx-scorebars">
+            <ScoreBar
+              label="Match"
+              value={report.score}
+              variant={matchScoreVariant(report.score)}
+            />
+          </div>
+        </Card>
+      )}
+
+      <Card
+        title="Summary"
+        actions={
+          report.optimizationNeeded ? (
+            <Badge variant="review">Optimization needed</Badge>
+          ) : (
+            <Badge variant="success">Well matched</Badge>
+          )
+        }
+      >
+        <p className="cvx-summary-text">{report.summary}</p>
+      </Card>
+
+      {/* Run metadata strip -- monospace, wraps on narrow. */}
+      <div className="cvx-runmeta" aria-label="Analysis metadata">
+        <span>
+          <span className="cvx-runmeta__k">CV</span>
+          <strong>{report.cvFileName}</strong>
+        </span>
+        <span>
+          <span className="cvx-runmeta__k">Variant</span>
+          <strong>{report.variantName ?? "General"}</strong>
+        </span>
+        <span>
+          <span className="cvx-runmeta__k">Model</span>
+          <strong>
+            {report.modelProvider} / {report.modelName}
+          </strong>
+        </span>
+        <span>
+          <span className="cvx-runmeta__k">Run</span>
+          <time dateTime={report.createdAt}>{new Date(report.createdAt).toLocaleString()}</time>
+        </span>
+      </div>
+
+      {/* Detail grid -- 2 columns on desktop, collapses to 1 on narrow. */}
+      <div className="cvx-detail-grid">
+        <Card
+          title="Strengths"
+          actions={<Badge variant="success">{report.strengths.length}</Badge>}
+        >
+          {report.strengths.length > 0 ? (
+            <ul className="cvx-list">
+              {report.strengths.map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="cvx-empty-note">None flagged.</p>
+          )}
+        </Card>
+
+        <Card
+          title="Weaknesses"
+          actions={<Badge variant="review">{report.weaknesses.length}</Badge>}
+        >
+          {report.weaknesses.length > 0 ? (
+            <ul className="cvx-list">
+              {report.weaknesses.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="cvx-empty-note">None flagged.</p>
+          )}
+        </Card>
+
+        <Card
+          title="Missing Keywords"
+          actions={<Badge variant="failed">{report.missingKeywords.length}</Badge>}
+        >
+          {report.missingKeywords.length > 0 ? (
+            <div className="cvx-keywords">
+              {report.missingKeywords.map((kw) => (
+                <Badge key={kw} variant="failed">
+                  {kw}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="cvx-empty-note">Nothing missing.</p>
+          )}
+        </Card>
+
+        <Card
+          title="Recommendations"
+          actions={<Badge variant="neutral">{report.recommendations.length}</Badge>}
+        >
+          {report.recommendations.length > 0 ? (
+            <ol className="cvx-list cvx-list--ordered">
+              {report.recommendations.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="cvx-empty-note">None.</p>
+          )}
+        </Card>
+      </div>
+    </>
   );
 }

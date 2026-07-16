@@ -1,6 +1,6 @@
 // Shape of events streamed from the Rust backend over the "hiremeops://event"
 // Tauri event channel (see lib/eventBridge.ts). The backend does not need to
-// emit ALL of these on day one — the frontend just needs the union kept in
+// emit ALL of these on day one - the frontend just needs the union kept in
 // sync as automation/CV/job features land.
 export type AppEventType =
   | "profile.updated"
@@ -21,6 +21,7 @@ export type AppEventType =
   | "automation.resumed"
   | "automation.evidence_saved"
   | "automation.stopped"
+  | "automation.state"
   | "log";
 
 export interface AppEvent {

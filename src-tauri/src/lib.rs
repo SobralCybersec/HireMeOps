@@ -6,6 +6,9 @@
 //! and the full job-preference / job-post / job-match command surface.
 
 mod ai;
+mod auth;
+#[cfg(feature = "real-browser")]
+mod browser;
 mod commands;
 mod cv;
 mod domain;
@@ -30,6 +33,11 @@ pub struct AppState {
     /// `with_stop_flag`), so tripping it halts any in-flight browser task at its
     /// next checkpoint — the kill-switch is always live, even between tasks.
     pub emergency_stop: Arc<AtomicBool>,
+    /// Singleton Playwright driver shared across automation sessions.
+    /// Lives here so `confirm_submit_parked` / `reject_submit_parked` commands
+    /// can resume the parked form from a separate IPC call.
+    #[cfg(feature = "real-browser")]
+    pub playwright: Arc<browser::playwright::PlaywrightDriver>,
 }
 
 async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
@@ -40,6 +48,10 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     storage::settings::ensure_defaults(&db).await?;
     Ok(AppState {
         db,
+        #[cfg(feature = "real-browser")]
+        playwright: Arc::new(browser::playwright::PlaywrightDriver::new(
+            &paths.data_dir,
+        )),
         paths,
         emergency_stop: Arc::new(AtomicBool::new(false)),
     })
@@ -56,6 +68,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
             let state = tauri::async_runtime::block_on(init_state(&handle)).map_err(|e| {
@@ -72,13 +85,19 @@ pub fn run() {
             // Phase 2 — CV
             commands::cv::import_cv_document,
             commands::cv::analyze_cv_document,
+            commands::cv::cv_read_bytes,
+            commands::cv::list_cv_documents,
+            commands::cv::list_cv_analysis_reports,
             // Phase 4 — applications
             commands::applications::draft_application,
+            commands::applications::submit_application,
             commands::automation::automation_start,
             commands::automation::automation_pause,
             commands::automation::automation_resume,
             commands::automation::automation_stop,
             commands::automation::automation_emergency_stop,
+            commands::automation::automation_confirm_submit,
+            commands::automation::automation_reject_submit,
             commands::events::emit_test_event,
             // Phase 3 — jobs
             commands::jobs::list_job_preferences,
@@ -99,6 +118,27 @@ pub fn run() {
             commands::exports::create_backup,
             commands::exports::list_backups,
             commands::exports::restore_backup,
+            // P1 — live-preview screencast (always registered; stubs when feature is off)
+            commands::preview::preview_open,
+            commands::preview::preview_close,
+            // AI provider
+            commands::ai::test_provider,
+            commands::ai::list_models,
+            commands::ai::set_api_key,
+            commands::ai::clear_api_key,
+            commands::ai::has_api_key,
+            // Subscription OAuth (Claude Pro/Max, ChatGPT, Gemini)
+            commands::auth::oauth_supported,
+            commands::auth::oauth_begin,
+            commands::auth::oauth_complete,
+            commands::auth::oauth_await_callback,
+            commands::auth::oauth_status,
+            commands::auth::oauth_refresh,
+            commands::auth::oauth_logout,
+            // Browser-backed "free" provider (native Playwright bridge)
+            commands::browser_provider::browser_provider_login,
+            commands::browser_provider::browser_provider_status,
+            commands::browser_provider::browser_provider_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

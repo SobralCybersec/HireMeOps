@@ -2,10 +2,22 @@
 //   import { Button, Badge, KpiCard } from "../components/ui";
 //
 // All primitives are thin wrappers over the class vocabulary in
-// src/styles/theme.css — see DESIGN_SYSTEM.md for the full catalogue.
+// src/styles/theme.css - see DESIGN_SYSTEM.md for the full catalogue.
 
 export { Button } from "./Button";
 export type { ButtonVariant, ButtonSize } from "./Button";
+
+export { Icon } from "./Icon";
+
+export { Input } from "./Input";
+export { Textarea } from "./Textarea";
+export { Field, FormRow } from "./Field";
+export { Select } from "./Select";
+export type { SelectOption } from "./Select";
+export { Checkbox } from "./Checkbox";
+export { Radio, RadioGroup } from "./Radio";
+export type { RadioOption } from "./Radio";
+export { Switch } from "./Switch";
 
 export { Badge } from "./Badge";
 export { StatusDot } from "./StatusDot";

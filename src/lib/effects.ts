@@ -1,9 +1,9 @@
 // Reduced-effects abstraction.
 //
 // Two layers cooperate:
-//   1. CSS  — useThemeStore toggles the `.reduced-effects` class on <html>,
+//   1. CSS  - useThemeStore toggles the `.reduced-effects` class on <html>,
 //             which neutralises all transitions/animations globally.
-//   2. JS   — this hook lets components branch in logic (skip a JS-driven
+//   2. JS   - this hook lets components branch in logic (skip a JS-driven
 //             animation, render a static value, avoid scroll-jank work).
 //
 // Both resolve the same way: mode "on"/"off" wins; "auto" follows the OS
@@ -20,7 +20,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia(MEDIA_QUERY).matches;
 }
 
-/** Pure resolver — handy outside React (e.g. one-off imperative code). */
+/** Pure resolver - handy outside React (e.g. one-off imperative code). */
 export function resolveReducedEffects(mode: ReducedEffectsMode): boolean {
   if (mode === "on") return true;
   if (mode === "off") return false;

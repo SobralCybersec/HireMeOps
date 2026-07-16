@@ -1,8 +1,8 @@
-// Placeholder library data — the single seam to replace once the CV backend is
+// Placeholder library data - the single seam to replace once the CV backend is
 // wired. Shapes match `CvLibraryDoc`; ids line up with the analysis mock so the
 // two pages tell one coherent story.
 
-import type { AnalysisResult, CvLibraryDoc } from "./types";
+import type { CvAnalysisReport, CvLibraryDoc } from "./types";
 
 const HOUR = 1000 * 60 * 60;
 const DAY = HOUR * 24;
@@ -43,29 +43,83 @@ export const MOCK_LIBRARY: CvLibraryDoc[] = [
   },
 ];
 
-// Analysis history — `cvName` values line up with `MOCK_LIBRARY` file names so
-// the Library and Analysis pages tell one coherent story.
-export const MOCK_HISTORY: AnalysisResult[] = [
+// Analysis history - `cvDocumentId` / `cvFileName` line up with `MOCK_LIBRARY`
+// so the Library and Analysis pages tell one coherent story. Newest first, to
+// match the backend's ordering.
+export const MOCK_HISTORY: CvAnalysisReport[] = [
   {
-    cvName: "cv_rust_2025.pdf",
+    id: "rep-1",
+    cvDocumentId: "cv1",
+    cvFileName: "cv_rust_2025.pdf",
+    roleVariantId: "v1",
     variantName: "Rust Systems",
-    overallScore: 88,
-    atsScore: 84,
-    keywordMatch: 91,
+    modelProvider: "anthropic",
+    modelName: "claude-sonnet-4-6",
+    score: 88,
+    summary:
+      "Strong systems and open-source signal for a Rust-focused role. Closing the " +
+      "cloud/orchestration gaps and leading with quantified impact would push this " +
+      "into the top band.",
+    optimizationNeeded: true,
+    missingKeywords: ["Kubernetes", "gRPC", "distributed systems"],
     strengths: [
       "Strong systems programming background",
       "Open-source contributions",
       "Relevant project experience",
     ],
     weaknesses: ["Limited cloud infrastructure experience", "No formal CS degree listed"],
-    missingKeywords: ["Kubernetes", "gRPC", "distributed systems"],
     recommendations: [
       "Add Kubernetes experience (even personal cluster projects)",
       "Mention distributed systems coursework or self-study",
       "Lead with quantified impact statements",
     ],
-    provider: "claude-sonnet-4-6",
-    ranAt: new Date(Date.now() - HOUR).toISOString(),
+    createdAt: new Date(Date.now() - HOUR).toISOString(),
+  },
+  {
+    id: "rep-2",
+    cvDocumentId: "cv2",
+    cvFileName: "cv_fullstack_general.docx",
+    roleVariantId: "v3",
+    variantName: "Fullstack",
+    modelProvider: "openai",
+    modelName: "gpt-4o",
+    score: 74,
+    summary:
+      "Broad full-stack coverage with a clear project history. Reads as generalist; " +
+      "tightening the summary around a target stack and adding measurable outcomes " +
+      "would lift the match.",
+    optimizationNeeded: true,
+    missingKeywords: ["GraphQL", "CI/CD", "observability"],
+    strengths: ["Broad full-stack coverage", "Clear project history"],
+    weaknesses: ["Reads as generalist", "Few quantified outcomes"],
+    recommendations: [
+      "Tighten the summary around one target stack",
+      "Quantify project outcomes (users, latency, revenue)",
+    ],
+    createdAt: new Date(Date.now() - DAY * 2).toISOString(),
+  },
+  {
+    id: "rep-3",
+    cvDocumentId: "cv1",
+    cvFileName: "cv_rust_2025.pdf",
+    roleVariantId: "v2",
+    variantName: "Backend Platform",
+    modelProvider: "anthropic",
+    modelName: "claude-sonnet-4-6",
+    score: 79,
+    summary:
+      "Solid backend fundamentals for a platform role. The systems depth is there; " +
+      "surfacing service-ownership and on-call experience would strengthen the " +
+      "platform framing.",
+    optimizationNeeded: false,
+    missingKeywords: ["Terraform", "SLOs"],
+    strengths: ["Solid backend fundamentals", "Systems depth"],
+    weaknesses: ["Platform ownership signal is thin"],
+    recommendations: [
+      "Surface service-ownership and on-call experience",
+      "Name the platforms and scale you operated",
+    ],
+    createdAt: new Date(Date.now() - DAY * 5).toISOString(),
   },
 ];
 

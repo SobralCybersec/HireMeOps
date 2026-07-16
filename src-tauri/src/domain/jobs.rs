@@ -469,4 +469,128 @@ mod tests {
         let err = svc.run_search("nope").await.unwrap_err();
         assert!(matches!(err, DomainError::InvalidInput(_)));
     }
+
+    #[tokio::test]
+    async fn score_match_with_explicit_preference_id() {
+        let pool = mem_pool().await;
+        seed(&pool).await;
+        let svc = JobSearchServiceImpl::new(pool.clone());
+
+        let match_id = svc
+            .score_match_with_preference("j1", "p1", Some("pref1"))
+            .await
+            .unwrap();
+
+        let (rec, pref_id): (String, Option<String>) = sqlx::query_as(
+            "SELECT recommendation, preference_id FROM job_matches WHERE id = ?1",
+        )
+        .bind(&match_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(rec, "auto_apply");
+        assert_eq!(pref_id.as_deref(), Some("pref1"));
+    }
+
+    #[tokio::test]
+    async fn score_match_no_preference_uses_neutral_defaults() {
+        let pool = mem_pool().await;
+        let now = now_iso();
+
+        // Profile with no preference row at all.
+        sqlx::query(
+            "INSERT INTO profiles (id, display_name, created_at, updated_at, is_active)
+             VALUES ('p2', 'NoPref', ?1, ?1, 1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO job_posts (
+                 id, profile_id, platform, url, title, company,
+                 description, discovered_at, last_seen_at, status
+             ) VALUES (
+                 'j2', 'p2', 'linkedin', 'https://x/2',
+                 'DevOps Engineer', 'Widgets',
+                 'Terraform, Docker, CI/CD pipelines', ?1, ?1, 'discovered'
+             )",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let svc = JobSearchServiceImpl::new(pool.clone());
+        let match_id = svc.score_match("j2", "p2").await.unwrap();
+
+        // Neutral defaults must produce a non-zero score and a persisted row.
+        let (score, pref_id): (i64, Option<String>) =
+            sqlx::query_as("SELECT score, preference_id FROM job_matches WHERE id = ?1")
+                .bind(&match_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert!(score > 0, "neutral scoring should not yield 0, got {score}");
+        assert!(pref_id.is_none(), "no preference → preference_id NULL");
+    }
+
+    #[tokio::test]
+    async fn score_match_does_not_overwrite_non_discovered_status() {
+        let pool = mem_pool().await;
+        seed(&pool).await;
+
+        // Advance the post beyond 'discovered' before re-scoring.
+        sqlx::query("UPDATE job_posts SET status = 'needs_review' WHERE id = 'j1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let svc = JobSearchServiceImpl::new(pool.clone());
+        svc.score_match("j1", "p1").await.unwrap();
+
+        // The UPDATE in score_match has `AND status = 'discovered'` guard.
+        let status: String = sqlx::query_scalar("SELECT status FROM job_posts WHERE id = 'j1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "needs_review", "non-discovered status must not be overwritten");
+    }
+
+    #[tokio::test]
+    async fn run_search_stamps_last_run_even_with_zero_posts() {
+        let pool = mem_pool().await;
+        let now = now_iso();
+
+        sqlx::query(
+            "INSERT INTO profiles (id, display_name, created_at, updated_at, is_active)
+             VALUES ('p3', 'Empty', ?1, ?1, 1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO search_queries
+                 (id, profile_id, platform, query, query_type, enabled, created_at)
+             VALUES ('sq_empty', 'p3', 'linkedin', 'rust', 'linkedin_search', 1, ?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let svc = JobSearchServiceImpl::new(pool.clone());
+        let n = svc.run_search("sq_empty").await.unwrap();
+        assert_eq!(n, 0, "no discovered posts → 0 scored");
+
+        let lra: Option<String> =
+            sqlx::query_scalar("SELECT last_run_at FROM search_queries WHERE id = 'sq_empty'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(lra.is_some(), "last_run_at must be stamped even when 0 posts scored");
+    }
 }

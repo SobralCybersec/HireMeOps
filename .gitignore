@@ -20,6 +20,9 @@ HireMeOps_FRONTEND_SPEC.md
 HireMeOps_IMPLEMENTATION_SPEC.md
 HireMeOps_PROJECT_INDEX.md
 
+# TypeScript / build artifacts
+*.tsbuildinfo
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -30,3 +33,4 @@ HireMeOps_PROJECT_INDEX.md
 *.njsproj
 *.sln
 *.sw?
+.frontend-slides/

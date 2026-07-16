@@ -8,6 +8,14 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // NOTE on bundle splitting: routes are already lazy-loaded via React.lazy in
+  // the router, so each page (CvLibrary, JobSearch, AutomationCockpit, …) is
+  // emitted as its own chunk — that is the frontend-startup win. A separate
+  // "react-vendor" chunk was intentionally NOT added: this app is served from
+  // the `tauri://localhost` custom protocol out of assets embedded in the app
+  // binary, so there is no cross-update HTTP cache for a stable vendor hash to
+  // benefit, and splitting React out does not reduce first-paint bytes/parse.
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

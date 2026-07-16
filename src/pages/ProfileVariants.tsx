@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Button, Field, Input, Select, Textarea } from "../components/ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -14,7 +15,7 @@ interface Variant {
   bullets: string;
 }
 
-// Placeholder data – replace when VariantStore is wired
+// Placeholder data - replace when VariantStore is wired
 const MOCK_VARIANTS: Variant[] = [
   {
     id: "v1",
@@ -47,7 +48,7 @@ const MOCK_VARIANTS: Variant[] = [
   {
     id: "v2",
     name: "Rust Systems",
-    headline: "Systems Engineer – Rust / C++",
+    headline: "Systems Engineer - Rust / C++",
     summary:
       "Systems programmer focused on performance-critical infrastructure: embedded runtimes, " +
       "WebAssembly sandboxes, and async networking. Write Rust daily; reach for C++ when interop demands it.",
@@ -67,7 +68,7 @@ const MOCK_VARIANTS: Variant[] = [
       "Cross-platform CLI toolchain (Rust, clap)",
     ],
     bullets:
-      "• Built a WASM sandbox reducing plugin crash blast-radius to zero — zero host crashes since deploy.\n" +
+      "• Built a WASM sandbox reducing plugin crash blast-radius to zero - zero host crashes since deploy.\n" +
       "• Rewrote UDP transport in Rust; cut tail latency 60%, halved memory footprint.\n" +
       "• Contributed 3 accepted PRs to Tokio (async I/O fixes, documentation).",
   },
@@ -95,28 +96,18 @@ const MOCK_VARIANTS: Variant[] = [
     ],
     bullets:
       "• Shipped redesigned onboarding flow; reduced time-to-value from 12 min to 3 min.\n" +
-      "• Owned backend API serving 200k DAU — 99.95% uptime over 18 months.\n" +
+      "• Owned backend API serving 200k DAU - 99.95% uptime over 18 months.\n" +
       "• Introduced Playwright E2E suite; caught 4 regressions before production in its first month.",
   },
 ];
 
-const TABS = [
-  "Headline",
-  "Summary",
-  "Keywords",
-  "CV",
-  "Skills",
-  "Projects",
-  "Bullets",
-] as const;
+const TABS = ["Headline", "Summary", "Keywords", "CV", "Skills", "Projects", "Bullets"] as const;
 type Tab = (typeof TABS)[number];
 
 // ---------------------------------------------------------------------------
 
 export function ProfileVariants() {
-  const [selectedId, setSelectedId] = useState<string | null>(
-    MOCK_VARIANTS[0]?.id ?? null,
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(MOCK_VARIANTS[0]?.id ?? null);
   const [activeTab, setActiveTab] = useState<Tab>("Headline");
 
   // Keyboard nav for the horizontal variant editor tablist (ArrowLeft/Right + Home/End).
@@ -126,7 +117,8 @@ export function ProfileVariants() {
     e.preventDefault();
     let next: number;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % TABS.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+      next = (idx - 1 + TABS.length) % TABS.length;
     else if (e.key === "Home") next = 0;
     else next = TABS.length - 1;
     setActiveTab(TABS[next]);
@@ -152,15 +144,15 @@ export function ProfileVariants() {
         <h1 className="page-title">Profile Variants</h1>
         <span className="page-subtitle">{MOCK_VARIANTS.length} variants</span>
         <div className="toolbar-spacer" />
-        <button type="button" className="btn btn--ghost btn--sm" disabled>
+        <Button variant="ghost" size="sm" disabled>
           Duplicate
-        </button>
-        <button type="button" className="btn btn--ghost btn--sm" disabled>
+        </Button>
+        <Button variant="ghost" size="sm" disabled>
           Generate from CV
-        </button>
-        <button type="button" className="btn btn--primary btn--sm" disabled>
+        </Button>
+        <Button variant="primary" size="sm" disabled>
           + New Variant
-        </button>
+        </Button>
       </div>
 
       <div
@@ -202,9 +194,7 @@ export function ProfileVariants() {
               >
                 <div>
                   <div className="list-item__name">{v.name}</div>
-                  <div className="list-item__meta">
-                    {v.keywords.slice(0, 3).join(", ")}
-                  </div>
+                  <div className="list-item__meta">{v.keywords.slice(0, 3).join(", ")}</div>
                 </div>
               </li>
             ))}
@@ -267,59 +257,47 @@ export function ProfileVariants() {
               >
                 {/* ── Headline ── */}
                 {activeTab === "Headline" && (
-                  <div className="field">
-                    <label className="field__label" htmlFor="var-headline">
-                      Headline
-                    </label>
-                    <input
+                  <Field
+                    label="Headline"
+                    htmlFor="var-headline"
+                    helper="One-line professional title shown at the top of CV and LinkedIn. Editing requires backend connection."
+                  >
+                    <Input
                       id="var-headline"
                       type="text"
-                      className="field__input"
                       defaultValue={selected.headline}
                       readOnly
-                      style={{ cursor: "not-allowed", opacity: 0.7 }}
+                      aria-readonly="true"
                     />
-                    <span className="field__helper">
-                      One-line professional title shown at the top of CV and LinkedIn.
-                      Editing requires backend connection.
-                    </span>
-                  </div>
+                  </Field>
                 )}
 
                 {/* ── Summary ── */}
                 {activeTab === "Summary" && (
-                  <div className="field">
-                    <label className="field__label" htmlFor="var-summary">
-                      Professional Summary
-                    </label>
-                    <textarea
+                  <Field
+                    label="Professional Summary"
+                    htmlFor="var-summary"
+                    helper="3-5 sentence professional summary tailored to this variant's target role. Editing requires backend connection."
+                  >
+                    <Textarea
                       id="var-summary"
-                      className="field__input"
                       rows={6}
                       defaultValue={selected.summary}
                       readOnly
-                      style={{ resize: "vertical", cursor: "not-allowed", opacity: 0.7 }}
+                      aria-readonly="true"
+                      style={{ resize: "vertical" }}
                     />
-                    <span className="field__helper">
-                      3–5 sentence professional summary tailored to this variant's target
-                      role. Editing requires backend connection.
-                    </span>
-                  </div>
+                  </Field>
                 )}
 
                 {/* ── Keywords ── */}
                 {activeTab === "Keywords" && (
                   <>
                     <div>
-                      <p
-                        className="field__label"
-                        style={{ marginBottom: "var(--sp-2)" }}
-                      >
+                      <p className="field__label" style={{ marginBottom: "var(--sp-2)" }}>
                         ATS Keywords
                       </p>
-                      <div
-                        style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}
-                      >
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}>
                         {selected.keywords.map((kw) => (
                           <span key={kw} className="tag">
                             {kw}
@@ -334,8 +312,8 @@ export function ProfileVariants() {
                         color: "var(--color-text-muted)",
                       }}
                     >
-                      Keywords are matched against job descriptions to compute relevance
-                      scores. Adding or removing keywords requires backend connection.
+                      Keywords are matched against job descriptions to compute relevance scores.
+                      Adding or removing keywords requires backend connection.
                     </p>
                   </>
                 )}
@@ -343,24 +321,19 @@ export function ProfileVariants() {
                 {/* ── CV (Preferred CV) ── */}
                 {activeTab === "CV" && (
                   <>
-                    <div className="field">
-                      <label className="field__label" htmlFor="var-preferred-cv">
-                        Preferred CV
-                      </label>
-                      <select
+                    <Field
+                      label="Preferred CV"
+                      htmlFor="var-preferred-cv"
+                      helper="Preferred CV for this variant. Auto-apply still selects the highest-match CV unless explicitly overridden here. Requires CV Library backend."
+                    >
+                      <Select
                         id="var-preferred-cv"
-                        className="field__input"
+                        value=""
                         disabled
-                        style={{ cursor: "not-allowed", opacity: 0.7 }}
-                      >
-                        <option value="">— no CV selected —</option>
-                      </select>
-                      <span className="field__helper">
-                        Preferred CV for this variant. Auto-apply still selects the
-                        highest-match CV unless explicitly overridden here. Requires CV
-                        Library backend.
-                      </span>
-                    </div>
+                        placeholder="- no CV selected -"
+                        options={[]}
+                      />
+                    </Field>
                     <div
                       style={{
                         padding: "var(--sp-3) var(--sp-4)",
@@ -371,8 +344,7 @@ export function ProfileVariants() {
                         color: "var(--color-text-muted)",
                       }}
                     >
-                      Upload and parse CVs in the CV Library, then assign them to variants
-                      here.
+                      Upload and parse CVs in the CV Library, then assign them to variants here.
                     </div>
                   </>
                 )}
@@ -381,10 +353,7 @@ export function ProfileVariants() {
                 {activeTab === "Skills" && (
                   <>
                     <div>
-                      <p
-                        className="field__label"
-                        style={{ marginBottom: "var(--sp-1)" }}
-                      >
+                      <p className="field__label" style={{ marginBottom: "var(--sp-1)" }}>
                         Skills Order
                       </p>
                       <p
@@ -451,10 +420,7 @@ export function ProfileVariants() {
                 {activeTab === "Projects" && (
                   <>
                     <div>
-                      <p
-                        className="field__label"
-                        style={{ marginBottom: "var(--sp-1)" }}
-                      >
+                      <p className="field__label" style={{ marginBottom: "var(--sp-1)" }}>
                         Projects Priority
                       </p>
                       <p
@@ -464,8 +430,8 @@ export function ProfileVariants() {
                           color: "var(--color-text-muted)",
                         }}
                       >
-                        Projects are presented in this order when included in CV generation
-                        for this variant. Reordering requires backend connection.
+                        Projects are presented in this order when included in CV generation for this
+                        variant. Reordering requires backend connection.
                       </p>
                       <ol
                         style={{
@@ -519,29 +485,24 @@ export function ProfileVariants() {
 
                 {/* ── Bullets (experience) ── */}
                 {activeTab === "Bullets" && (
-                  <div className="field">
-                    <label className="field__label" htmlFor="var-bullets">
-                      Experience Bullets
-                    </label>
-                    <textarea
+                  <Field
+                    label="Experience Bullets"
+                    htmlFor="var-bullets"
+                    helper="Role-specific achievement bullets for this variant's experience section. One bullet per line (•). Editing requires backend connection."
+                  >
+                    <Textarea
                       id="var-bullets"
-                      className="field__input"
                       rows={8}
                       defaultValue={selected.bullets}
                       readOnly
+                      aria-readonly="true"
                       style={{
                         resize: "vertical",
-                        cursor: "not-allowed",
-                        opacity: 0.7,
                         fontFamily: "var(--font-mono)",
                         fontSize: "var(--text-xs)",
                       }}
                     />
-                    <span className="field__helper">
-                      Role-specific achievement bullets for this variant's experience
-                      section. One bullet per line (•). Editing requires backend connection.
-                    </span>
-                  </div>
+                  </Field>
                 )}
               </div>
             </div>

@@ -65,27 +65,33 @@ pub async fn export_profiles_json(pool: &SqlitePool) -> DomainResult<String> {
     .fetch_all(pool)
     .await?;
 
+    // Batch-fetch all CV documents in one query, then group by profile_id in
+    // memory. Avoids an N+1 (one cv_documents query per profile).
+    let cv_rows = sqlx::query(
+        "SELECT profile_id, id, file_name, file_type, created_at FROM cv_documents \
+         ORDER BY profile_id, created_at",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut cvs_by_profile: std::collections::HashMap<String, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    for c in &cv_rows {
+        let pid: String = c.try_get("profile_id")?;
+        cvs_by_profile
+            .entry(pid)
+            .or_default()
+            .push(serde_json::json!({
+                "id": text(c, "id"),
+                "file_name": text(c, "file_name"),
+                "file_type": text(c, "file_type"),
+                "created_at": text(c, "created_at"),
+            }));
+    }
+
     let mut out = Vec::with_capacity(profiles.len());
     for p in &profiles {
         let id: String = p.try_get("id")?;
-        let cvs = sqlx::query(
-            "SELECT id, file_name, file_type, created_at FROM cv_documents \
-             WHERE profile_id = ?1 ORDER BY created_at",
-        )
-        .bind(&id)
-        .fetch_all(pool)
-        .await?;
-        let cv_docs: Vec<_> = cvs
-            .iter()
-            .map(|c| {
-                serde_json::json!({
-                    "id": text(c, "id"),
-                    "file_name": text(c, "file_name"),
-                    "file_type": text(c, "file_type"),
-                    "created_at": text(c, "created_at"),
-                })
-            })
-            .collect();
+        let cv_docs = cvs_by_profile.remove(&id).unwrap_or_default();
         out.push(serde_json::json!({
             "id": id,
             "display_name": text(p, "display_name"),
@@ -272,7 +278,9 @@ pub async fn create_backup(pool: &SqlitePool, export_dir: &Path) -> DomainResult
         .execute(pool)
         .await?;
 
-    let size_bytes = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
+    let size_bytes = std::fs::metadata(&path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
     Ok(BackupInfo {
         file_name,
         path: path.to_string_lossy().into_owned(),
@@ -427,9 +435,17 @@ mod tests {
         seed_profile(&pool).await;
         let json = export_profiles_json(&pool).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["profile_count"], 1);
-        assert_eq!(parsed["profiles"][0]["display_name"], "Ada, \"the\" Engineer");
-        assert!(parsed["profiles"][0]["cv_documents"].is_array());
+        // Baseline `default` profile (migration 0003) + the seeded Ada profile.
+        assert_eq!(parsed["profile_count"], 2);
+        // Locate Ada by name rather than index: ordering is by `created_at`,
+        // which the seeded default shares to second granularity.
+        let ada = parsed["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["display_name"] == "Ada, \"the\" Engineer")
+            .expect("seeded Ada profile present in export");
+        assert!(ada["cv_documents"].is_array());
     }
 
     #[tokio::test]
@@ -480,7 +496,9 @@ mod tests {
         let target = dir.join("restored.sqlite3");
         let backup_path = std::path::PathBuf::from(&info.path);
         restore_backup(&backup_path, &target).await.unwrap();
-        let ropts = SqliteConnectOptions::new().filename(&target).read_only(true);
+        let ropts = SqliteConnectOptions::new()
+            .filename(&target)
+            .read_only(true);
         let rpool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(ropts)
@@ -490,7 +508,8 @@ mod tests {
             .fetch_one(&rpool)
             .await
             .unwrap();
-        assert_eq!(count, 1);
+        // Backup captured the baseline `default` profile plus the seeded one.
+        assert_eq!(count, 2);
         rpool.close().await;
 
         let _ = std::fs::remove_dir_all(&dir);

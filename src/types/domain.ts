@@ -1,5 +1,5 @@
 // Minimal domain DTOs for Phase 1 (foundation shell only). These intentionally
-// stay small — real fields will be expanded once each page grows real logic.
+// stay small - real fields will be expanded once each page grows real logic.
 
 export interface Profile {
   id: string;
@@ -39,11 +39,7 @@ export interface Job {
 }
 
 export type ApplicationStatus =
-  | "queued"
-  | "needs_review"
-  | "submitted"
-  | "failed"
-  | "skipped_duplicate";
+  "queued" | "needs_review" | "submitted" | "failed" | "skipped_duplicate";
 
 export interface Application {
   id: string;
@@ -85,4 +81,129 @@ export interface JobFilters {
   preferredSkills: string[];
   excludedKeywords: string[];
   blockedCompanies: string[];
+}
+
+// Full DTO returned by `list_job_preferences`. The array/set columns are stored
+// as JSON strings in SQLite (`*Json`), so callers parse them into string[].
+// Backend serialises camelCase (see `JobPreferenceDto` in commands/jobs.rs).
+export interface JobPreferenceDto {
+  id: string;
+  profileId: string;
+  name: string;
+  targetRolesJson: string;
+  seniorityJson: string | null;
+  locationsJson: string | null;
+  remoteModesJson: string | null;
+  minSalary: number | null;
+  salaryCurrency: string | null;
+  requiredSkillsJson: string | null;
+  preferredSkillsJson: string | null;
+  excludedKeywordsJson: string | null;
+  blockedCompaniesJson: string | null;
+  autoApplyEnabled: boolean;
+  autoSubmitEnabled: boolean;
+  autoSubmitMinScore: number;
+  needsReviewConfidenceThreshold: number;
+  retryFailedEnabled: boolean;
+  retryLimit: number;
+  dailyApplicationLimit: number | null;
+  dailyConnectionLimit: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Argument shape for `create_job_preference` (passed as `{ input }`). Optional
+// fields fall back to backend defaults (auto-submit/retry rules). Mirrors the
+// `CreateJobPreferenceInput` struct (camelCase) in commands/jobs.rs.
+export interface CreateJobPreferenceInput {
+  profileId: string;
+  name: string;
+  targetRolesJson: string;
+  seniorityJson?: string | null;
+  locationsJson?: string | null;
+  remoteModesJson?: string | null;
+  minSalary?: number | null;
+  salaryCurrency?: string | null;
+  requiredSkillsJson?: string | null;
+  preferredSkillsJson?: string | null;
+  excludedKeywordsJson?: string | null;
+  blockedCompaniesJson?: string | null;
+  autoApplyEnabled?: boolean;
+  autoSubmitEnabled?: boolean;
+  autoSubmitMinScore?: number;
+  needsReviewConfidenceThreshold?: number;
+  retryFailedEnabled?: boolean;
+  retryLimit?: number;
+  dailyApplicationLimit?: number | null;
+  dailyConnectionLimit?: number | null;
+}
+
+// Full DTO returned by `list_job_posts`. Fields serialized camelCase by backend.
+export interface JobPostDto {
+  id: string;
+  profileId: string;
+  platform: string;
+  url: string;
+  canonicalUrl: string | null;
+  title: string;
+  company: string;
+  location: string | null;
+  remoteMode: string | null;
+  summary: string | null;
+  seniority: string | null;
+  employmentType: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  currency: string | null;
+  postedAt: string | null;
+  discoveredAt: string;
+  status: JobStatus;
+  searchQueryId: string | null;
+  discoverySource: string | null;
+}
+
+// Full DTO returned by `list_job_matches` / `score_job_match`.
+export interface JobMatchDto {
+  id: string;
+  jobId: string;
+  profileId: string;
+  preferenceId: string | null;
+  score: number;
+  roleScore: number;
+  skillScore: number;
+  seniorityScore: number;
+  locationScore: number;
+  salaryScore: number;
+  matchedSkillsJson: string;
+  missingSkillsJson: string;
+  riskFlagsJson: string;
+  recommendation: string;
+  explanation: string | null;
+  modelProvider: string | null;
+  modelName: string | null;
+  createdAt: string;
+}
+
+// Full DTO returned by `list_search_queries` / `generate_search_queries`.
+export interface SearchQueryDto {
+  id: string;
+  profileId: string;
+  preferenceId: string | null;
+  platform: string;
+  query: string;
+  queryType: string;
+  enabled: boolean;
+  lastRunAt: string | null;
+  createdAt: string;
+}
+
+// Input for `generate_search_queries`. Backend deserializes camelCase.
+export interface SearchQueryInput {
+  profileId: string;
+  preferenceId?: string | null;
+  titles: string[];
+  requiredSkills: string[];
+  location?: string | null;
+  remoteMode?: string | null;
+  seniority: string[];
 }

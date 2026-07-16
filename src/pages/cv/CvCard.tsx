@@ -40,7 +40,8 @@ export function CvCard({ cv, selected, loader, onSelect, onOpen }: CvCardProps) 
     const r = el.getBoundingClientRect();
     // Prefer the right side; flip left when there isn't room.
     const roomRight = window.innerWidth - r.right;
-    const left = roomRight > PEEK_WIDTH + 24 ? r.right + 12 : Math.max(12, r.left - PEEK_WIDTH - 12);
+    const left =
+      roomRight > PEEK_WIDTH + 24 ? r.right + 12 : Math.max(12, r.left - PEEK_WIDTH - 12);
     const top = Math.min(Math.max(12, r.top), window.innerHeight - PEEK_WIDTH * 1.35 - 12);
     setPeek({ left, top, src });
   }, [cv.id]);

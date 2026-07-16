@@ -1,6 +1,8 @@
 /* Global reset. Palette + component styles live in src/styles/theme.css */
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 html,
 body,

@@ -21,8 +21,8 @@ Local-first desktop app; builds clean (`cargo check`, `tsc --noEmit`, `vite buil
 | 3 | Jobs & matching — deterministic, rule-based scoring engine, job posts, `job_matches`, application-draft stubs | ✅ Complete |
 | — | Frontend redesign — design system (`DESIGN_SYSTEM.md`), theme tokens, component + page library, effects/motion layer with reduced-effects wiring, accessibility pass | ✅ Complete |
 | 4 | AI providers — provider abstraction + response cache behind `CvService::analyze` and `ApplicationService::draft`; augments match explanations only | ✅ Complete |
-| 5 | Browser automation — Playwright/Chromium sidecar: real browser sessions, LinkedIn Easy Apply, evidence capture | ✅ Complete |
-| 6 | Automation cockpit — `AutomationSupervisor`: queue, retries, evidence, emergency stop wired end-to-end | ✅ Complete |
+| 5 | Browser automation — Chromium manual-assist apply flow and evidence capture; online job discovery is not connected | 🚧 Partial |
+| 6 | Automation cockpit — queued application tasks, supervisor controls, evidence, and emergency stop; some secondary controls remain placeholders | 🚧 Partial |
 | 7 | Export / backup — profiles JSON, jobs/applications/audit CSV, `VACUUM INTO` snapshot + validated restore | ✅ Complete |
 
 The **matching engine is deterministic and rule-based** (see `src-tauri/src/matching/`) —
@@ -56,6 +56,43 @@ Key design docs live at the repo root: `HireMeOps_IMPLEMENTATION_SPEC.md`,
 
 ---
 
+## Field Guide (presentation)
+
+A self-contained **24-slide field-guide deck** walking through the whole build lives in
+`.frontend-slides/`:
+
+```
+.frontend-slides/
+  presentation.html          Full 24-slide deck (open in a browser)
+  HireMeOps-FieldGuide.pdf   Exported deck — 24 pages, true 16:9 (1440×810 pt)
+  slide-previews/            Three explored design directions (A/B/C)
+  screenshots/               10 real app screens, captured 2× (1920×1080 @ 2)
+```
+
+- **Design:** "Cobalt Ledger" editorial direction (paper + cobalt, Bricolage Grotesque /
+  IBM Plex Sans / Mono). One standalone HTML file — no build step, no network at runtime
+  beyond web-fonts. Arrow keys / space / click to navigate; `⌘/Ctrl-P` prints to a clean
+  16:9 PDF (an `@page 1920×1080` + reveal-visible print stylesheet is baked in).
+- **Content arc:** thesis → four principles → architecture → the 7 phases → data model →
+  CV pipeline → deterministic scorer → applications (draft/lock/submit) → automation
+  supervisor → emergency stop → AI providers → a **10-thumbnail gallery of real screens** →
+  three full-frame screenshots → durability/exports → by-the-numbers → close.
+- **Screenshots are real, not mockups.** They were captured headless (system Chromium,
+  `--headless=new`) against the Vite dev server using **dev-only mock seams** in
+  `src/lib/devMocks.ts` + `src/lib/tauriInvoke.ts`. Every mock path is gated behind
+  `isMockEnabled()` (`import.meta.env.DEV && !__TAURI_INTERNALS__`), so **none of it ships**
+  to the Tauri/production build (verified inert; `tsc --noEmit` clean).
+
+To re-export the PDF after editing the deck:
+
+```bash
+chromium --headless=new --no-pdf-header-footer --virtual-time-budget=8000 \
+  --print-to-pdf=".frontend-slides/HireMeOps-FieldGuide.pdf" \
+  "file://$PWD/.frontend-slides/presentation.html"
+```
+
+---
+
 ## Development
 
 Prerequisites: Rust toolchain, Node + `pnpm`, and the Tauri 2 system dependencies.
@@ -64,7 +101,8 @@ Prerequisites: Rust toolchain, Node + `pnpm`, and the Tauri 2 system dependencie
 pnpm install            # install frontend deps
 
 pnpm tauri dev          # run the full desktop app (Vite + Rust)
-pnpm dev                # frontend only (Vite dev server on http://localhost:1420)
+pnpm dev                # frontend-only preview; backend actions are unavailable
+VITE_ENABLE_MOCKS=true pnpm dev  # screenshot/demo data only
 pnpm build              # tsc && vite build (frontend production build)
 pnpm tauri build        # bundle the desktop app
 
