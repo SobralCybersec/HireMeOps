@@ -1,5 +1,13 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button, Field, Input, Select, Textarea } from "../components/ui";
+import { useProfileStore } from "../stores/useProfileStore";
+import { useProfileVariantStore } from "../stores/useProfileVariantStore";
+import { LinkedInSyncPanel } from "../components/LinkedInSyncPanel";
+import type { ProfileVariantDto } from "../types/domain";
+import { invokeStrict } from "../lib/tauriInvoke";
+import { loadCvRewrites } from "./cv/rewrite";
+import { loadCvLibrary } from "./cv/library";
+import type { CvRewriteReport, CvLibraryDoc, CvLanguage } from "./cv/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,106 +17,178 @@ interface Variant {
   name: string;
   headline: string;
   summary: string;
+  aboutText: string;
   keywords: string[];
   skills: string[];
   projects: string[];
   bullets: string;
 }
 
-// Placeholder data - replace when VariantStore is wired
-const MOCK_VARIANTS: Variant[] = [
-  {
-    id: "v1",
-    name: "Java Backend",
-    headline: "Senior Java Backend Developer",
-    summary:
-      "Backend engineer with 8+ years building high-throughput microservices on the JVM. " +
-      "Specialises in Spring Boot, Kafka, and PostgreSQL. " +
-      "Comfortable owning a service end-to-end, from schema design to on-call.",
-    keywords: ["Java", "Spring Boot", "Kafka", "PostgreSQL", "Microservices", "REST", "Docker"],
-    skills: [
-      "Java",
-      "Spring Boot",
-      "Apache Kafka",
-      "PostgreSQL",
-      "Docker",
-      "Kubernetes",
-      "REST APIs",
-    ],
-    projects: [
-      "Event-driven order processing pipeline (Kafka, Java)",
-      "Multi-tenant SaaS billing service (Spring Boot, PostgreSQL)",
-      "Zero-downtime deployment tooling (Kubernetes, Helm)",
-    ],
-    bullets:
-      "• Designed and operated a Kafka-based event pipeline processing 50k msg/s with <5ms p99 latency.\n" +
-      "• Led migration of monolith to 12 microservices, cutting deployment time from 2h to 8min.\n" +
-      "• Mentored 4 junior engineers; established team coding standards and PR review process.",
-  },
-  {
-    id: "v2",
-    name: "Rust Systems",
-    headline: "Systems Engineer - Rust / C++",
-    summary:
-      "Systems programmer focused on performance-critical infrastructure: embedded runtimes, " +
-      "WebAssembly sandboxes, and async networking. Write Rust daily; reach for C++ when interop demands it.",
-    keywords: ["Rust", "C++", "WebAssembly", "Tokio", "WASM", "Systems Programming", "Embedded"],
-    skills: [
-      "Rust",
-      "C++",
-      "WebAssembly / WASM",
-      "Tokio async runtime",
-      "Linux systems programming",
-      "Protocol design",
-      "CMake / Cargo",
-    ],
-    projects: [
-      "WASM sandbox runtime for plugin isolation",
-      "Low-latency UDP transport layer in Rust",
-      "Cross-platform CLI toolchain (Rust, clap)",
-    ],
-    bullets:
-      "• Built a WASM sandbox reducing plugin crash blast-radius to zero - zero host crashes since deploy.\n" +
-      "• Rewrote UDP transport in Rust; cut tail latency 60%, halved memory footprint.\n" +
-      "• Contributed 3 accepted PRs to Tokio (async I/O fixes, documentation).",
-  },
-  {
-    id: "v3",
-    name: "Fullstack",
-    headline: "Fullstack Engineer (React + Node)",
-    summary:
-      "Product-minded fullstack engineer. Equally comfortable on the backend and frontend. " +
-      "Strongest in React/TypeScript and Node.js, with PostgreSQL for persistence and AWS for infra.",
-    keywords: ["React", "TypeScript", "Node.js", "AWS", "PostgreSQL", "Next.js", "Tailwind CSS"],
-    skills: [
-      "React",
-      "TypeScript",
-      "Node.js / Express",
-      "Next.js",
-      "PostgreSQL",
-      "AWS (Lambda, S3, RDS)",
-      "Tailwind CSS",
-    ],
-    projects: [
-      "Customer-facing analytics dashboard (React, Recharts, Node)",
-      "Auth service with magic links and TOTP (Node, Redis)",
-      "E2E test suite reducing regression rate by 70% (Playwright)",
-    ],
-    bullets:
-      "• Shipped redesigned onboarding flow; reduced time-to-value from 12 min to 3 min.\n" +
-      "• Owned backend API serving 200k DAU - 99.95% uptime over 18 months.\n" +
-      "• Introduced Playwright E2E suite; caught 4 regressions before production in its first month.",
-  },
-];
+interface EditDraft {
+  name: string;
+  headline: string;
+  summary: string;
+  aboutText: string;
+  keywords: string; // comma-separated textarea value
+}
 
-const TABS = ["Headline", "Summary", "Keywords", "CV", "Skills", "Projects", "Bullets"] as const;
+const TABS = ["Headline", "Summary", "About", "Keywords", "CV", "Skills", "Projects", "Bullets", "Education"] as const;
 type Tab = (typeof TABS)[number];
+
+function toVariantView(dto: ProfileVariantDto): Variant {
+  return {
+    id: dto.id,
+    name: dto.name,
+    headline: dto.headline,
+    summary: dto.summary,
+    aboutText: dto.aboutText,
+    keywords: dto.keywords,
+    skills: dto.skills
+      .map((g) => (g.category ? `${g.category}: ${g.skills}` : g.skills))
+      .filter((line) => line.trim().length > 0),
+    projects: dto.positions,
+    bullets: dto.experience.flatMap((e) => e.bullets).join("\n"),
+  };
+}
+
+function draftFromDto(dto: ProfileVariantDto): EditDraft {
+  return {
+    name: dto.name,
+    headline: dto.headline,
+    summary: dto.summary,
+    aboutText: dto.aboutText,
+    keywords: dto.keywords.join(", "),
+  };
+}
 
 // ---------------------------------------------------------------------------
 
 export function ProfileVariants() {
-  const [selectedId, setSelectedId] = useState<string | null>(MOCK_VARIANTS[0]?.id ?? null);
+  const activeProfileId = useProfileStore((s) => s.activeProfileId);
+  const variantDtos = useProfileVariantStore((s) => s.variants);
+  const selectedId = useProfileVariantStore((s) => s.selectedId);
+  const isLoading = useProfileVariantStore((s) => s.isLoading);
+  const storeError = useProfileVariantStore((s) => s.error);
+  const loadVariants = useProfileVariantStore((s) => s.loadVariants);
+  const selectVariant = useProfileVariantStore((s) => s.selectVariant);
+  const createVariant = useProfileVariantStore((s) => s.createVariant);
   const [activeTab, setActiveTab] = useState<Tab>("Headline");
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // "Generate from CV" form state — step 1: pick a library file, step 2: pick a rewrite
+  const [creating, setCreating] = useState(false);
+  const [formLoading, setFormLoading] = useState(false);
+  const [docs, setDocs] = useState<CvLibraryDoc[]>([]);
+  const [allRewrites, setAllRewrites] = useState<CvRewriteReport[]>([]);
+  const [pickedDocId, setPickedDocId] = useState("");
+  const [pickedRewriteId, setPickedRewriteId] = useState("");
+  const [newVariantName, setNewVariantName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState("");
+  const [language, setLanguage] = useState<CvLanguage>("en");
+
+  // Rewrites for the picked doc, filtered by the selected language. Language defaults to "pt" on old rows.
+  const docRewrites = allRewrites.filter(
+    (r) => r.cvDocumentId === pickedDocId && (r.rewrite.language ?? "pt") === language,
+  );
+
+  function handleDocChange(docId: string) {
+    setPickedDocId(docId);
+    const first = allRewrites.find(
+      (r) => r.cvDocumentId === docId && (r.rewrite.language ?? "pt") === language,
+    );
+    setPickedRewriteId(first?.id ?? "");
+  }
+
+  // When language toggle changes, re-sync the rewrite selection for the current doc.
+  function handleLanguageChange(lang: CvLanguage) {
+    setLanguage(lang);
+    const first = allRewrites.find(
+      (r) => r.cvDocumentId === pickedDocId && (r.rewrite.language ?? "pt") === lang,
+    );
+    setPickedRewriteId(first?.id ?? "");
+  }
+
+  async function openCreateForm() {
+    if (!activeProfileId) return;
+    setCreating(true);
+    setPickedDocId("");
+    setPickedRewriteId("");
+    setNewVariantName("");
+    setFormLoading(true);
+    try {
+      const [docList, rewriteList] = await Promise.all([
+        loadCvLibrary(activeProfileId),
+        loadCvRewrites(activeProfileId),
+      ]);
+      setDocs(docList);
+      setAllRewrites(rewriteList);
+      // Auto-select first doc that has a rewrite in the selected language
+      const rewriteInLang = (r: CvRewriteReport) => (r.rewrite.language ?? "pt") === language;
+      const firstWithRewrite = docList.find((d) =>
+        rewriteList.some((r) => r.cvDocumentId === d.id && rewriteInLang(r)),
+      );
+      if (firstWithRewrite) {
+        setPickedDocId(firstWithRewrite.id);
+        const first = rewriteList.find((r) => r.cvDocumentId === firstWithRewrite.id && rewriteInLang(r));
+        if (first) setPickedRewriteId(first.id);
+      } else if (docList[0]) {
+        setPickedDocId(docList[0].id);
+      }
+    } catch {
+      setDocs([]);
+      setAllRewrites([]);
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  async function submitCreateVariant() {
+    if (!activeProfileId || !pickedDocId) return;
+    setSubmitting(true);
+    setSubmitStatus("");
+
+    try {
+      if (pickedRewriteId) {
+        // Existing rewrite — fast path through the store
+        setSubmitStatus("Creating variant…");
+        const result = await createVariant(activeProfileId, pickedRewriteId, newVariantName || undefined);
+        if (result) setCreating(false);
+      } else {
+        // No rewrite yet — single backend call that rewrites + creates atomically
+        setSubmitStatus("Rewriting CV with AI…");
+        const variant = await invokeStrict<ProfileVariantDto>("create_variant_from_document", {
+          profileId: activeProfileId,
+          cvDocumentId: pickedDocId,
+          name: newVariantName || null,
+          language,
+        });
+        // Inject into the store without a re-fetch
+        useProfileVariantStore.setState((s) => ({
+          variants: [variant, ...s.variants.filter((v) => v.id !== variant.id)],
+          selectedId: variant.id,
+          syncPlan: null,
+          planError: null,
+        }));
+        setCreating(false);
+      }
+    } catch (err) {
+      setSubmitStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+      if (!pickedRewriteId) setSubmitStatus(""); // clear status on success path
+    }
+  }
+
+  // Hydrate the variant list for the active profile; re-runs on profile
+  // switch. Selection + sync-plan lifecycle live in the store.
+  useEffect(() => {
+    if (activeProfileId) loadVariants(activeProfileId);
+  }, [activeProfileId, loadVariants]);
+
+  const variants = useMemo(() => variantDtos.map(toVariantView), [variantDtos]);
 
   // Keyboard nav for the horizontal variant editor tablist (ArrowLeft/Right + Home/End).
   function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
@@ -125,7 +205,39 @@ export function ProfileVariants() {
     document.getElementById(`variant-tab-${TABS[next]}`)?.focus();
   }
 
-  const selected = MOCK_VARIANTS.find((v) => v.id === selectedId) ?? null;
+  const selected = variants.find((v) => v.id === selectedId) ?? null;
+  const selectedDto = variantDtos.find((v) => v.id === selectedId) ?? null;
+
+  // Reset draft whenever the user switches to a different variant.
+  useEffect(() => {
+    setDraft(selectedDto ? draftFromDto(selectedDto) : null);
+    setSaveError(null);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveVariant() {
+    if (!selectedDto || !draft || isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await invokeStrict<ProfileVariantDto>("update_profile_variant", {
+        id: selectedDto.id,
+        input: {
+          name: draft.name !== selectedDto.name ? draft.name : undefined,
+          headline: draft.headline !== selectedDto.headline ? draft.headline : undefined,
+          summary: draft.summary !== selectedDto.summary ? draft.summary : undefined,
+          aboutText: draft.aboutText !== selectedDto.aboutText ? draft.aboutText : undefined,
+          keywords: draft.keywords !== selectedDto.keywords.join(", ") ? draft.keywords : undefined,
+        },
+      });
+      useProfileVariantStore.setState((s) => ({
+        variants: s.variants.map((v) => (v.id === updated.id ? updated : v)),
+      }));
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <div className="page page--fill" style={{ padding: 0 }}>
@@ -142,18 +254,107 @@ export function ProfileVariants() {
         }}
       >
         <h1 className="page-title">Profile Variants</h1>
-        <span className="page-subtitle">{MOCK_VARIANTS.length} variants</span>
+        <span className="page-subtitle">{variants.length} variants</span>
         <div className="toolbar-spacer" />
-        <Button variant="ghost" size="sm" disabled>
-          Duplicate
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={!activeProfileId || creating}
+          onClick={() => void openCreateForm()}
+        >
+          + Generate from CV
         </Button>
-        <Button variant="ghost" size="sm" disabled>
-          Generate from CV
-        </Button>
-        <Button variant="primary" size="sm" disabled>
-          + New Variant
-        </Button>
+        {creating && (
+          <Button variant="ghost" size="sm" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        )}
       </div>
+
+      {/* ── Inline create form ── */}
+      {creating && (
+        <div
+          style={{
+            padding: "var(--sp-4)",
+            borderBottom: "1px solid var(--color-border)",
+            background: "var(--color-surface-2)",
+            display: "flex",
+            alignItems: "flex-end",
+            gap: "var(--sp-3)",
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Step 1: CV Library file */}
+          <Field label="CV file" htmlFor="doc-pick" style={{ flex: "1 1 200px", margin: 0 }}>
+            <Select
+              id="doc-pick"
+              value={pickedDocId}
+              onChange={(e) => handleDocChange(e.target.value)}
+              disabled={formLoading || submitting}
+              placeholder={formLoading ? "Loading…" : docs.length === 0 ? "No files uploaded" : undefined}
+              options={docs.map((d) => ({ value: d.id, label: d.fileName }))}
+            />
+          </Field>
+
+          {/* Step 2: existing rewrite for the selected language (optional — auto-generates if absent) */}
+          {docRewrites.length > 0 && (
+            <Field
+              label={`${language.toUpperCase()} Rewrite`}
+              htmlFor="rewrite-pick"
+              style={{ flex: "1 1 200px", margin: 0 }}
+            >
+              <Select
+                id="rewrite-pick"
+                value={pickedRewriteId}
+                onChange={(e) => setPickedRewriteId(e.target.value)}
+                disabled={formLoading || submitting}
+                options={docRewrites.map((r) => ({
+                  value: r.id,
+                  label: `${r.modelProvider}${r.variantName ? ` · ${r.variantName}` : ""}`,
+                }))}
+              />
+            </Field>
+          )}
+
+          {/* Language toggle — filters existing rewrites by language; new auto-rewrites use this too */}
+          <div style={{ display: "flex", gap: "var(--sp-1)", alignSelf: "flex-end", paddingBottom: "1px" }}>
+            <Button size="sm" variant={language === "pt" ? "primary" : "ghost"} disabled={submitting} onClick={() => handleLanguageChange("pt")} title="Portuguese">PT</Button>
+            <Button size="sm" variant={language === "en" ? "primary" : "ghost"} disabled={submitting} onClick={() => handleLanguageChange("en")} title="English">EN</Button>
+          </div>
+
+          {/* Optional name */}
+          <Field label="Variant name (optional)" htmlFor="var-name-input" style={{ flex: "1 1 160px", margin: 0 }}>
+            <Input
+              id="var-name-input"
+              type="text"
+              placeholder="e.g. Senior Backend Eng"
+              value={newVariantName}
+              onChange={(e) => setNewVariantName(e.target.value)}
+              disabled={submitting}
+            />
+          </Field>
+
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!pickedDocId || submitting || formLoading}
+            onClick={() => void submitCreateVariant()}
+            style={{ flexShrink: 0 }}
+          >
+            {submitting
+              ? submitStatus || "Working…"
+              : docRewrites.length === 0 && pickedDocId
+                ? "Rewrite & Create"
+                : "Create Variant"}
+          </Button>
+
+          {(storeError || (!submitting && submitStatus)) && (
+            <p style={{ width: "100%", margin: 0, fontSize: "var(--text-xs)", color: "var(--color-error)" }}>
+              {storeError || submitStatus}
+            </p>
+          )}
+        </div>
+      )}
 
       <div
         className="two-pane"
@@ -180,16 +381,25 @@ export function ProfileVariants() {
             </span>
           </div>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {MOCK_VARIANTS.map((v) => (
+            {variants.length === 0 && (
+              <li className="list-item" aria-disabled="true" style={{ cursor: "default" }}>
+                <div className="list-item__meta">
+                  {isLoading
+                    ? "Loading variants…"
+                    : "No variants yet. Generate one from a CV rewrite."}
+                </div>
+              </li>
+            )}
+            {variants.map((v) => (
               <li
                 key={v.id}
                 className={selectedId === v.id ? "list-item selected" : "list-item"}
-                onClick={() => setSelectedId(v.id)}
+                onClick={() => selectVariant(v.id)}
                 tabIndex={0}
                 role="button"
                 aria-pressed={selectedId === v.id}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") setSelectedId(v.id);
+                  if (e.key === "Enter") selectVariant(v.id);
                 }}
               >
                 <div>
@@ -256,65 +466,77 @@ export function ProfileVariants() {
                 }}
               >
                 {/* ── Headline ── */}
-                {activeTab === "Headline" && (
+                {activeTab === "Headline" && draft && (
                   <Field
                     label="Headline"
                     htmlFor="var-headline"
-                    helper="One-line professional title shown at the top of CV and LinkedIn. Editing requires backend connection."
+                    helper={`${draft.headline.length} / 220 chars`}
                   >
                     <Input
                       id="var-headline"
                       type="text"
-                      defaultValue={selected.headline}
-                      readOnly
-                      aria-readonly="true"
+                      value={draft.headline}
+                      onChange={(e) => setDraft((d) => d && { ...d, headline: e.target.value })}
+                      maxLength={220}
                     />
                   </Field>
                 )}
 
                 {/* ── Summary ── */}
-                {activeTab === "Summary" && (
+                {activeTab === "Summary" && draft && (
                   <Field
                     label="Professional Summary"
                     htmlFor="var-summary"
-                    helper="3-5 sentence professional summary tailored to this variant's target role. Editing requires backend connection."
+                    helper="3-5 sentence summary tailored to this variant's target role."
                   >
                     <Textarea
                       id="var-summary"
-                      rows={6}
-                      defaultValue={selected.summary}
-                      readOnly
-                      aria-readonly="true"
+                      rows={8}
+                      value={draft.summary}
+                      onChange={(e) => setDraft((d) => d && { ...d, summary: e.target.value })}
+                      style={{ resize: "vertical" }}
+                    />
+                  </Field>
+                )}
+
+                {/* ── About ── */}
+                {activeTab === "About" && draft && (
+                  <Field
+                    label="LinkedIn About"
+                    htmlFor="var-about"
+                    helper={`${draft.aboutText.length} / 2600 chars · synced to LinkedIn About section`}
+                  >
+                    <Textarea
+                      id="var-about"
+                      rows={10}
+                      value={draft.aboutText}
+                      onChange={(e) => setDraft((d) => d && { ...d, aboutText: e.target.value })}
                       style={{ resize: "vertical" }}
                     />
                   </Field>
                 )}
 
                 {/* ── Keywords ── */}
-                {activeTab === "Keywords" && (
+                {activeTab === "Keywords" && draft && (
                   <>
-                    <div>
-                      <p className="field__label" style={{ marginBottom: "var(--sp-2)" }}>
-                        ATS Keywords
-                      </p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}>
-                        {selected.keywords.map((kw) => (
-                          <span key={kw} className="tag">
-                            {kw}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: "var(--text-xs)",
-                        color: "var(--color-text-muted)",
-                      }}
+                    <Field
+                      label="ATS Keywords"
+                      htmlFor="var-keywords"
+                      helper="Comma-separated. Matched against job descriptions for relevance scoring."
                     >
-                      Keywords are matched against job descriptions to compute relevance scores.
-                      Adding or removing keywords requires backend connection.
-                    </p>
+                      <Textarea
+                        id="var-keywords"
+                        rows={4}
+                        value={draft.keywords}
+                        onChange={(e) => setDraft((d) => d && { ...d, keywords: e.target.value })}
+                        style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+                      />
+                    </Field>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)" }}>
+                      {draft.keywords.split(",").map((kw) => kw.trim()).filter(Boolean).map((kw) => (
+                        <span key={kw} className="tag">{kw}</span>
+                      ))}
+                    </div>
                   </>
                 )}
 
@@ -488,7 +710,7 @@ export function ProfileVariants() {
                   <Field
                     label="Experience Bullets"
                     htmlFor="var-bullets"
-                    helper="Role-specific achievement bullets for this variant's experience section. One bullet per line (•). Editing requires backend connection."
+                    helper="Role-specific achievement bullets for this variant's experience section. One bullet per line."
                   >
                     <Textarea
                       id="var-bullets"
@@ -504,7 +726,78 @@ export function ProfileVariants() {
                     />
                   </Field>
                 )}
+
+                {/* ── Education ── */}
+                {activeTab === "Education" && selectedDto && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+                    {selectedDto.education.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                        No education entries in this variant.
+                      </p>
+                    ) : selectedDto.education.map((entry, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          border: "1px solid var(--color-border)",
+                          borderRadius: "var(--radius-md)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "var(--sp-1)",
+                            padding: "var(--sp-3) var(--sp-4)",
+                            background: "var(--color-surface-2)",
+                            borderBottom: entry.bullets.length > 0 ? "1px solid var(--color-border)" : undefined,
+                          }}
+                        >
+                          <span style={{ fontSize: "var(--text-sm)", fontWeight: "var(--fw-semibold)" }}>
+                            {entry.degree || "—"}
+                          </span>
+                          <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                            {[entry.institution, entry.location, entry.dates].filter(Boolean).join(" · ")}
+                          </span>
+                        </div>
+                        {entry.bullets.length > 0 && (
+                          <ul style={{ margin: 0, padding: "var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-6)", display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}>
+                            {entry.bullets.map((b, j) => (
+                              <li key={j} style={{ fontSize: "var(--text-xs)", color: "var(--color-text)" }}>
+                                {b}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+              {/* ── Save bar ── */}
+              {draft && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--sp-3)",
+                    padding: "var(--sp-3) var(--sp-5)",
+                    borderTop: "1px solid var(--color-border)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {saveError && (
+                    <span style={{ fontSize: "var(--text-xs)", color: "var(--color-danger, #c0392b)", flex: 1 }}>
+                      {saveError}
+                    </span>
+                  )}
+                  <div style={{ flex: 1 }} />
+                  <Button variant="primary" size="sm" disabled={isSaving} onClick={() => void saveVariant()}>
+                    {isSaving ? "Saving…" : "Save changes"}
+                  </Button>
+                </div>
+              )}
+              {selectedDto && <LinkedInSyncPanel variant={selectedDto} />}
             </div>
           )}
         </div>

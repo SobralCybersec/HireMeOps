@@ -16,6 +16,8 @@ pub mod automation;
 pub mod cv;
 pub mod exports;
 pub mod jobs;
+pub mod profile_sync;
+pub mod profile_variants;
 
 use thiserror::Error;
 

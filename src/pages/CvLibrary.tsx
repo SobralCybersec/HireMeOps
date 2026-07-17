@@ -25,7 +25,7 @@ import {
   formatBytes,
   relativeTime,
 } from "./cv";
-import type { CvLibraryDoc, CvRewriteReport } from "./cv";
+import type { CvLanguage, CvLibraryDoc, CvRewriteReport } from "./cv";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import "./cv/cv.css";
@@ -54,12 +54,17 @@ export function CvLibrary() {
   // Re-analyse flow: mirrors the import error pattern.
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  // Delete flow
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // AI-rewrite flow: mirrors the analyse pattern. `rewrites` holds the profile's
   // persisted rewrites (newest first); the inspector surfaces the newest one for
   // the selected document so it can be exported to PDF.
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewriteError, setRewriteError] = useState<string | null>(null);
   const [rewrites, setRewrites] = useState<CvRewriteReport[]>([]);
+  // Output language for AI analysis/rewrite (pt-BR default, matching backend).
+  const [language, setLanguage] = useState<CvLanguage>("pt");
 
   // Reset transient load state when the request identity changes. Done during
   // render (not synchronously inside the effect) so React folds it into the
@@ -157,12 +162,28 @@ export function CvLibrary() {
     setIsAnalyzing(true);
     setAnalyzeError(null);
     try {
-      await invokeStrict<string>("analyze_cv_document", { cvDocumentId: selected.id });
+      await invokeStrict<string>("analyze_cv_document", { cvDocumentId: selected.id, language });
       setReloadNonce((n) => n + 1);
     } catch (e) {
       setAnalyzeError(errMessage(e));
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (isDeleting || selected === null) return;
+    if (!window.confirm(`Delete "${selected.fileName}"? This cannot be undone.`)) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await invokeStrict<void>("delete_cv_document", { cvDocumentId: selected.id });
+      setSelectedId(null);
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setDeleteError(errMessage(e));
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -174,7 +195,7 @@ export function CvLibrary() {
     setIsRewriting(true);
     setRewriteError(null);
     try {
-      await runCvRewrite(selected.id);
+      await runCvRewrite(selected.id, undefined, language);
       setReloadNonce((n) => n + 1);
     } catch (e) {
       setRewriteError(errMessage(e));
@@ -235,11 +256,31 @@ export function CvLibrary() {
             <Button size="sm" disabled>
               Re-parse
             </Button>
+            <ToolbarSep />
+            <Button
+              size="sm"
+              variant={language === "pt" ? "primary" : "ghost"}
+              disabled={isAnalyzing || isRewriting}
+              onClick={() => setLanguage("pt")}
+              title="Generate analysis & rewrites in Portuguese (pt-BR)"
+            >
+              PT
+            </Button>
+            <Button
+              size="sm"
+              variant={language === "en" ? "primary" : "ghost"}
+              disabled={isAnalyzing || isRewriting}
+              onClick={() => setLanguage("en")}
+              title="Generate analysis & rewrites in English"
+            >
+              EN
+            </Button>
+            <ToolbarSep />
             <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
               {isAnalyzing ? "Analysing..." : "Re-analyse"}
             </Button>
-            <Button size="sm" variant="danger" disabled>
-              Delete
+            <Button size="sm" variant="danger" disabled={isDeleting} onClick={() => void handleDelete()}>
+              {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </>
         )}
@@ -290,6 +331,23 @@ export function CvLibrary() {
             className="inline-warning__dismiss"
             onClick={() => setRewriteError(null)}
             aria-label="Dismiss rewrite error"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        </div>
+      )}
+
+      {deleteError !== null && (
+        <div className="inline-warning inline-warning--danger" role="alert">
+          <div className="inline-warning__body">
+            <div>Delete failed. The file is still in your library.</div>
+            <div className="inline-warning__url">{deleteError}</div>
+          </div>
+          <button
+            type="button"
+            className="inline-warning__dismiss"
+            onClick={() => setDeleteError(null)}
+            aria-label="Dismiss delete error"
           >
             <Icon icon={Cancel01Icon} size={14} />
           </button>

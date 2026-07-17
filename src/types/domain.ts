@@ -207,3 +207,82 @@ export interface SearchQueryInput {
   remoteMode?: string | null;
   seniority: string[];
 }
+
+// ── Profile Variants (role-targeted CV specializations) ──────────────────
+// All fields camelCase: backend DTOs derive serde(rename_all = "camelCase").
+
+export interface ContactInfo {
+  name: string;
+  location: string;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+}
+
+export interface CvSkillGroup {
+  category: string;
+  skills: string;
+}
+
+export interface CvExperienceEntry {
+  title: string;
+  organization: string;
+  location: string;
+  dates: string;
+  bullets: string[];
+}
+
+export interface CvEducationEntry {
+  degree: string;
+  institution: string;
+  location: string;
+  dates: string;
+  bullets: string[];
+}
+
+// Persisted, role-targeted variant built from a stored CV rewrite.
+export interface ProfileVariantDto {
+  id: string;
+  profileId: string;
+  name: string;
+  targetTitle: string;
+  headline: string;
+  summary: string;
+  aboutText: string;
+  keywords: string[];
+  positions: string[];
+  skills: CvSkillGroup[];
+  experience: CvExperienceEntry[];
+  education: CvEducationEntry[];
+  contact: ContactInfo;
+  sourceCvDocumentId?: string | null;
+  sourceRewriteId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── LinkedIn draft-and-review sync plan ──────────────────────────────────
+// Inert, copy-ready payloads. NOTHING is written to LinkedIn by the backend;
+// the user pastes each section manually after reviewing it.
+
+export type SyncSectionKind = "headline" | "about" | "skills" | "experience";
+
+export interface SyncSection {
+  id: string;
+  kind: SyncSectionKind;
+  label: string;
+  editUrl: string;
+  copyText: string;
+  charLimit?: number | null;
+  overLimit: boolean;
+}
+
+export interface ProfileSyncPlan {
+  variantId: string;
+  profileId: string;
+  variantName: string;
+  targetTitle: string;
+  sections: SyncSection[];
+  disclaimer: string;
+  generatedAt: string;
+}

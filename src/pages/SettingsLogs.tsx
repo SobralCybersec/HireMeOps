@@ -283,8 +283,16 @@ export function SettingsLogs() {
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    // Attach + deferred teardown: the WebKitGTK webview (Tauri on Linux) ignores
+    // a `.click()` on a detached anchor and aborts the download if the object
+    // URL is revoked on the same tick.
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 0);
   }
 
   async function handleExport(key: (typeof EXPORTS)[number]["key"]) {

@@ -97,6 +97,8 @@ export interface CvRewrite {
   skills: CvSkillGroup[];
   experience: CvExperienceEntry[];
   education: CvEducationEntry[];
+  /** Output language stamped by the domain layer — "pt" or "en". Defaults to "pt" when absent (old rows). */
+  language?: CvLanguage;
 }
 
 /**
@@ -147,3 +149,10 @@ export interface CvRewriteReport {
  * consumer degrades to a calm skeleton / glyph fallback rather than an error.
  */
 export type CvBytesLoader = (cvId: string) => Promise<Uint8Array | null>;
+
+/**
+ * Output language for AI-generated CV analysis and rewrites. `"pt"` (Portuguese,
+ * pt-BR) is the backend default; `"en"` is English. Mirrors the Rust
+ * `crate::ai::prompt::Language` enum (`#[serde(rename_all = "lowercase")]`).
+ */
+export type CvLanguage = "pt" | "en";

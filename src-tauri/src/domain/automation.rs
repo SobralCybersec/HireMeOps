@@ -122,10 +122,56 @@ pub struct EasyApplyInput {
     /// Hiring-manager LinkedIn profile URL scraped from the job page (filled in by `drive`).
     #[serde(default)]
     pub hr_link: Option<String>,
+    /// Runtime-only: the automation task row id. Not stored in payload_json.
+    #[serde(default, skip_serializing)]
+    pub task_id: Option<String>,
+    /// Runtime-only: the browser_sessions row id. Not stored in payload_json.
+    #[serde(default, skip_serializing)]
+    pub session_id: Option<String>,
 }
 
 fn default_platform() -> String {
     "linkedin".to_string()
+}
+
+/// Input for a LinkedIn job search scrape (one page).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchJobsInput {
+    pub keywords: String,
+    #[serde(default)]
+    pub location: String,
+    /// Zero-based page index (25 results per page on LinkedIn).
+    #[serde(default)]
+    pub page_index: u32,
+    /// If true, only Easy Apply jobs are returned (LinkedIn `f_AL=true`).
+    #[serde(default = "default_true")]
+    pub easy_apply_only: bool,
+    /// If true, only remote jobs (`f_WT=2`).
+    #[serde(default)]
+    pub remote_only: bool,
+    /// Optional date filter: "24h" or "week".
+    #[serde(default)]
+    pub date_posted: Option<String>,
+}
+
+fn default_true() -> bool { true }
+
+/// A single job card scraped from a LinkedIn search results page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobCard {
+    pub job_id: Option<String>,
+    pub title: Option<String>,
+    pub company: Option<String>,
+    pub location: Option<String>,
+    pub apply_url: Option<String>,
+    pub is_easy_apply: bool,
+}
+
+/// Result of a `search_jobs` call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchJobsResult {
+    pub jobs: Vec<JobCard>,
+    pub has_next_page: bool,
 }
 
 /// The mockable seam over the real Playwright/Chromium sidecar. The production
@@ -151,6 +197,9 @@ pub trait BrowserDriver: Send + Sync {
     /// Returns a JSON string `{"name":"…","profile_url":"…"}` or `None` if
     /// no hirer card is present. Never navigates; reads the current DOM only.
     async fn extract_hr(&self, handle: &str) -> DomainResult<Option<String>>;
+    /// Scrape one page of LinkedIn Jobs search results.
+    /// Returns up to 25 job cards and a flag indicating whether a next page exists.
+    async fn search_jobs(&self, handle: &str, input: &SearchJobsInput) -> DomainResult<SearchJobsResult>;
 }
 
 /// Drives `automation_tasks` through a real browser while never bypassing
@@ -351,7 +400,14 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
 
                 // Build an owned input with hr_name/hr_link/cover_letter populated so
                 // fill_easy_apply can personalise without mutating the caller's value.
-                let enriched = EasyApplyInput { hr_name, hr_link, cover_letter, ..input.clone() };
+                let enriched = EasyApplyInput {
+                    hr_name,
+                    hr_link,
+                    cover_letter,
+                    task_id: Some(task_id.to_owned()),
+                    session_id: Some(session_id.to_owned()),
+                    ..input.clone()
+                };
 
                 self.driver.fill_easy_apply(handle, &enriched).await?;
 
@@ -940,6 +996,9 @@ mod tests {
         async fn extract_hr(&self, _handle: &str) -> DomainResult<Option<String>> {
             Ok(None)
         }
+        async fn search_jobs(&self, _handle: &str, _input: &SearchJobsInput) -> DomainResult<SearchJobsResult> {
+            Ok(SearchJobsResult { jobs: vec![], has_next_page: false })
+        }
     }
 
     async fn set_setting(pool: &SqlitePool, key: &str, value: &str) {
@@ -1360,6 +1419,9 @@ mod tests {
                 }
                 _ => Ok(None),
             }
+        }
+        async fn search_jobs(&self, _handle: &str, _input: &SearchJobsInput) -> DomainResult<SearchJobsResult> {
+            Ok(SearchJobsResult { jobs: vec![], has_next_page: false })
         }
     }
 

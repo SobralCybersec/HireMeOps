@@ -3,6 +3,7 @@
 //! section headings, plus a stable content hash used for dedupe.
 
 pub mod export;
+pub mod latex;
 pub mod parse;
 pub mod sections;
 

@@ -9,9 +9,51 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Output language for AI-generated CV content (analysis + rewrite). Drives both
+/// the prompt wording (the model is told which language to write in) and the
+/// LaTeX section titles ([`crate::cv::latex`]). Defaults to Portuguese to match
+/// the historical behaviour and the shipped `curriculo.cls` example template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    /// Portuguese (pt-BR) — the default.
+    #[default]
+    Pt,
+    /// English.
+    En,
+}
+
+impl Language {
+    /// Lenient parse from a frontend/user string. Anything that isn't clearly
+    /// English falls back to Portuguese (the default), so a missing/garbled
+    /// value never fails the whole rewrite.
+    pub fn parse(s: &str) -> Language {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "en" | "eng" | "english" | "en-us" | "en-gb" | "en_us" => Language::En,
+            _ => Language::Pt,
+        }
+    }
+
+    /// Stable short code (`"pt"` / `"en"`) — folded into cache keys and persisted.
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::Pt => "pt",
+            Language::En => "en",
+        }
+    }
+
+    /// English name of the language, for embedding in prompt directives.
+    fn name(self) -> &'static str {
+        match self {
+            Language::Pt => "Portuguese (pt-BR)",
+            Language::En => "English",
+        }
+    }
+}
+
 /// Bump when the CV-analysis prompt wording changes so cached responses keyed on
 /// the old prompt are not silently reused (folded into the cache `input_hash`).
-pub const CV_ANALYSIS_PROMPT_VERSION: &str = "cv-analysis-v1";
+pub const CV_ANALYSIS_PROMPT_VERSION: &str = "cv-analysis-v2";
 
 /// Bump when the application-draft prompt wording changes.
 pub const DRAFT_PROMPT_VERSION: &str = "app-draft-v2";
@@ -48,25 +90,37 @@ pub struct CvAnalysis {
     pub recommendations: Vec<String>,
 }
 
-/// System instruction pinning the model to a strict JSON schema.
-pub fn cv_analysis_system() -> String {
-    "You are a professional CV/resume reviewer. Analyse the candidate's CV and \
-     respond with ONLY a single JSON object (no prose, no markdown fences) of the \
-     exact shape: {\"score\": <integer 0-100>, \"summary\": <string>, \
-     \"optimization_needed\": <boolean>, \"missing_keywords\": [<string>], \
-     \"strengths\": [<string>], \"weaknesses\": [<string>], \
-     \"recommendations\": [<string>]}. Keep arrays concise (max 8 items each)."
-        .to_string()
+/// System instruction pinning the model to a strict JSON schema. `lang` selects
+/// the language the human-readable fields (`summary`, `strengths`, `weaknesses`,
+/// `recommendations`) are written in — the JSON keys stay English regardless.
+pub fn cv_analysis_system(lang: Language) -> String {
+    format!(
+        "You are a professional CV/resume reviewer. Analyse the candidate's CV and \
+         respond with ONLY a single JSON object (no prose, no markdown fences) of the \
+         exact shape: {{\"score\": <integer 0-100>, \"summary\": <string>, \
+         \"optimization_needed\": <boolean>, \"missing_keywords\": [<string>], \
+         \"strengths\": [<string>], \"weaknesses\": [<string>], \
+         \"recommendations\": [<string>]}}. Keep arrays concise (max 8 items each). \
+         Write ALL human-readable text (summary, strengths, weaknesses, \
+         recommendations, missing_keywords) in {lang}, regardless of the source \
+         CV's language. The JSON keys themselves stay in English.",
+        lang = lang.name()
+    )
 }
 
-/// Build the user prompt for CV analysis.
-pub fn cv_analysis_prompt(cv_text: &str, target_title: Option<&str>) -> String {
+/// Build the user prompt for CV analysis. `lang` echoes the required output
+/// language into the user turn as well, reinforcing the system directive.
+pub fn cv_analysis_prompt(cv_text: &str, target_title: Option<&str>, lang: Language) -> String {
     let target = target_title
         .map(|t| t.trim())
         .filter(|t| !t.is_empty())
         .map(|t| format!("The candidate is targeting the role: \"{t}\".\n\n"))
         .unwrap_or_default();
-    format!("{target}CV CONTENT:\n{}", clip(cv_text))
+    format!(
+        "{target}Respond in {lang}.\n\nCV CONTENT:\n{}",
+        clip(cv_text),
+        lang = lang.name()
+    )
 }
 
 /// Parse a model reply into a [`CvAnalysis`]. Never fails: on unparseable input
@@ -311,12 +365,19 @@ fn extract_json_object(raw: &str) -> Option<&str> {
 /// commas inside string values are never touched.
 fn strip_trailing_commas(s: &str) -> String {
     let bytes = s.as_bytes();
-    let mut out = String::with_capacity(s.len());
+    // Accumulate raw bytes, never `b as char`: casting a lone UTF-8 byte to
+    // `char` is a Latin-1 decode, so a multibyte glyph like `ç` (0xC3 0xA7)
+    // would become the chars `Ã`+`§` and re-encode to 0xC3 0x83 0xC2 0xA7 —
+    // silently double-encoding every accented character in the model reply.
+    // The scan stays correct at the byte level because `"`, `\\`, `,`, `{`, `}`,
+    // `[`, `]` are all single-byte ASCII that never collide with a UTF-8
+    // continuation byte, so string boundaries always land on char boundaries.
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
     let mut in_string = false;
     let mut escaped = false;
     for (i, &b) in bytes.iter().enumerate() {
         if in_string {
-            out.push(b as char);
+            out.push(b);
             if escaped {
                 escaped = false;
             } else if b == b'\\' {
@@ -329,7 +390,7 @@ fn strip_trailing_commas(s: &str) -> String {
         match b {
             b'"' => {
                 in_string = true;
-                out.push('"');
+                out.push(b'"');
             }
             b',' => {
                 // Look ahead past whitespace: drop the comma if the next
@@ -339,13 +400,15 @@ fn strip_trailing_commas(s: &str) -> String {
                     .find(|c| !c.is_ascii_whitespace());
                 match next {
                     Some(b'}') | Some(b']') => { /* skip the trailing comma */ }
-                    _ => out.push(','),
+                    _ => out.push(b','),
                 }
             }
-            _ => out.push(b as char),
+            _ => out.push(b),
         }
     }
-    out
+    // `out` only ever holds bytes copied verbatim from `s` (a valid &str), so
+    // it is always valid UTF-8; the lossy fallback is unreachable defense.
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 /// Coerce a model-supplied score into `Option<i64>`. Accepts integers, floats
@@ -381,7 +444,7 @@ where
 
 /// Bump when the CV-rewrite prompt wording / schema changes so cached responses
 /// keyed on the old prompt are not silently reused (folded into `input_hash`).
-pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v1";
+pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v3";
 
 /// One skill group. Maps to the CV Generator's skills table — col 0 = category,
 /// col 1 = the (comma/semicolon-separated) skills string — which
@@ -449,6 +512,11 @@ pub struct CvRewrite {
     pub experience: Vec<CvExperienceEntry>,
     #[serde(default)]
     pub education: Vec<CvEducationEntry>,
+    /// Language the content is written in. Set by the domain layer after parsing
+    /// (the model doesn't emit it) and drives the LaTeX section titles. Persisted
+    /// with the rewrite so re-rendering an old rewrite keeps its language.
+    #[serde(default)]
+    pub language: Language,
 }
 
 /// Derived PDF metadata computed from a [`CvRewrite`], matching
@@ -521,30 +589,125 @@ impl CvRewrite {
 }
 
 /// System instruction pinning the model to the CV-rewrite JSON schema.
-pub fn cv_rewrite_system() -> String {
-    "You are an expert CV writer. Rewrite the candidate's CV, tailored to the \
-     target role, using ONLY real facts from the source CV — never invent \
-     employers, degrees, dates, or credentials. Respond with ONLY a single JSON \
-     object (no prose, no markdown fences) of the exact shape: {\"name\": \
-     <string>, \"positions\": [<string>], \"summary\": <string>, \"skills\": \
-     [{\"category\": <string>, \"skills\": <string>}], \"experience\": \
-     [{\"title\": <string>, \"organization\": <string>, \"location\": <string>, \
-     \"dates\": <string>, \"bullets\": [<string>]}], \"education\": [{\"degree\": \
-     <string>, \"institution\": <string>, \"location\": <string>, \"dates\": \
-     <string>, \"bullets\": [<string>]}]}. \"positions\" are the target job \
-     titles. Each skill group's \"skills\" is one comma-separated list string. \
-     Keep bullets concise, achievement-focused, and grounded in the source CV."
-        .to_string()
+/// The exact JSON shape a rewrite reply must take. Shared verbatim between the
+/// language variants of [`cv_rewrite_system`] — only the surrounding prose is
+/// localized; the JSON keys are always English (they map to [`CvRewrite`]).
+const REWRITE_JSON_SHAPE: &str = "{\"name\": <string>, \"positions\": [<string>], \
+     \"summary\": <string>, \"skills\": [{\"category\": <string>, \"skills\": <string>}], \
+     \"experience\": [{\"title\": <string>, \"organization\": <string>, \"location\": <string>, \
+     \"dates\": <string>, \"bullets\": [<string>]}], \"education\": [{\"degree\": <string>, \
+     \"institution\": <string>, \"location\": <string>, \"dates\": <string>, \
+     \"bullets\": [<string>]}]}";
+
+/// System instruction for a CV rewrite. Fully localized per `lang`: the English
+/// variant instructs the model to *translate* all content into English, and the
+/// Portuguese variant is written in Portuguese and asks for Portuguese output —
+/// so the produced CV (summary/bullets/skills) and the LaTeX section titles all
+/// agree on one language. The JSON keys stay English in both.
+pub fn cv_rewrite_system(lang: Language) -> String {
+    match lang {
+        Language::En => format!(
+            "You are an expert CV writer. Rewrite the candidate's CV, tailored to the \
+             target role, using ONLY real facts from the source CV — never invent \
+             employers, degrees, dates, or credentials. Respond with ONLY a single JSON \
+             object (no prose, no markdown fences) of the exact shape: {REWRITE_JSON_SHAPE}. \
+             \"positions\" are the target job titles. Each skill group's \"skills\" is one \
+             comma-separated list string. Write ALL human-readable content — the summary, \
+             every bullet, skills, positions, titles, and organizations — in English, \
+             translating it from the source CV when the source is in another language \
+             (e.g. Portuguese). Keep bullets concise, achievement-focused, and grounded in \
+             the source CV. When a PRIOR ANALYSIS block is provided, you MUST act on it: fix \
+             every listed weakness, apply each recommendation, and weave in the missing \
+             keywords wherever the source CV truthfully supports them (never fabricate \
+             experience to match a keyword). Preserve the listed strengths."
+        ),
+        Language::Pt => format!(
+            "Você é um especialista em redação de currículos. Reescreva o currículo do \
+             candidato, adaptado à vaga-alvo, usando APENAS fatos reais do currículo de \
+             origem — nunca invente empregadores, formações, datas ou credenciais. Responda \
+             com APENAS um único objeto JSON (sem prosa, sem cercas de markdown) exatamente \
+             no formato: {REWRITE_JSON_SHAPE}. As chaves do JSON permanecem em inglês. \
+             \"positions\" são os cargos-alvo. O \"skills\" de cada grupo é uma única string \
+             com uma lista separada por vírgulas. Escreva TODO o conteúdo legível — o resumo, \
+             cada bullet, habilidades, cargos, títulos e organizações — em Português (pt-BR), \
+             traduzindo do currículo de origem quando ele estiver em outro idioma. Mantenha os \
+             bullets concisos, focados em conquistas e fundamentados no currículo de origem. \
+             Quando um bloco PRIOR ANALYSIS for fornecido, você DEVE agir sobre ele: corrija \
+             cada fraqueza listada, aplique cada recomendação e incorpore as palavras-chave \
+             ausentes onde o currículo de origem realmente as sustente (nunca fabrique \
+             experiência para corresponder a uma palavra-chave). Preserve os pontos fortes \
+             listados."
+        ),
+    }
 }
 
-/// Build the user prompt for a CV rewrite.
-pub fn cv_rewrite_prompt(cv_text: &str, target_title: Option<&str>) -> String {
+/// Build the user prompt for a CV rewrite. When `analysis` is supplied its
+/// findings are injected as an explicit directive block so the model addresses
+/// them (see [`cv_rewrite_system`]); when `None` the rewrite runs blind as before.
+/// `lang` localizes the target-role line and pins the required output language.
+pub fn cv_rewrite_prompt(
+    cv_text: &str,
+    target_title: Option<&str>,
+    analysis: Option<&CvAnalysis>,
+    lang: Language,
+) -> String {
     let target = target_title
         .map(|t| t.trim())
         .filter(|t| !t.is_empty())
-        .map(|t| format!("Rewrite and tailor the CV for the role: \"{t}\".\n\n"))
+        .map(|t| match lang {
+            Language::En => format!("Rewrite and tailor the CV for the role: \"{t}\".\n\n"),
+            Language::Pt => format!("Reescreva e adapte o currículo para a vaga: \"{t}\".\n\n"),
+        })
         .unwrap_or_default();
-    format!("{target}CV CONTENT:\n{}", clip(cv_text))
+    let directive = match lang {
+        Language::En => "Write the entire rewritten CV in English.\n\n",
+        Language::Pt => "Escreva todo o currículo reescrito em Português (pt-BR).\n\n",
+    };
+    let guidance = analysis.map(cv_rewrite_analysis_block).unwrap_or_default();
+    format!("{target}{directive}{guidance}CV CONTENT:\n{}", clip(cv_text))
+}
+
+/// Render a prior [`CvAnalysis`] as a directive block for the rewrite prompt.
+/// Empty when the analysis carries no actionable signal (so we don't nudge the
+/// model with a bare header).
+fn cv_rewrite_analysis_block(a: &CvAnalysis) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(score) = a.score {
+        lines.push(format!(
+            "This CV scored {score}/100 in a prior review{}.",
+            if a.optimization_needed {
+                " and REQUIRES optimization"
+            } else {
+                ""
+            }
+        ));
+    }
+    let list = |label: &str, items: &[String]| -> Option<String> {
+        let items: Vec<&str> = items
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (!items.is_empty()).then(|| format!("{label}: {}", items.join("; ")))
+    };
+    // WEAKNESSES and RECOMMENDATIONS are mandatory to address; MISSING KEYWORDS
+    // are opt-in-where-truthful; STRENGTHS are to be preserved.
+    if let Some(l) = list("WEAKNESSES to fix", &a.weaknesses) {
+        lines.push(l);
+    }
+    if let Some(l) = list("RECOMMENDATIONS to apply", &a.recommendations) {
+        lines.push(l);
+    }
+    if let Some(l) = list("MISSING KEYWORDS to weave in where truthful", &a.missing_keywords) {
+        lines.push(l);
+    }
+    if let Some(l) = list("STRENGTHS to preserve", &a.strengths) {
+        lines.push(l);
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("PRIOR ANALYSIS — address this in the rewrite:\n{}\n\n", lines.join("\n"))
 }
 
 /// Parse a model reply into a [`CvRewrite`]. Never fails: on unparseable input
@@ -813,6 +976,24 @@ Note: feel free to use {curly braces} sparingly in your cover letter."#;
     }
 
     #[test]
+    fn strip_trailing_commas_preserves_multibyte_utf8() {
+        // Regression: `b as char` used to Latin-1-decode each UTF-8 byte, so
+        // accented Portuguese text (ç, ã, õ, á, ê) was silently double-encoded
+        // (e.g. `formação` -> `formaÃ§Ã£o`) and surfaced as mojibake in the PDF.
+        let s = r#"{"summary": "formação em projetos autônomos, aplicações escaláveis",}"#;
+        let out = strip_trailing_commas(s);
+        assert_eq!(
+            out,
+            r#"{"summary": "formação em projetos autônomos, aplicações escaláveis"}"#
+        );
+        // Byte-exact: no `Ã`/`Â` double-encoding artifacts introduced.
+        assert!(!out.contains('Ã') && !out.contains('Â'));
+        // Round-trips through the full parser without corruption.
+        let a = parse_cv_analysis(&out);
+        assert_eq!(a.summary, "formação em projetos autônomos, aplicações escaláveis");
+    }
+
+    #[test]
     fn infers_optimization_needed_when_flag_absent() {
         // No flag, low score → inferred true.
         let a = parse_cv_analysis(r#"{"score": 40, "summary": "weak"}"#);
@@ -833,12 +1014,12 @@ Note: feel free to use {curly braces} sparingly in your cover letter."#;
     #[test]
     fn cv_prompt_includes_target_and_clips() {
         let big = "x".repeat(20_000);
-        let p = cv_analysis_prompt(&big, Some("  Backend Engineer  "));
+        let p = cv_analysis_prompt(&big, Some("  Backend Engineer  "), Language::En);
         assert!(p.contains("Backend Engineer"));
         assert!(p.contains("[truncated]"));
         assert!(p.len() < 13_000);
         // No target when blank.
-        let p2 = cv_analysis_prompt("short", Some("   "));
+        let p2 = cv_analysis_prompt("short", Some("   "), Language::En);
         assert!(!p2.contains("targeting"));
     }
 

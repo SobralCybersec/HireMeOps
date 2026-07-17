@@ -152,12 +152,80 @@ pub async fn automation_confirm_submit(
 ) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        state
+        let meta = state
             .playwright
             .confirm_submit_parked()
             .await
             .map_err(|e| e.to_string())?;
-        emit_state(&app, "Completed", None, Some("Application submitted"), None);
+
+        // Persist evidence + update DB rows when context ids are available.
+        if let (Some(task_id), Some(session_id)) = (&meta.task_id, &meta.session_id) {
+            let now = crate::util::now_iso();
+
+            // Screenshot taken right after Submit.
+            if let Some(shot) = &meta.screenshot_path {
+                let _ = sqlx::query(
+                    "INSERT INTO automation_evidence
+                       (id, task_id, evidence_type, file_path, created_at)
+                     VALUES (?1, ?2, 'screenshot', ?3, ?4)",
+                )
+                .bind(crate::util::new_id())
+                .bind(task_id)
+                .bind(shot)
+                .bind(&now)
+                .execute(&state.db)
+                .await;
+            }
+
+            // Mark the browser session closed.
+            let _ = sqlx::query(
+                "UPDATE browser_sessions
+                 SET status = 'closed', ended_at = ?1, updated_at = ?1
+                 WHERE id = ?2",
+            )
+            .bind(&now)
+            .bind(session_id)
+            .execute(&state.db)
+            .await;
+
+            // Mark the automation task completed.
+            let _ = sqlx::query(
+                "UPDATE automation_tasks
+                 SET status = 'completed', finished_at = ?1,
+                     result_json = '{\"outcome\":\"submitted\"}', updated_at = ?1
+                 WHERE id = ?2",
+            )
+            .bind(&now)
+            .bind(task_id)
+            .execute(&state.db)
+            .await;
+
+            // Mark the application run + job_post submitted.
+            let _ = sqlx::query(
+                "UPDATE application_runs SET status = 'submitted', browser_session_id = ?1
+                 WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?2)",
+            )
+            .bind(session_id)
+            .bind(task_id)
+            .execute(&state.db)
+            .await;
+
+            let _ = sqlx::query(
+                "UPDATE job_posts SET status = 'applied'
+                 WHERE id = (
+                   SELECT job_id FROM application_runs
+                   WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?1)
+                 )",
+            )
+            .bind(task_id)
+            .execute(&state.db)
+            .await;
+
+            emit_state(&app, "Completed", Some(task_id), Some("Application submitted"), None);
+        } else {
+            emit_state(&app, "Completed", None, Some("Application submitted"), None);
+        }
+
         return Ok(());
     }
     #[cfg(not(feature = "real-browser"))]

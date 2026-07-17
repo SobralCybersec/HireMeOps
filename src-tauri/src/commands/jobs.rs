@@ -777,3 +777,47 @@ pub async fn list_job_matches(
     .map(|rows| rows.into_iter().map(Into::into).collect())
     .map_err(|e| e.to_string())
 }
+
+/// Scrape LinkedIn Jobs search results using the live Playwright browser session.
+///
+/// Opens a visible Chromium window (persistent context keeps the LinkedIn login),
+/// navigates to the jobs search results page, and returns discovered job cards.
+/// The caller is responsible for ingesting cards via `ingest_job_post`.
+///
+/// Returns an error when the `real-browser` feature is not compiled in.
+#[tauri::command]
+pub async fn run_linkedin_search(
+    state: State<'_, AppState>,
+    handle: String,
+    keywords: String,
+    location: Option<String>,
+    page_index: Option<u32>,
+    easy_apply_only: Option<bool>,
+    remote_only: Option<bool>,
+    date_posted: Option<String>,
+) -> Result<crate::domain::automation::SearchJobsResult, String> {
+    #[cfg(feature = "real-browser")]
+    {
+        use crate::domain::automation::{BrowserDriver, SearchJobsInput};
+
+        let input = SearchJobsInput {
+            keywords,
+            location: location.unwrap_or_default(),
+            page_index: page_index.unwrap_or(0),
+            easy_apply_only: easy_apply_only.unwrap_or(true),
+            remote_only: remote_only.unwrap_or(false),
+            date_posted,
+        };
+
+        state
+            .playwright
+            .search_jobs(&handle, &input)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (state, handle, keywords, location, page_index, easy_apply_only, remote_only, date_posted);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
