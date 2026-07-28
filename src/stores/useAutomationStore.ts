@@ -139,9 +139,8 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
         detail,
         currentTaskId: taskId ?? (isTerminal ? null : prev.currentTaskId),
         isEmergencyStopped: state === "Stopped" ? false : prev.isEmergencyStopped,
-        // Carry the live browser URL forwarded from the engine; clear on
-        // terminal states so the Cockpit reverts to the placeholder.
-        watchUrl: isTerminal ? null : (watchUrl !== undefined ? watchUrl : prev.watchUrl),
+        // Keep the last live URL so the Cockpit shows where the run ended.
+        watchUrl: watchUrl !== undefined ? watchUrl : prev.watchUrl,
       };
     }),
 

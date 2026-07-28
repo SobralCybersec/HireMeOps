@@ -3,6 +3,7 @@ import { Button, Field, Input, Select, Textarea } from "../components/ui";
 import { useProfileStore } from "../stores/useProfileStore";
 import { useProfileVariantStore } from "../stores/useProfileVariantStore";
 import { LinkedInSyncPanel } from "../components/LinkedInSyncPanel";
+import { LinkedInConnectPanel } from "../components/LinkedInConnectPanel";
 import type { ProfileVariantDto } from "../types/domain";
 import { invokeStrict } from "../lib/tauriInvoke";
 import { loadCvRewrites } from "./cv/rewrite";
@@ -798,6 +799,7 @@ export function ProfileVariants() {
                 </div>
               )}
               {selectedDto && <LinkedInSyncPanel variant={selectedDto} />}
+              <LinkedInConnectPanel />
             </div>
           )}
         </div>

@@ -260,6 +260,15 @@ pub struct IngestJobPostResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LinkedInSearchResult {
+    pub ingested: u32,
+    pub skipped_duplicates: u32,
+    pub has_next_page: bool,
+    pub pages_scraped: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JobPostDto {
     pub id: String,
     pub profile_id: Option<String>,
@@ -498,6 +507,16 @@ pub async fn generate_search_queries(
     state: State<'_, AppState>,
     input: SearchQueryInput,
 ) -> Result<Vec<String>, String> {
+    // Replace existing queries for this profile+preference so stale queries never surface.
+    sqlx::query(
+        "DELETE FROM search_queries WHERE profile_id = ?1 AND preference_id IS ?2",
+    )
+    .bind(&input.profile_id)
+    .bind(&input.preference_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let built = build_queries(&input);
     let now = now_iso();
     let mut ids = Vec::with_capacity(built.len());
@@ -785,39 +804,248 @@ pub async fn list_job_matches(
 /// The caller is responsible for ingesting cards via `ingest_job_post`.
 ///
 /// Returns an error when the `real-browser` feature is not compiled in.
+/// Scrape one page of Indeed job search results using an open browser session.
+///
+/// `handle` — an open browser session handle.
+/// `keywords` — search terms (e.g. `"Desenvolvedor"`).
+/// `location` — Brazilian city or region (default: `"Brasil"`).
+/// `remote_only` — if `true`, applies the Home Office attribute filter.
+#[tauri::command]
+pub async fn run_indeed_search(
+    state: State<'_, AppState>,
+    handle: String,
+    keywords: String,
+    location: Option<String>,
+    page_index: Option<u32>,
+    remote_only: Option<bool>,
+) -> Result<crate::domain::automation::SearchJobsResult, String> {
+    #[cfg(feature = "real-browser")]
+    {
+        state
+            .playwright
+            .search_indeed_jobs(
+                &handle,
+                &keywords,
+                &location.unwrap_or_else(|| "Brasil".to_string()),
+                page_index.unwrap_or(0),
+                remote_only.unwrap_or(false),
+            )
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (state, handle, keywords, location, page_index, remote_only);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn run_linkedin_search(
     state: State<'_, AppState>,
-    handle: String,
+    profile_id: String,
+    search_query_id: Option<String>,
     keywords: String,
     location: Option<String>,
     page_index: Option<u32>,
     easy_apply_only: Option<bool>,
     remote_only: Option<bool>,
     date_posted: Option<String>,
-) -> Result<crate::domain::automation::SearchJobsResult, String> {
+    max_pages: Option<u32>,
+) -> Result<LinkedInSearchResult, String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SearchJobsInput};
+        use crate::domain::automation::{BrowserDriver, SearchJobsInput, SessionSpec};
 
-        let input = SearchJobsInput {
-            keywords,
-            location: location.unwrap_or_default(),
-            page_index: page_index.unwrap_or(0),
-            easy_apply_only: easy_apply_only.unwrap_or(true),
-            remote_only: remote_only.unwrap_or(false),
-            date_posted,
-        };
+        let linkedin_profile_dir = state
+            .paths
+            .data_dir
+            .join("browser-profiles")
+            .join("linkedin")
+            .to_string_lossy()
+            .into_owned();
 
-        state
+        let handle = state
             .playwright
-            .search_jobs(&handle, &input)
+            .open(&SessionSpec {
+                profile_id: profile_id.clone(),
+                platform: "linkedin".into(),
+                user_data_dir: linkedin_profile_dir,
+                extensions: vec![],
+            })
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        let start_page = page_index.unwrap_or(0);
+        let max = max_pages.unwrap_or(10).min(40);
+        let base_input = (
+            keywords,
+            location.unwrap_or_default(),
+            easy_apply_only.unwrap_or(true),
+            remote_only.unwrap_or(false),
+            date_posted,
+        );
+
+        let mut ingested = 0u32;
+        let mut skipped_duplicates = 0u32;
+        let mut pages_scraped = 0u32;
+        let mut has_next = false;
+
+        'pages: for page_offset in 0..max {
+            let page_input = SearchJobsInput {
+                keywords: base_input.0.clone(),
+                location: base_input.1.clone(),
+                page_index: start_page + page_offset,
+                easy_apply_only: base_input.2,
+                remote_only: base_input.3,
+                date_posted: base_input.4.clone(),
+            };
+
+            let raw = state.playwright.search_jobs(&handle, &page_input).await;
+            if raw.is_err() {
+                state.playwright.close_session(&handle).await;
+                return Err(raw.unwrap_err().to_string());
+            }
+            let raw = raw.unwrap();
+
+            has_next = raw.has_next_page;
+            pages_scraped += 1;
+
+            for card in &raw.jobs {
+                let url = match &card.apply_url {
+                    Some(u) if !u.is_empty() => u.clone(),
+                    _ => continue, // no URL, can't ingest
+                };
+                let canonical = canonicalize(&url);
+                let dedupe = check_dedupe(&state.db, &profile_id, "linkedin", &canonical)
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let (is_dup, status) = match &dedupe {
+                    DedupeOutcome::Unique => (false, "discovered"),
+                    DedupeOutcome::Duplicate { .. } => (true, "skipped_duplicate_url"),
+                };
+
+                let id = Uuid::new_v4().to_string();
+                let now = now_iso();
+
+                sqlx::query(
+                    "INSERT INTO job_posts (
+                        id, profile_id, platform, external_id,
+                        url, canonical_url, title, company,
+                        location, remote_mode, description, summary,
+                        salary_min, salary_max, currency,
+                        seniority, employment_type, posted_at,
+                        discovered_at, last_seen_at, discovery_source,
+                        search_query_id, status
+                    ) VALUES (
+                        ?1,  ?2,  ?3,  ?4,
+                        ?5,  ?6,  ?7,  ?8,
+                        ?9,  ?10, ?11, ?12,
+                        ?13, ?14, ?15,
+                        ?16, ?17, ?18,
+                        ?19, ?19, ?20,
+                        ?21, ?22
+                    )",
+                )
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("linkedin")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind::<Option<String>>(None)
+                .bind("")
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("linkedin_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+
+                if is_dup {
+                    skipped_duplicates += 1;
+                } else {
+                    ingested += 1;
+                }
+            }
+
+            if !raw.has_next_page {
+                break 'pages;
+            }
+        }
+
+        state.playwright.close_session(&handle).await;
+
+        Ok(LinkedInSearchResult {
+            ingested,
+            skipped_duplicates,
+            has_next_page: has_next,
+            pages_scraped,
+        })
     }
     #[cfg(not(feature = "real-browser"))]
     {
-        let _ = (state, handle, keywords, location, page_index, easy_apply_only, remote_only, date_posted);
+        let _ = (state, profile_id, search_query_id, keywords, location, page_index, easy_apply_only, remote_only, date_posted, max_pages);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
+/// Open a visible Chromium window to the LinkedIn login page using the
+/// persistent job-search browser profile. The session stays open so the user
+/// can log in manually; cookies are saved to `user_data_dir` and reused on
+/// every subsequent `run_linkedin_search` call.
+#[tauri::command]
+pub async fn linkedin_job_login(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<(), String> {
+    #[cfg(feature = "real-browser")]
+    {
+        use crate::domain::automation::{BrowserDriver, SessionSpec};
+
+        let linkedin_profile_dir = state
+            .paths
+            .data_dir
+            .join("browser-profiles")
+            .join("linkedin")
+            .to_string_lossy()
+            .into_owned();
+
+        let handle = state
+            .playwright
+            .open(&SessionSpec {
+                profile_id,
+                platform: "linkedin".into(),
+                user_data_dir: linkedin_profile_dir,
+                extensions: vec![],
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        state
+            .playwright
+            .navigate(&handle, "https://www.linkedin.com/login")
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Session left open intentionally — user logs in, cookies persist.
+        Ok(())
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (state, profile_id);
         Err("real-browser feature not enabled".to_string())
     }
 }

@@ -6,6 +6,7 @@ import { useJobStore } from "../stores/useJobStore";
 import { useJobFiltersStore } from "../stores/useJobFiltersStore";
 import { useSearchQueryStore } from "../stores/useSearchQueryStore";
 import { useProfileStore } from "../stores/useProfileStore";
+import { useJobPreferencesStore } from "../stores/useJobPreferencesStore";
 import { ApplicationDraftModal } from "../components/ApplicationDraftModal";
 import {
   Badge,
@@ -58,6 +59,7 @@ export function JobSearch() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const activeProfileId = useProfileStore((s) => s.activeProfileId);
   const filters = useJobFiltersStore((s) => s.filters);
@@ -71,16 +73,18 @@ export function JobSearch() {
     scoreJob,
     setJobStatus,
     runSearch,
+    runLinkedInSearch,
+    loginLinkedIn,
     clearError,
   } = useJobStore();
   // Narrow selectors - useSearchQueryStore also carries `isLoading`, which
   // this page never reads; a whole-store subscription would re-render here
   // on every list-load toggle for no visible change.
-  const queries = useSearchQueryStore((s) => s.queries);
   const isGenerating = useSearchQueryStore((s) => s.isGenerating);
   const searchError = useSearchQueryStore((s) => s.error);
   const loadQueries = useSearchQueryStore((s) => s.load);
   const generateQueries = useSearchQueryStore((s) => s.generate);
+  const loadPreferences = useJobPreferencesStore((s) => s.load);
   const clearSearchError = useSearchQueryStore((s) => s.clearError);
 
   // Reload whenever the active profile changes.
@@ -89,7 +93,8 @@ export function JobSearch() {
     void loadJobs(activeProfileId);
     void loadMatches(activeProfileId);
     void loadQueries(activeProfileId);
-  }, [activeProfileId, loadJobs, loadMatches, loadQueries]);
+    void loadPreferences(activeProfileId);
+  }, [activeProfileId, loadJobs, loadMatches, loadQueries, loadPreferences]);
 
   // Build the generator input from the shared job-filters working set. Returns
   // null when no profile is active. targetRoles must be non-empty for a
@@ -106,36 +111,63 @@ export function JobSearch() {
     };
   };
 
-  // Generate queries (once) if none exist yet, then run the enabled query for
-  // the chosen platform and refresh the job list with whatever it discovered.
+  // Always regenerate queries before searching — backend does DELETE+INSERT so
+  // changing target roles picks up fresh queries instead of reusing stale ones.
   const handleRunSearch = async (platform: "linkedin" | "google") => {
     if (activeProfileId === null) return;
     setSearchMsg(null);
 
-    let available = queries;
-    if (available.length === 0) {
-      const input = buildSearchInput();
-      if (input === null) return;
-      const ids = await generateQueries(input);
-      if (ids === null) return;
-      available = useSearchQueryStore.getState().queries;
-    }
+    const input = buildSearchInput();
+    if (input === null) return;
 
+    const ids = await generateQueries(input);
+    if (ids === null) return;
+
+    const available = useSearchQueryStore.getState().queries;
     const target = available.find((q) => q.platform === platform && q.enabled);
     if (target === undefined) {
       setSearchMsg(`No ${platform} query available.`);
       return;
     }
 
-    const count = await runSearch(target.id);
-    if (count === null) return;
-    setSearchMsg(
-      count === 0
-        ? `No imported ${platform} jobs to process. Online discovery is not connected yet.`
-        : `Processed ${count} imported ${platform} job${count === 1 ? "" : "s"}.`,
-    );
+    if (platform === "linkedin") {
+      const scraped = await runLinkedInSearch(
+        activeProfileId,
+        target.id,
+        target.query,
+        filters.locations[0] ?? null,
+        filters.remoteModes.some((m) => m.toLowerCase().includes("remote")),
+      );
+      if (scraped === null) return;
+      const count = await runSearch(target.id);
+      setSearchMsg(
+        `Scraped ${scraped.ingested} new job${scraped.ingested === 1 ? "" : "s"} across ${scraped.pagesScraped} page${scraped.pagesScraped === 1 ? "" : "s"} · ${count ?? 0} scored against your CV.`,
+      );
+    } else {
+      const count = await runSearch(target.id);
+      if (count === null) return;
+      setSearchMsg(
+        count === 0
+          ? `No imported ${platform} jobs to process.`
+          : `Processed ${count} imported ${platform} job${count === 1 ? "" : "s"}.`,
+      );
+    }
+
     await loadJobs(activeProfileId);
     await loadMatches(activeProfileId);
+  };
+
+  const handleLinkedInLogin = async () => {
+    if (activeProfileId === null) return;
+    setIsLoggingIn(true);
+    try {
+      await loginLinkedIn(activeProfileId);
+      setSearchMsg("LinkedIn browser opened — log in, then close the window when done.");
+    } catch (e) {
+      setSearchMsg(`Login failed: ${String(e)}`);
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const canSearch =
@@ -233,6 +265,13 @@ export function JobSearch() {
 
       {/* Toolbar */}
       <Toolbar border>
+        <Button
+          disabled={activeProfileId === null || isLoggingIn}
+          title={activeProfileId === null ? "Select a profile first" : "Open LinkedIn in browser to log in"}
+          onClick={() => void handleLinkedInLogin()}
+        >
+          {isLoggingIn ? "Opening..." : "Login LinkedIn"}
+        </Button>
         <Button
           variant="primary"
           disabled={!canSearch}

@@ -309,3 +309,94 @@ pub fn automation_emergency_stop(app: AppHandle, state: State<'_, AppState>) -> 
     ));
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Indeed SmartApply human-in-the-loop flow
+// ---------------------------------------------------------------------------
+
+/// Navigate to a job on Indeed, click "Candidatar-se com o Indeed", step
+/// through the SmartApply multi-step form filling known fields, then park
+/// before the final "Enviar sua candidatura" button.
+///
+/// `handle` — an open browser session (from a prior `open` call or any command
+///   that returns a handle, e.g. `run_indeed_search`).
+/// `job_url` — the Indeed job page URL (e.g. `https://br.indeed.com/viewjob?jk=…`).
+/// `answers` — JSON object with field values:
+///   `firstName`, `lastName`, `email`, `phone`, `postalCode`, `locality`, `address`.
+#[tauri::command]
+pub async fn automation_start_indeed(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    handle: String,
+    job_url: String,
+    answers: serde_json::Value,
+) -> Result<(), String> {
+    #[cfg(feature = "real-browser")]
+    {
+        emit_state(&app, "PreparingBrowser", None, Some("Opening SmartApply form…"), None);
+
+        state
+            .playwright
+            .fill_indeed_apply(&handle, &job_url, &answers)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        emit_state(&app, "PausedForReview", None, Some("Review the SmartApply form, then confirm or reject."), Some(&job_url));
+        return Ok(());
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (app, state, handle, job_url, answers);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
+/// Click "Enviar sua candidatura" in the currently-parked SmartApply popup.
+#[tauri::command]
+pub async fn automation_confirm_indeed_submit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    #[cfg(feature = "real-browser")]
+    {
+        let meta = state
+            .playwright
+            .confirm_indeed_submit_parked()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if let Some(shot) = &meta.screenshot_path {
+            tracing::info!(screenshot = %shot, "Indeed application submitted");
+        }
+        emit_state(&app, "Completed", None, Some("Indeed application submitted"), None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (app, state);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
+/// Close the SmartApply popup without submitting.
+#[tauri::command]
+pub async fn automation_reject_indeed_submit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    #[cfg(feature = "real-browser")]
+    {
+        state
+            .playwright
+            .reject_indeed_submit_parked()
+            .await
+            .map_err(|e| e.to_string())?;
+        emit_state(&app, "Stopped", None, Some("Indeed application dismissed"), None);
+        return Ok(());
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (app, state);
+        Err("real-browser feature not enabled".to_string())
+    }
+}

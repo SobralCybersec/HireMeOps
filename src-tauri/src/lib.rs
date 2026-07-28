@@ -102,6 +102,7 @@ pub fn run() {
             commands::profile_variants::build_profile_sync_plan,
             commands::profile_variants::update_profile_variant,
             commands::profile_variants::push_variant_to_linkedin,
+            commands::profile_variants::auto_connect_linkedin,
             // Phase 4 — applications
             commands::applications::draft_application,
             commands::applications::submit_application,
@@ -112,6 +113,9 @@ pub fn run() {
             commands::automation::automation_emergency_stop,
             commands::automation::automation_confirm_submit,
             commands::automation::automation_reject_submit,
+            commands::automation::automation_start_indeed,
+            commands::automation::automation_confirm_indeed_submit,
+            commands::automation::automation_reject_indeed_submit,
             commands::events::emit_test_event,
             // Phase 3 — jobs
             commands::jobs::list_job_preferences,
@@ -125,6 +129,8 @@ pub fn run() {
             commands::jobs::score_job_match,
             commands::jobs::list_job_matches,
             commands::jobs::run_linkedin_search,
+            commands::jobs::linkedin_job_login,
+            commands::jobs::run_indeed_search,
             // Phase 6/7 — exports & backups
             commands::exports::export_profiles_json,
             commands::exports::export_jobs_csv,

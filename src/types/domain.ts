@@ -197,6 +197,14 @@ export interface SearchQueryDto {
   createdAt: string;
 }
 
+// Result returned by `run_linkedin_search` after scrape+ingest.
+export interface LinkedInSearchResult {
+  ingested: number;
+  skippedDuplicates: number;
+  hasNextPage: boolean;
+  pagesScraped: number;
+}
+
 // Input for `generate_search_queries`. Backend deserializes camelCase.
 export interface SearchQueryInput {
   profileId: string;

@@ -45,7 +45,13 @@ pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
     if !skills.is_empty() {
         let inner = skills
             .iter()
-            .map(|s| format!("\"{}\"", s))
+            .map(|s| {
+                if s.contains(' ') {
+                    format!("\"{}\"", s)
+                } else {
+                    s.to_string()
+                }
+            })
             .collect::<Vec<_>>()
             .join(" OR ");
         parts.push(if skills.len() > 1 {
@@ -64,16 +70,19 @@ pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
         parts.push("remote".into());
     }
 
-    if let Some(loc) = &input.location {
-        if !loc.is_empty() {
-            parts.push(loc.clone());
-        }
+    let senior_markers = ["senior", "lead", "principal", "staff", "director", "head"];
+    let wants_senior = input.seniority.iter().any(|s| {
+        let sl = s.to_lowercase();
+        senior_markers.iter().any(|m| sl.contains(m))
+    });
+    if !wants_senior && !input.seniority.is_empty() {
+        parts.push("NOT (Senior OR Lead OR Principal OR Manager OR Director)".into());
     }
 
     BuiltQuery {
         platform: "linkedin".into(),
         query_type: "linkedin_search".into(),
-        query_string: parts.join(" "),
+        query_string: parts.join(" AND "),
     }
 }
 
@@ -203,5 +212,42 @@ mod tests {
         };
         // must not panic
         let _ = build_queries(&input);
+    }
+
+    #[test]
+    fn linkedin_not_exclusion_for_junior() {
+        let mut input = sample();
+        input.seniority = vec!["junior".into()];
+        let q = build_linkedin_query(&input);
+        assert!(q.query_string.contains("NOT"), "{}", q.query_string);
+        assert!(q.query_string.contains("Senior"), "{}", q.query_string);
+    }
+
+    #[test]
+    fn linkedin_no_not_exclusion_for_senior() {
+        let q = build_linkedin_query(&sample()); // sample has seniority: ["senior"]
+        assert!(!q.query_string.contains("NOT"), "{}", q.query_string);
+    }
+
+    #[test]
+    fn linkedin_and_joins_groups() {
+        let q = build_linkedin_query(&sample());
+        assert!(q.query_string.contains(" AND "), "{}", q.query_string);
+    }
+
+    #[test]
+    fn linkedin_no_location_in_keywords() {
+        let q = build_linkedin_query(&sample()); // sample has location: Some("Berlin")
+        assert!(!q.query_string.contains("Berlin"), "{}", q.query_string);
+    }
+
+    #[test]
+    fn linkedin_quotes_multiword_skills_only() {
+        let mut input = sample();
+        input.required_skills = vec!["Spring Boot".into(), "Java".into()];
+        let q = build_linkedin_query(&input);
+        assert!(q.query_string.contains("\"Spring Boot\""), "{}", q.query_string);
+        assert!(!q.query_string.contains("\"Java\""), "{}", q.query_string);
+        assert!(q.query_string.contains("Java"), "{}", q.query_string);
     }
 }
