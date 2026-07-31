@@ -453,7 +453,21 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                                 let payload =
                                     serde_json::json!({ "questions": serde_json::Value::Object(qmap) });
                                 match self.driver.answer_easy_apply(handle, &payload).await {
-                                    Ok(leftover) => needs_human += leftover.len(),
+                                    Ok(leftover) => {
+                                        needs_human += leftover.len();
+                                        if !leftover.is_empty() {
+                                            let labels: Vec<&str> = leftover
+                                                .iter()
+                                                .filter_map(|q| {
+                                                    q.get("label").and_then(|v| v.as_str())
+                                                })
+                                                .collect();
+                                            tracing::info!(
+                                                task_id, ?labels,
+                                                "Easy Apply: still unanswered after AI refill"
+                                            );
+                                        }
+                                    }
                                     Err(e) => {
                                         tracing::warn!(error = %e, "Easy Apply AI refill failed");
                                         needs_human += unanswered.len();
@@ -1044,6 +1058,7 @@ pub(crate) async fn generate_form_answers(
                 let text = resp.text.trim();
                 if text.is_empty() || text.contains(NEEDS_HUMAN_SENTINEL) {
                     human += 1;
+                    tracing::info!(question = label, "AI could not answer — needs human");
                 } else {
                     out.insert(label.to_string(), serde_json::json!(text));
                 }
