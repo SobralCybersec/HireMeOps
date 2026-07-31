@@ -81,6 +81,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::setup::install_dependencies,
+            commands::setup::install_latex,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::profiles::list_profiles,

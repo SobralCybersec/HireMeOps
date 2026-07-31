@@ -1005,6 +1005,62 @@ pub(crate) async fn generate_form_answers(
                 continue;
             }
         }
+
+        // Deterministic Yes/No fast-path for BINARY screening questions — the #1
+        // needs_human cause. The AI would answer verbosely ("Sim, tenho…") or
+        // punt, leaving a required radio blank. CAPABILITY questions ("do you have
+        // experience/knowledge of X") → affirmative; work-authorization/sponsorship
+        // → answered so we DON'T require sponsorship. Both pick the option text
+        // VERBATIM so the worker's refill matches exactly. Legal/relocation/criminal
+        // are intentionally NOT blind-defaulted here (left to the AI/human).
+        let is_yes = |o: &str| {
+            matches!(
+                o.trim().to_lowercase().as_str(),
+                "yes" | "sim" | "y" | "true" | "verdadeiro"
+            )
+        };
+        let is_no = |o: &str| {
+            matches!(
+                o.trim().to_lowercase().as_str(),
+                "no" | "não" | "nao" | "n" | "false" | "falso"
+            )
+        };
+        if options.len() == 2 && options.iter().all(|o| is_yes(o) || is_no(o)) {
+            let ll = label.to_lowercase();
+            let sponsorship = [
+                "sponsor", "patroc", "visa", "visto", "work permit", "autoriz",
+                "authorized", "eligible to work", "elegív", "elegiv",
+            ]
+            .iter()
+            .any(|k| ll.contains(k));
+            let capability = [
+                "experi", "experience", "conhecimento", "familiar", "proficien",
+                "já trabalh", "ja trabalh", "sabe utilizar", "domina", "trabalhou com",
+            ]
+            .iter()
+            .any(|k| ll.contains(k));
+            if sponsorship {
+                // "authorized/eligible to work?" → Yes; "require sponsorship/visa?" → No.
+                let authorized = ["autoriz", "authorized", "eligible", "elegív", "elegiv", "permit"]
+                    .iter()
+                    .any(|k| ll.contains(k));
+                let pick = if authorized {
+                    options.iter().find(|o| is_yes(o))
+                } else {
+                    options.iter().find(|o| is_no(o))
+                };
+                if let Some(o) = pick {
+                    out.insert(label.to_string(), serde_json::json!(o));
+                    continue;
+                }
+            } else if capability {
+                if let Some(o) = options.iter().find(|o| is_yes(o)) {
+                    out.insert(label.to_string(), serde_json::json!(o));
+                    continue;
+                }
+            }
+        }
+
         let multi = q.get("multi").and_then(|v| v.as_bool()).unwrap_or(false);
         let mut constraint = String::new();
         if !options.is_empty() {
