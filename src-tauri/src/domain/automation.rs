@@ -483,61 +483,63 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                 self.record_evidence(task_id, EvidenceKind::Screenshot, Some(&shot), None)
                     .await?;
 
-                // Auto-submit: LO opted out of the manual review gate, so when
-                // every question was answered we press "Enviar candidatura"
-                // ourselves and mark the job applied. If a required field made it
-                // bounce (submitted == false) or the RPC errored, fall through to
-                // the park below so the human can finish it.
-                if needs_human == 0 {
-                    match self.driver.confirm_submit(handle).await {
-                        Ok(true) => {
-                            let now = now_iso();
-                            if let Ok(after) = self.driver.screenshot(handle).await {
-                                self.record_evidence(
-                                    task_id,
-                                    EvidenceKind::Screenshot,
-                                    Some(&after),
-                                    None,
-                                )
-                                .await?;
-                            }
-                            self.driver.close(handle).await.ok();
-                            sqlx::query(
-                                "UPDATE browser_sessions SET status = 'closed', \
-                                 ended_at = ?1, updated_at = ?1 WHERE id = ?2",
-                            )
-                            .bind(&now)
-                            .bind(session_id)
-                            .execute(&self.db)
-                            .await?;
-                            self.update_application_outcome(
-                                task_id, session_id, "submitted", "applied",
+                // Auto-submit: LO opted out of the manual review gate. We ALWAYS
+                // attempt "Enviar candidatura" (not just when needs_human == 0) —
+                // LinkedIn enforces required fields, so a genuinely-incomplete
+                // form BOUNCES (submitted == false) and we park, while a complete
+                // one goes through even if our own counter false-positived a
+                // question as unanswered. Only a real bounce / RPC error parks.
+                if needs_human > 0 {
+                    tracing::info!(task_id, needs_human, "attempting submit anyway; LinkedIn will reject if a required field is truly blank");
+                }
+                match self.driver.confirm_submit(handle).await {
+                    Ok(true) => {
+                        let now = now_iso();
+                        if let Ok(after) = self.driver.screenshot(handle).await {
+                            self.record_evidence(
+                                task_id,
+                                EvidenceKind::Screenshot,
+                                Some(&after),
+                                None,
                             )
                             .await?;
-                            sqlx::query(
-                                "UPDATE automation_tasks SET status = 'completed', \
-                                 finished_at = ?1, hr_name = ?3, hr_link = ?4, \
-                                 result_json = '{\"outcome\":\"submitted\"}', \
-                                 updated_at = ?1 WHERE id = ?2",
-                            )
-                            .bind(&now)
-                            .bind(task_id)
-                            .bind(enriched.hr_name.as_deref())
-                            .bind(enriched.hr_link.as_deref())
-                            .execute(&self.db)
-                            .await?;
-                            tracing::info!(task_id, "Easy Apply auto-submitted");
-                            return Ok(TaskOutcome::Completed);
                         }
-                        Ok(false) => tracing::warn!(
-                            task_id,
-                            "auto-submit bounced (required field) — parking for review"
-                        ),
-                        Err(e) => tracing::warn!(
-                            task_id, error = %e,
-                            "auto-submit failed — parking for review"
-                        ),
+                        self.driver.close(handle).await.ok();
+                        sqlx::query(
+                            "UPDATE browser_sessions SET status = 'closed', \
+                             ended_at = ?1, updated_at = ?1 WHERE id = ?2",
+                        )
+                        .bind(&now)
+                        .bind(session_id)
+                        .execute(&self.db)
+                        .await?;
+                        self.update_application_outcome(
+                            task_id, session_id, "submitted", "applied",
+                        )
+                        .await?;
+                        sqlx::query(
+                            "UPDATE automation_tasks SET status = 'completed', \
+                             finished_at = ?1, hr_name = ?3, hr_link = ?4, \
+                             result_json = '{\"outcome\":\"submitted\"}', \
+                             updated_at = ?1 WHERE id = ?2",
+                        )
+                        .bind(&now)
+                        .bind(task_id)
+                        .bind(enriched.hr_name.as_deref())
+                        .bind(enriched.hr_link.as_deref())
+                        .execute(&self.db)
+                        .await?;
+                        tracing::info!(task_id, "Easy Apply auto-submitted");
+                        return Ok(TaskOutcome::Completed);
                     }
+                    Ok(false) => tracing::warn!(
+                        task_id,
+                        "auto-submit bounced (required field blank) — parking for review"
+                    ),
+                    Err(e) => tracing::warn!(
+                        task_id, error = %e,
+                        "auto-submit failed — parking for review"
+                    ),
                 }
 
                 let now = now_iso();
