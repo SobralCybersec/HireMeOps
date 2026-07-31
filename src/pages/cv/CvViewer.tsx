@@ -20,6 +20,7 @@ import {
   ZoomOutAreaIcon,
   MaximizeScreenIcon,
   MenuSquareIcon,
+  Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Badge, Button, Icon } from "../../components/ui";
 import { PdfPageCanvas } from "./PdfPageCanvas";
@@ -50,6 +51,12 @@ type Resolved =
 const ZOOM_STEPS = [0.5, 0.75, 0.9, 1, 1.25, 1.5, 2, 3];
 const ZOOM_FIT = -1;
 type ZoomMode = number; // index into ZOOM_STEPS, or ZOOM_FIT
+
+// Magnifier loupe: a circular lens that follows the cursor over a rendered page
+// and shows that spot magnified, sampled straight from the page's own canvas so
+// it's as sharp as the page render itself.
+const LENS = 220;
+const LENS_ZOOM = 2.4;
 
 // One page frame in the main column. Prefetches the page's PDF-declared
 // dimensions BEFORE mounting the canvas, then locks the frame to those dims so
@@ -173,6 +180,117 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
   const mainRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
+  // Magnifier loupe. Re-rendering the page from pdf.js on every mouse-move is
+  // vector-crisp but re-parses the whole page each frame → lag. Instead each
+  // page is rendered ONCE to a hi-res offscreen canvas (cached), and every move
+  // just samples that cache with a synchronous drawImage — crisp real pixels,
+  // zero per-frame pdf.js work, and no flicker (drawImage overwrites the lens
+  // whole each move). Until a page's hi-res source is built, we sample the
+  // displayed canvas (soft for an instant, but never laggy).
+  const [magnifier, setMagnifier] = useState(true);
+  const [lensPos, setLensPos] = useState<{ x: number; y: number } | null>(null);
+  const lensRef = useRef<HTMLCanvasElement | null>(null);
+  const docRef = useRef<PDFDocumentProxy | null>(null);
+  const scaleRef = useRef(1);
+  // Cache of hi-res page renders (key = `page:scaleBucket`) plus the set of
+  // builds in flight, so a page is only rasterized once per zoom level.
+  const srcCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const srcBuildingRef = useRef<Set<string>>(new Set());
+
+  const buildHiResSource = useCallback((pageNum: number, key: string) => {
+    const doc = docRef.current;
+    if (!doc || srcCacheRef.current.has(key) || srcBuildingRef.current.has(key)) return;
+    srcBuildingRef.current.add(key);
+    const dpr = window.devicePixelRatio || 1;
+    // Render at display-scale × lens-zoom × dpr so a magnified point maps ~1:1
+    // to real source pixels — no upscaling blur in the lens.
+    const hiScale = scaleRef.current * LENS_ZOOM * dpr;
+    void doc
+      .getPage(pageNum)
+      .then((page) => {
+        const vp = page.getViewport({ scale: hiScale });
+        const c = document.createElement("canvas");
+        c.width = Math.ceil(vp.width);
+        c.height = Math.ceil(vp.height);
+        // No canvasContext — let pdfjs own it (alpha:false → white ground).
+        return page.render({ canvas: c, viewport: vp }).promise.then(() => {
+          srcCacheRef.current.set(key, c);
+          srcBuildingRef.current.delete(key);
+        });
+      })
+      .catch(() => {
+        srcBuildingRef.current.delete(key);
+      });
+  }, []);
+
+  const drawLens = useCallback(
+    (e: React.MouseEvent) => {
+      if (!magnifier) return;
+      const main = mainRef.current;
+      const lensEl = lensRef.current;
+      if (!main || !lensEl) return;
+      let canvasEl: HTMLCanvasElement | null = null;
+      let rect: DOMRect | null = null;
+      for (const c of main.querySelectorAll<HTMLCanvasElement>(".cvx-page__canvas")) {
+        const r = c.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          canvasEl = c;
+          rect = r;
+          break;
+        }
+      }
+      if (!canvasEl || !rect || rect.width === 0) {
+        setLensPos(null);
+        return;
+      }
+      const pageEl = canvasEl.closest<HTMLElement>(".cvx-page");
+      const pageNum = pageEl ? Number(pageEl.dataset.page) : NaN;
+      if (!Number.isFinite(pageNum)) {
+        setLensPos(null);
+        return;
+      }
+
+      const key = `${pageNum}:${scaleRef.current.toFixed(2)}`;
+      const hiRes = srcCacheRef.current.get(key);
+      if (!hiRes) buildHiResSource(pageNum, key);
+      // Sample from the hi-res cache when ready, else the displayed canvas.
+      const src = hiRes ?? canvasEl;
+
+      const dpr = window.devicePixelRatio || 1;
+      const back = Math.round(LENS * dpr);
+      if (lensEl.width !== back) {
+        lensEl.width = back;
+        lensEl.height = back;
+      }
+      const lctx = lensEl.getContext("2d");
+      if (lctx) {
+        // Cursor position as a fraction of the displayed page, mapped onto the
+        // source canvas — scale-independent, so one cache entry serves any zoom.
+        const fx = (e.clientX - rect.left) / rect.width;
+        const fy = (e.clientY - rect.top) / rect.height;
+        const winW = ((LENS / LENS_ZOOM) / rect.width) * src.width;
+        const winH = ((LENS / LENS_ZOOM) / rect.height) * src.height;
+        lctx.imageSmoothingEnabled = true;
+        lctx.imageSmoothingQuality = "high";
+        lctx.drawImage(
+          src,
+          fx * src.width - winW / 2,
+          fy * src.height - winH / 2,
+          winW,
+          winH,
+          0,
+          0,
+          back,
+          back,
+        );
+      }
+      setLensPos({ x: e.clientX, y: e.clientY });
+    },
+    [magnifier, buildHiResSource],
+  );
+
+  const hideLens = useCallback(() => setLensPos(null), []);
+
   // Load the document (or resolve "unavailable"). State is written only from
   // the async callback, so there is no synchronous setState inside the effect
   // body.
@@ -245,6 +363,18 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
     // Clamp: don't go below smallest step, don't exceed 2× (readable ceiling).
     return Math.min(2, Math.max(ZOOM_STEPS[0], raw));
   }, [zoomMode, nativePage1, mainInnerW]);
+
+  // Keep the loupe's refs fresh, and drop cached hi-res page renders when the
+  // document changes so a new CV doesn't sample the old one's pixels.
+  const readyDoc = load.kind === "ready" ? load.doc : null;
+  useEffect(() => {
+    docRef.current = readyDoc;
+    srcCacheRef.current.clear();
+    srcBuildingRef.current.clear();
+  }, [readyDoc]);
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
 
   const goToPage = useCallback((page: number, total: number) => {
     const clamped = Math.max(1, Math.min(total, page));
@@ -401,6 +531,18 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
             >
               <Icon icon={MaximizeScreenIcon} size={16} />
             </Button>
+            <Button
+              size="sm"
+              aria-label="Magnifier — hover the page to read up close"
+              aria-pressed={magnifier}
+              title={magnifier ? "Magnifier on (hover the page)" : "Magnifier off"}
+              onClick={() => {
+                setMagnifier((v) => !v);
+                setLensPos(null);
+              }}
+            >
+              <Icon icon={Search01Icon} size={16} />
+            </Button>
           </div>
 
           <div className="toolbar-sep" />
@@ -446,7 +588,13 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
             </nav>
           )}
 
-          <div ref={mainRef} className="cvx-main">
+          <div
+            ref={mainRef}
+            className="cvx-main"
+            onMouseMove={drawLens}
+            onMouseLeave={hideLens}
+            style={lensPos ? { cursor: "none" } : undefined}
+          >
             {load.kind === "loading" && (
               <div className="cvx-main__skel cvx-skel" aria-label="Loading document" />
             )}
@@ -516,6 +664,21 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
           )}
         </div>
       </div>
+
+      {/* Magnifier lens — sits above the panel, follows the cursor, ignores
+          pointer events so it never blocks scrolling or clicks. */}
+      <canvas
+        ref={lensRef}
+        className="cvx-viewer-loupe"
+        aria-hidden="true"
+        style={{
+          display: lensPos ? "block" : "none",
+          left: lensPos ? lensPos.x - LENS / 2 : 0,
+          top: lensPos ? lensPos.y - LENS / 2 : 0,
+          width: LENS,
+          height: LENS,
+        }}
+      />
     </div>,
     document.body,
   );

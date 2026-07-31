@@ -7,6 +7,7 @@ import {
   EmptyState,
   Icon,
   Input,
+  Textarea,
   Toolbar,
   ToolbarSep,
   ToolbarSpacer,
@@ -21,6 +22,7 @@ import {
   importCvDocument,
   loadCvRewrites,
   runCvRewrite,
+  renderInlineBold,
   defaultCvBytesLoader,
   formatBytes,
   relativeTime,
@@ -65,6 +67,11 @@ export function CvLibrary() {
   const [rewrites, setRewrites] = useState<CvRewriteReport[]>([]);
   // Output language for AI analysis/rewrite (pt-BR default, matching backend).
   const [language, setLanguage] = useState<CvLanguage>("pt");
+  // Optional free-text context (links, GitHub, portfolio, notes) fed to the AI
+  // for the next rewrite only. Empty = nothing sent.
+  const [extraInfo, setExtraInfo] = useState("");
+  // The rewrite currently shown in the before/after comparison overlay.
+  const [comparing, setComparing] = useState<CvRewriteReport | null>(null);
 
   // Reset transient load state when the request identity changes. Done during
   // render (not synchronously inside the effect) so React folds it into the
@@ -195,7 +202,7 @@ export function CvLibrary() {
     setIsRewriting(true);
     setRewriteError(null);
     try {
-      await runCvRewrite(selected.id, undefined, language);
+      await runCvRewrite(selected.id, undefined, language, extraInfo);
       setReloadNonce((n) => n + 1);
     } catch (e) {
       setRewriteError(errMessage(e));
@@ -479,6 +486,19 @@ export function CvLibrary() {
                       {isRewriting ? "Rewriting..." : "Rewrite with AI"}
                     </Button>
                   </div>
+                  <label className="cvx-inspector__extra">
+                    <span className="cvx-inspector__extra-label">
+                      Extra info for the AI (optional)
+                    </span>
+                    <Textarea
+                      rows={3}
+                      placeholder="Links, GitHub, portfolio, sites, notes — anything you want the AI to weave in…"
+                      value={extraInfo}
+                      onChange={(e) => setExtraInfo(e.target.value)}
+                      disabled={isRewriting}
+                      style={{ resize: "vertical", fontSize: "var(--text-xs)" }}
+                    />
+                  </label>
                 </div>
 
                 {/* AI rewrite -> PDF export. Only shown once a rewrite exists
@@ -490,7 +510,14 @@ export function CvLibrary() {
                   return latestRewrite ? (
                     <div className="cvx-inspector__rewrite">
                       <span className="cvx-inspector__heading">AI rewrite</span>
-                      <CvExportButton rewrite={latestRewrite} />
+                      <div className="cvx-inspector__rewrite-actions">
+                        <CvExportButton rewrite={latestRewrite} />
+                        {latestRewrite.sourceText ? (
+                          <Button size="sm" onClick={() => setComparing(latestRewrite)}>
+                            Compare before / after
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null;
                 })()}
@@ -502,6 +529,112 @@ export function CvLibrary() {
 
       {/* Full-document viewer */}
       {opened !== null && <CvViewer cv={opened} loader={loader} onClose={() => setOpenId(null)} />}
+
+      {/* Before/after comparison overlay */}
+      {comparing !== null && (
+        <CvCompareModal report={comparing} onClose={() => setComparing(null)} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Before/after comparison overlay. Left = the original extracted CV text the AI
+// read (`sourceText`); right = the structured content it produced. Shows people
+// exactly what the rewrite changed.
+// ---------------------------------------------------------------------------
+function CvCompareModal({
+  report,
+  onClose,
+}: {
+  report: CvRewriteReport;
+  onClose: () => void;
+}) {
+  const r = report.rewrite;
+  return (
+    <div className="cvx-compare" role="dialog" aria-modal="true" aria-label="CV before and after">
+      <div className="cvx-compare__bar">
+        <span className="cvx-compare__title">Before / after — {report.cvFileName}</span>
+        <Button size="sm" aria-label="Close comparison" onClick={onClose}>
+          <Icon icon={Cancel01Icon} size={14} />
+        </Button>
+      </div>
+      <div className="cvx-compare__body">
+        {/* Before */}
+        <section className="cvx-compare__col">
+          <header className="cvx-compare__col-head">
+            <Badge variant="neutral">Before</Badge>
+            <span>Original CV text</span>
+          </header>
+          <pre className="cvx-compare__source">{report.sourceText || "No original text stored."}</pre>
+        </section>
+
+        {/* After */}
+        <section className="cvx-compare__col">
+          <header className="cvx-compare__col-head">
+            <Badge variant="success">After</Badge>
+            <span>AI-rewritten content</span>
+          </header>
+          <div className="cvx-compare__after">
+            {r.summary && (
+              <div className="cvx-compare__block">
+                <h4>Summary</h4>
+                <p>{renderInlineBold(r.summary)}</p>
+              </div>
+            )}
+            {r.skills.length > 0 && (
+              <div className="cvx-compare__block">
+                <h4>Skills</h4>
+                <ul>
+                  {r.skills.map((g, i) => (
+                    <li key={i}>{g.category ? `${g.category}: ${g.skills}` : g.skills}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {r.experience.length > 0 && (
+              <div className="cvx-compare__block">
+                <h4>Experience</h4>
+                {r.experience.map((e, i) => (
+                  <div key={i} className="cvx-compare__entry">
+                    <strong>{e.title || "—"}</strong>
+                    <span className="cvx-compare__meta">
+                      {[e.organization, e.location, e.dates].filter(Boolean).join(" · ")}
+                    </span>
+                    {e.bullets.length > 0 && (
+                      <ul>
+                        {e.bullets.map((b, j) => (
+                          <li key={j}>{renderInlineBold(b)}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {r.education.length > 0 && (
+              <div className="cvx-compare__block">
+                <h4>Education</h4>
+                {r.education.map((e, i) => (
+                  <div key={i} className="cvx-compare__entry">
+                    <strong>{e.degree || "—"}</strong>
+                    <span className="cvx-compare__meta">
+                      {[e.institution, e.location, e.dates].filter(Boolean).join(" · ")}
+                    </span>
+                    {e.bullets.length > 0 && (
+                      <ul>
+                        {e.bullets.map((b, j) => (
+                          <li key={j}>{renderInlineBold(b)}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

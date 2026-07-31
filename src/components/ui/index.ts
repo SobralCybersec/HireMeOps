@@ -18,6 +18,8 @@ export { Checkbox } from "./Checkbox";
 export { Radio, RadioGroup } from "./Radio";
 export type { RadioOption } from "./Radio";
 export { Switch } from "./Switch";
+export { Dropdown } from "./Dropdown";
+export type { DropdownOption } from "./Dropdown";
 
 export { Badge } from "./Badge";
 export { StatusDot } from "./StatusDot";

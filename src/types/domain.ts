@@ -160,6 +160,8 @@ export interface JobPostDto {
   status: JobStatus;
   searchQueryId: string | null;
   discoverySource: string | null;
+  description?: string | null;
+  contactEmail?: string | null;
 }
 
 // Full DTO returned by `list_job_matches` / `score_job_match`.
@@ -203,6 +205,14 @@ export interface LinkedInSearchResult {
   skippedDuplicates: number;
   hasNextPage: boolean;
   pagesScraped: number;
+}
+
+// Result returned by `run_google_search` after scrape+ingest.
+export interface GoogleSearchResult {
+  ingested: number;
+  skippedDuplicates: number;
+  pagesScraped: number;
+  blocked: boolean;
 }
 
 // Input for `generate_search_queries`. Backend deserializes camelCase.
@@ -293,4 +303,16 @@ export interface ProfileSyncPlan {
   sections: SyncSection[];
   disclaimer: string;
   generatedAt: string;
+}
+
+/** Result of pushing one section to a profile board (LinkedIn / Catho). The
+ *  `copyText`/`editUrl` fields are only populated by the LinkedIn copy-paste
+ *  flow; Catho leaves them unset. Mirrors the Rust `SyncSectionResult`. */
+export interface SyncSectionResult {
+  kind: string;
+  status: "ok" | "manual" | "error";
+  label?: string;
+  reason?: string;
+  copyText?: string;
+  editUrl?: string;
 }

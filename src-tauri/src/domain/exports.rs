@@ -1,14 +1,7 @@
-//! Data export and backup / restore (Phase 6/7).
-//!
-//! Two responsibilities:
-//!  * **Exports** — human-portable dumps of the user's data: profiles as JSON
-//!    (configs + CV references), and jobs / applications / audit log as CSV.
-//!  * **Backups** — full, self-consistent database snapshots via SQLite
-//!    `VACUUM INTO`, listing of existing snapshots, and a validated restore.
-//!
-//! No external `csv` crate is pulled in — the RFC-4180 escaping we need is a
-//! few lines. `VACUUM INTO` yields a fully-consistent snapshot even while the
-//! primary connection stays live, which is exactly what a backup wants.
+//! Data export and backup/restore: JSON/CSV dumps of profiles, jobs, applications, and audit log; SQLite VACUUM INTO snapshots with list/restore.
+//! Key: export_profiles_json — profiles + CV document refs as pretty JSON
+//! Key: export_jobs_csv / export_applications_csv / export_audit_csv — CSV exports
+//! Key: create_backup / list_backups / restore_backup — VACUUM INTO snapshot lifecycle
 
 use std::path::Path;
 
@@ -19,10 +12,6 @@ use sqlx::{Row, SqlitePool};
 use super::{DomainError, DomainResult};
 use crate::util::{new_id, now_iso};
 
-// ── CSV helpers ─────────────────────────────────────────────────────────────
-
-/// Escape one CSV field per RFC-4180: wrap in double-quotes and double any
-/// embedded quote when the value contains a comma, quote, CR or LF.
 fn csv_field(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -31,7 +20,6 @@ fn csv_field(s: &str) -> String {
     }
 }
 
-/// Join one row of raw string fields, CRLF-terminated (RFC-4180).
 fn csv_row(fields: &[&str]) -> String {
     let mut line = String::new();
     for (i, f) in fields.iter().enumerate() {
@@ -44,8 +32,6 @@ fn csv_row(fields: &[&str]) -> String {
     line
 }
 
-/// Read column `name` as text, mapping SQL NULL to an empty string. Every
-/// export query `CAST`s integer columns to TEXT so this reads uniformly.
 fn text(row: &sqlx::sqlite::SqliteRow, name: &str) -> String {
     row.try_get::<Option<String>, _>(name)
         .ok()
@@ -53,9 +39,6 @@ fn text(row: &sqlx::sqlite::SqliteRow, name: &str) -> String {
         .unwrap_or_default()
 }
 
-// ── Exports ─────────────────────────────────────────────────────────────────
-
-/// All profile configs plus their CV document references, as pretty JSON.
 pub async fn export_profiles_json(pool: &SqlitePool) -> DomainResult<String> {
     let profiles = sqlx::query(
         "SELECT id, display_name, target_title, summary, location, \
@@ -65,8 +48,6 @@ pub async fn export_profiles_json(pool: &SqlitePool) -> DomainResult<String> {
     .fetch_all(pool)
     .await?;
 
-    // Batch-fetch all CV documents in one query, then group by profile_id in
-    // memory. Avoids an N+1 (one cv_documents query per profile).
     let cv_rows = sqlx::query(
         "SELECT profile_id, id, file_name, file_type, created_at FROM cv_documents \
          ORDER BY profile_id, created_at",
@@ -115,7 +96,6 @@ pub async fn export_profiles_json(pool: &SqlitePool) -> DomainResult<String> {
     serde_json::to_string_pretty(&doc).map_err(|e| DomainError::Other(e.into()))
 }
 
-/// Job listings joined with their best match score, as CSV.
 pub async fn export_jobs_csv(pool: &SqlitePool) -> DomainResult<String> {
     let rows = sqlx::query(
         "SELECT j.title AS title, j.company AS company, j.location AS location, \
@@ -165,7 +145,6 @@ pub async fn export_jobs_csv(pool: &SqlitePool) -> DomainResult<String> {
     Ok(csv)
 }
 
-/// Application run history — outcomes and retry attempts — as CSV.
 pub async fn export_applications_csv(pool: &SqlitePool) -> DomainResult<String> {
     let rows = sqlx::query(
         "SELECT r.id AS id, j.title AS title, j.company AS company, \
@@ -208,7 +187,6 @@ pub async fn export_applications_csv(pool: &SqlitePool) -> DomainResult<String> 
     Ok(csv)
 }
 
-/// The full audit log with timestamps and event types, as CSV.
 pub async fn export_audit_csv(pool: &SqlitePool) -> DomainResult<String> {
     let rows = sqlx::query(
         "SELECT created_at, entity_type, entity_id, action, severity, message \
@@ -238,9 +216,6 @@ pub async fn export_audit_csv(pool: &SqlitePool) -> DomainResult<String> {
     Ok(csv)
 }
 
-// ── Backups ─────────────────────────────────────────────────────────────────
-
-/// Metadata for a single on-disk backup snapshot (frontend-serializable).
 #[derive(Debug, Clone, Serialize)]
 pub struct BackupInfo {
     pub file_name: String,
@@ -252,27 +227,19 @@ pub struct BackupInfo {
 const BACKUP_PREFIX: &str = "hiremeops-backup-";
 const BACKUP_SUFFIX: &str = ".sqlite3";
 
-/// Format a `SystemTime` as an RFC-3339 string (matches `util::now_iso`).
 fn system_time_to_iso(t: std::time::SystemTime) -> String {
     time::OffsetDateTime::from(t)
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
 }
 
-/// Take a full, consistent database snapshot into `export_dir` using
-/// `VACUUM INTO`. Returns metadata for the file just written.
 pub async fn create_backup(pool: &SqlitePool, export_dir: &Path) -> DomainResult<BackupInfo> {
     std::fs::create_dir_all(export_dir).map_err(|e| DomainError::Other(e.into()))?;
 
-    // Filesystem-safe, sortable, collision-proof name: sanitized timestamp
-    // plus a short uuid fragment (VACUUM INTO refuses to overwrite).
     let stamp = now_iso().replace(':', "-");
     let file_name = format!("{BACKUP_PREFIX}{stamp}-{}{BACKUP_SUFFIX}", &new_id()[..8]);
     let path = export_dir.join(&file_name);
 
-    // VACUUM INTO takes a string-literal filename; single-quote-escape it.
-    // Audited safe: `path` is a generated name under `export_dir`, and any
-    // quote in it is doubled, so the literal cannot break out of the string.
     let target = path.to_string_lossy().replace('\'', "''");
     sqlx::query(sqlx::AssertSqlSafe(format!("VACUUM INTO '{target}'")))
         .execute(pool)
@@ -289,8 +256,6 @@ pub async fn create_backup(pool: &SqlitePool, export_dir: &Path) -> DomainResult
     })
 }
 
-/// List existing backup snapshots in `export_dir`, newest first. A missing
-/// directory is not an error — it simply means no backups exist yet.
 pub fn list_backups(export_dir: &Path) -> DomainResult<Vec<BackupInfo>> {
     let mut backups = Vec::new();
     let rd = match std::fs::read_dir(export_dir) {
@@ -322,9 +287,6 @@ pub fn list_backups(export_dir: &Path) -> DomainResult<Vec<BackupInfo>> {
     Ok(backups)
 }
 
-/// Validate a backup file (integrity + expected schema) then copy it over the
-/// live database at `target_db_path`. The app should restart afterwards so the
-/// pool re-opens against the restored file. Returns metadata for the restore.
 pub async fn restore_backup(backup_path: &Path, target_db_path: &Path) -> DomainResult<BackupInfo> {
     if !backup_path.exists() {
         return Err(DomainError::InvalidInput(format!(
@@ -333,8 +295,6 @@ pub async fn restore_backup(backup_path: &Path, target_db_path: &Path) -> Domain
         )));
     }
 
-    // Open the candidate read-only and prove it is a healthy DB with our schema
-    // before we let it clobber the live database.
     let opts = SqliteConnectOptions::new()
         .filename(backup_path)
         .read_only(true);
@@ -366,8 +326,6 @@ pub async fn restore_backup(backup_path: &Path, target_db_path: &Path) -> Domain
         ));
     }
 
-    // Copy via a temp file + rename so a mid-copy failure can't leave the live
-    // database truncated.
     let tmp = target_db_path.with_extension("restore-tmp");
     std::fs::copy(backup_path, &tmp).map_err(|e| DomainError::Other(e.into()))?;
     std::fs::rename(&tmp, target_db_path).map_err(|e| DomainError::Other(e.into()))?;
@@ -435,10 +393,7 @@ mod tests {
         seed_profile(&pool).await;
         let json = export_profiles_json(&pool).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        // Baseline `default` profile (migration 0003) + the seeded Ada profile.
         assert_eq!(parsed["profile_count"], 2);
-        // Locate Ada by name rather than index: ordering is by `created_at`,
-        // which the seeded default shares to second granularity.
         let ada = parsed["profiles"]
             .as_array()
             .unwrap()
@@ -467,9 +422,6 @@ mod tests {
 
     #[tokio::test]
     async fn backup_create_list_and_restore_roundtrip() {
-        // `VACUUM INTO` only writes a snapshot from an on-disk source database;
-        // it is a silent no-op against `sqlite::memory:`. Production always runs
-        // against a real file, so mirror that here rather than using `mem_pool`.
         let dir = std::env::temp_dir().join(format!("hiremeops-bk-{}", new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let src_path = dir.join("source.sqlite3");
@@ -484,7 +436,6 @@ mod tests {
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         seed_profile(&pool).await;
 
-        // Create → file exists and is listed.
         let info = create_backup(&pool, &dir).await.unwrap();
         assert!(info.size_bytes > 0);
         assert!(std::path::Path::new(&info.path).exists());
@@ -492,7 +443,6 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].file_name, info.file_name);
 
-        // Restore the snapshot onto a fresh target path and re-open it.
         let target = dir.join("restored.sqlite3");
         let backup_path = std::path::PathBuf::from(&info.path);
         restore_backup(&backup_path, &target).await.unwrap();
@@ -508,7 +458,6 @@ mod tests {
             .fetch_one(&rpool)
             .await
             .unwrap();
-        // Backup captured the baseline `default` profile plus the seeded one.
         assert_eq!(count, 2);
         rpool.close().await;
 

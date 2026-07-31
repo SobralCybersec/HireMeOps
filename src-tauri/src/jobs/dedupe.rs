@@ -1,5 +1,7 @@
 //! Duplicate job URL detection. Jobs are KEPT as separate rows on duplicate —
 //! this only surfaces a warning; callers set status = 'skipped_duplicate_url'.
+//! Key: `DedupeOutcome` — Unique or Duplicate{existing_id}.
+//! Key: `check()` — looks up an existing job by profile+platform+canonical_url, earliest wins.
 
 use sqlx::SqlitePool;
 
@@ -9,7 +11,6 @@ pub enum DedupeOutcome {
     Duplicate { existing_id: String },
 }
 
-/// Check whether a job with `canonical_url` already exists for this profile+platform.
 pub async fn check(
     pool: &SqlitePool,
     profile_id: &str,
@@ -130,7 +131,6 @@ mod tests {
     #[tokio::test]
     async fn returns_earliest_when_multiple_exist() {
         let pool = mem_pool().await;
-        // Late row inserted first, early row second — query must return the earliest.
         sqlx::query(
             "INSERT INTO job_posts (id, profile_id, platform, url, canonical_url, discovered_at) \
              VALUES ('job-late', 'p1', 'linkedin', 'https://linkedin.com/jobs/1', \
@@ -170,7 +170,6 @@ mod tests {
         .await
         .unwrap();
 
-        // The WHERE clause is canonical_url = ?3, which is NULL != 'https://…' in SQL.
         let out = check(&pool, "p1", "linkedin", "https://linkedin.com/jobs/1")
             .await
             .unwrap();

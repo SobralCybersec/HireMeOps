@@ -1,17 +1,10 @@
-//! AI provider backends + the `ai_cache` caching layer.
+//! AI provider backends + the ai_cache caching layer.
 //!
-//! The only concrete completion backend implemented in this build is
-//! [`Provider::Browser`]: completions run through a real, logged-in browser
-//! session (see [`browser_bridge`]) instead of a paid API. Other recognised
-//! settings `kind`s map to [`Provider::Unsupported`] (or [`Provider::Disabled`]
-//! when the kind is unrecognised) — see [`provider_from_settings`].
-//! [`Provider`] is an enum rather than `dyn AiProvider` because the trait uses
-//! `async fn` (not object-safe). Prompt construction and reply parsing are
-//! pure in [`prompt`].
-//!
-//! [`complete_cached`] is the entry point services should call: it consults
-//! `ai_cache` keyed on `(model_name, prompt_hash, input_hash)`; the prompt hash
-//! includes a non-secret provider/credential namespace so switches stay isolated.
+//! Key: Provider — enum dispatching to the Browser/Unsupported/Disabled backends
+//! Key: complete_cached — cache-checked entry point services call to run a completion
+//! Key: provider_from_settings — maps a stored AiProviderSettings to a live Provider
+//! Key: select_provider_resolved — resolves credentials and picks the default provider
+//! Key: resolve_api_key — resolves an OAuth access token or a keyring/env API key
 
 pub mod browser_bridge;
 pub mod prompt;
@@ -24,7 +17,6 @@ use crate::domain::{DomainError, DomainResult};
 use crate::storage::settings::AiProviderSettings;
 use crate::util::{new_id, now_iso};
 
-/// sha256 hex digest of a string.
 fn sha256_hex(s: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
@@ -32,41 +24,23 @@ fn sha256_hex(s: &str) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Deterministic hash of the (system, prompt) pair used as a cache key. The
-/// `\u{1f}` unit separator keeps the two fields unambiguous.
 pub fn prompt_hash(system: Option<&str>, prompt: &str) -> String {
     sha256_hex(&format!("{}\u{1f}{}", system.unwrap_or(""), prompt))
 }
 
-/// Build a cache `input_hash` from arbitrary semantic parts + a prompt version,
-/// so bumping a prompt version invalidates its cached rows.
 pub fn input_hash(parts: &[&str]) -> String {
     sha256_hex(&parts.join("\u{1f}"))
 }
 
-// ─────────────────────────────── providers ──────────────────────────────────
 
-/// A configured LLM backend. The `model` is the default for that backend; the
-/// per-request model in [`CompletionRequest`] is authoritative for the call.
 #[derive(Debug, Clone)]
 pub enum Provider {
-    /// A browser-backed "free" provider: completions run through a real,
-    /// logged-in browser session (Playwright helper) instead of a paid API.
-    /// `site` selects the target service (`chatgpt`, `claude`, …).
-    Browser {
-        site: String,
-        model: String,
-    },
-    /// A recognised configuration whose completion protocol is not implemented.
-    Unsupported {
-        reason: String,
-    },
-    /// No usable provider configured — every call is a clear error.
+    Browser { site: String, model: String },
+    Unsupported { reason: String },
     Disabled,
 }
 
 impl Provider {
-    /// The default model name (empty for disabled or unsupported providers).
     pub fn default_model(&self) -> &str {
         match self {
             Provider::Browser { model, .. } => model,
@@ -103,9 +77,6 @@ impl AiProvider for Provider {
             )),
             Provider::Unsupported { reason } => Err(DomainError::InvalidInput(reason.clone())),
             Provider::Browser { site, model } => {
-                // Choose the per-request model when present, else the configured
-                // default; then flatten (system + prompt) the way RustProxyHub's
-                // `build_prompt` does before handing it to the browser session.
                 let model = if req.model.trim().is_empty() {
                     model.clone()
                 } else {
@@ -131,25 +102,12 @@ impl AiProvider for Provider {
     }
 }
 
-/// Map a stored provider config to a live [`Provider`]. The API key is resolved
-/// separately by the caller (see [`api_key_from_env`]) since [`AiProviderSettings`]
-/// only records *whether* a key is stored, never the secret itself.
 pub fn provider_from_settings(s: &AiProviderSettings, _api_key: Option<String>) -> Provider {
     let configured_model = s.default_model.trim();
     match s.kind.as_str() {
-        // Browser-backed "free" provider: no API key, no wire endpoint. The
-        // settings form packs the target site and in-session model into
-        // `default_model` as "<site>/<model>" (site e.g. `chatgpt`, `gemini`,
-        // `mistral`, `zai`, `meta`, `deepseek`; the model portion is optional).
-        // The `"browser"` arm accepts any site string (routing is registry-based
-        // in browser_bridge), so new providers need no logic change here. Split on the
-        // FIRST '/' so a model name may itself contain slashes. Both CV analysis
-        // and automation reach this via `complete_cached`.
         "browser" => {
             let (site, model) = match configured_model.split_once('/') {
-                Some((site, model)) => {
-                    (site.trim().to_ascii_lowercase(), model.trim().to_string())
-                }
+                Some((site, model)) => (site.trim().to_ascii_lowercase(), model.trim().to_string()),
                 None => (configured_model.to_ascii_lowercase(), String::new()),
             };
             let site = if site.is_empty() {
@@ -159,12 +117,7 @@ pub fn provider_from_settings(s: &AiProviderSettings, _api_key: Option<String>) 
             };
             Provider::Browser { site, model }
         }
-        // "disabled" and an empty/unset kind mean no provider is configured.
         "disabled" | "" => Provider::Disabled,
-        // Any other recognised `kind` (ollama, openai, openai_compatible,
-        // anthropic_compatible, gemini, custom_proxy, ...) has no completion
-        // protocol implemented in this build — fail fast with a clear reason
-        // instead of silently behaving as Disabled.
         other => Provider::Unsupported {
             reason: format!(
                 "the '{other}' provider is not implemented in this build — \
@@ -174,12 +127,6 @@ pub fn provider_from_settings(s: &AiProviderSettings, _api_key: Option<String>) 
     }
 }
 
-/// Pick the default provider from a provider list + index. Returns
-/// [`Provider::Disabled`] when the list is empty or the index is out of range.
-///
-/// The synchronous variant only exercises the index-selection logic and is kept
-/// for unit tests; production callers use [`select_provider_resolved`], which
-/// also resolves the credential (OAuth access token / env API key).
 #[cfg(test)]
 fn select_provider(
     providers: &[AiProviderSettings],
@@ -193,19 +140,11 @@ fn select_provider(
     }
 }
 
-/// Resolve the credential for the *selected* provider itself — so OAuth
-/// providers get their live keyring access token while API-key providers fall
-/// back to the environment. This is the production selection path.
 pub async fn select_provider_resolved(
     providers: &[AiProviderSettings],
     default_index: i64,
 ) -> Provider {
     let idx = usize::try_from(default_index).unwrap_or(0);
-    // Fall back to the first provider when the stored index is out of range but
-    // a provider IS configured. A stale `default_ai_provider_index` (e.g. left
-    // over from an old multi-provider config, now pointing past a single
-    // browser entry) would otherwise resolve to `Disabled` and fail with
-    // "no AI provider configured" even though the user has a valid provider.
     let selected = providers.get(idx).or_else(|| providers.first());
     match selected {
         Some(s) => provider_from_settings(s, resolve_api_key(s).await),
@@ -213,20 +152,13 @@ pub async fn select_provider_resolved(
     }
 }
 
-/// Resolve the AI API key from the environment. Keys are intentionally not kept
-/// in the settings DB unencrypted; the secret itself lives in the OS keyring
-/// (see [`store_api_key`]) with this env var as a headless/CI fallback.
 pub fn api_key_from_env() -> Option<String> {
     std::env::var("HIREMEOPS_AI_API_KEY")
         .ok()
         .filter(|s| !s.is_empty())
 }
 
-// ───────────────────────────── API-key keyring ──────────────────────────────
 
-/// OS-keyring service under which user-entered AI API keys are stored, one
-/// entry per provider `kind`. Kept separate from the OAuth token service
-/// (`com.hiremeops.oauth`) so clearing one never disturbs the other.
 const API_KEY_SERVICE: &str = "com.hiremeops.apikey";
 
 fn api_key_entry(kind: &str) -> DomainResult<keyring::Entry> {
@@ -234,8 +166,6 @@ fn api_key_entry(kind: &str) -> DomainResult<keyring::Entry> {
         .map_err(|e| DomainError::Other(anyhow::anyhow!("keyring open (api_key {kind}): {e}")))
 }
 
-/// Persist an API key for `kind` in the OS keyring. An empty/whitespace-only
-/// key is rejected — callers should use [`delete_api_key`] to remove one.
 pub fn store_api_key(kind: &str, key: &str) -> DomainResult<()> {
     let key = key.trim();
     if key.is_empty() {
@@ -248,7 +178,6 @@ pub fn store_api_key(kind: &str, key: &str) -> DomainResult<()> {
         .map_err(|e| DomainError::Other(anyhow::anyhow!("keyring store (api_key {kind}): {e}")))
 }
 
-/// Load the stored API key for `kind`, if any. A missing entry is `Ok(None)`.
 pub fn load_api_key(kind: &str) -> DomainResult<Option<String>> {
     match api_key_entry(kind)?.get_password() {
         Ok(secret) => Ok(Some(secret).filter(|s| !s.is_empty())),
@@ -259,7 +188,6 @@ pub fn load_api_key(kind: &str) -> DomainResult<Option<String>> {
     }
 }
 
-/// Remove the stored API key for `kind`. Deleting a missing entry is a no-op.
 pub fn delete_api_key(kind: &str) -> DomainResult<()> {
     match api_key_entry(kind)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -269,28 +197,18 @@ pub fn delete_api_key(kind: &str) -> DomainResult<()> {
     }
 }
 
-/// Whether a non-empty API key is stored for `kind`. Keyring errors are
-/// swallowed to `false` — the UI treats "can't read" the same as "not set".
 pub fn has_api_key(kind: &str) -> bool {
     matches!(load_api_key(kind), Ok(Some(_)))
 }
 
-/// OAuth provider key for an AI settings `kind`. The `*_compatible` variants
-/// share the same subscription connection as their canonical provider.
 fn oauth_kind(kind: &str) -> &str {
     match kind {
         "anthropic" | "anthropic_compatible" => "anthropic",
         "openai" | "openai_compatible" => "openai",
-        "gemini" => "gemini",
         other => other,
     }
 }
 
-/// Resolve the credential for a provider config. OAuth (Claude Pro/Max &
-/// friends) providers get a live subscription *access token* from the keyring,
-/// refreshed transparently when stale; API-key providers prefer a key saved in
-/// the OS keyring via the UI ([`store_api_key`]) and fall back to the
-/// `HIREMEOPS_AI_API_KEY` environment variable. `None` ⇒ no usable credential.
 pub async fn resolve_api_key(s: &AiProviderSettings) -> Option<String> {
     if s.auth_kind == "oauth" {
         crate::auth::oauth::valid_access_token(oauth_kind(&s.kind))
@@ -305,18 +223,12 @@ pub async fn resolve_api_key(s: &AiProviderSettings) -> Option<String> {
     }
 }
 
-// ─────────────────────────────── cache layer ────────────────────────────────
 
-/// Run a completion through the `ai_cache` layer. On a cache hit the stored
-/// response is returned (`cached: true`) and its `last_used_at` is bumped; on a
-/// miss the provider is called and the fresh response is persisted.
 pub async fn complete_cached<P: AiProvider>(
     pool: &SqlitePool,
     provider: &P,
     req: CompletionRequest,
 ) -> DomainResult<CompletionResponse> {
-    // Include the concrete backend/endpoint without persisting it in plaintext.
-    // This prevents a provider switch from reusing another provider's response.
     let namespace = provider.cache_namespace();
     let content_hash = prompt_hash(req.system.as_deref(), &req.prompt);
     let ph = sha256_hex(&format!("{namespace}\u{1f}{content_hash}"));
@@ -332,8 +244,6 @@ pub async fn complete_cached<P: AiProvider>(
     .await?
     {
         if text.trim().is_empty() {
-            // Older builds could cache a 2xx response with no completion text.
-            // Drop that poisoned row and retry the provider below.
             sqlx::query(
                 "DELETE FROM ai_cache \
                  WHERE model_name = ?1 AND prompt_hash = ?2 AND input_hash = ?3",
@@ -358,8 +268,6 @@ pub async fn complete_cached<P: AiProvider>(
         }
     }
 
-    // Miss — call the backend and persist. Clone the key fields first since
-    // `complete` consumes the request.
     let model = req.model.clone();
     let input = req.input_hash.clone();
     let provider_id = provider.id();
@@ -392,7 +300,6 @@ pub async fn complete_cached<P: AiProvider>(
     })
 }
 
-// ─────────────────────────────── HTTP backends ──────────────────────────────
 
 fn validated_text(provider: &str, text: String) -> DomainResult<String> {
     if text.trim().is_empty() {
@@ -413,8 +320,6 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Barrier;
 
-    /// A provider that returns a canned reply and counts how many times it was
-    /// actually invoked (to prove the cache short-circuits the backend).
     struct MockProvider {
         reply: String,
         namespace: String,
@@ -603,7 +508,6 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(created, used0, "fresh row: created == last_used");
-        // Force a later timestamp then hit again.
         sqlx::query("UPDATE ai_cache SET last_used_at = '2000-01-01T00:00:00Z'")
             .execute(&pool)
             .await
@@ -626,14 +530,15 @@ mod tests {
             default_model: "m".into(),
             auth_kind: "api_key".into(),
         };
-        // Removed backends are no longer implemented: any previously-supported
-        // `kind` other than "browser"/"disabled" now fails fast as Unsupported.
         assert!(matches!(
             provider_from_settings(&mk("ollama", ""), None),
             Provider::Unsupported { .. }
         ));
         assert!(matches!(
-            provider_from_settings(&mk("openai_compatible", "https://api.x.com/v1/"), Some("k".into())),
+            provider_from_settings(
+                &mk("openai_compatible", "https://api.x.com/v1/"),
+                Some("k".into())
+            ),
             Provider::Unsupported { .. }
         ));
         assert!(matches!(
@@ -649,29 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn gemini_oauth_fails_fast_as_unsupported() {
-        let settings = AiProviderSettings {
-            kind: "gemini".into(),
-            label: "Gemini".into(),
-            endpoint_url: "https://cloudcode-pa.googleapis.com".into(),
-            api_key_stored: false,
-            default_model: "gemini-2.5-pro".into(),
-            auth_kind: "oauth".into(),
-        };
-        assert!(matches!(
-            provider_from_settings(&settings, Some("token".into())),
-            Provider::Unsupported { .. }
-        ));
-    }
-
-    #[test]
     fn cache_namespace_isolates_browser_sites() {
-        // The only variant whose `cache_namespace` varies by input is
-        // `Browser` (keyed on `site`, not on any credential — a browser
-        // session carries no API key). The credential-namespace test this
-        // replaced (`cache_namespace_isolates_credentials_without_exposing_them`)
-        // no longer applies: it exercised the `openai`/api_key path, which now
-        // resolves to the constant `Provider::Unsupported` namespace.
         let a = Provider::Browser {
             site: "chatgpt".into(),
             model: "gpt".into(),
@@ -697,9 +580,6 @@ mod tests {
     #[test]
     fn select_provider_handles_empty_and_oob() {
         assert!(select_provider(&[], 0, None).is_disabled());
-        // A browser-backed provider is the only live variant that carries a
-        // non-empty `default_model` (packed as "<site>/<model>"), so it is what
-        // exercises the "valid index resolves to a real provider" path here.
         let one = vec![AiProviderSettings {
             kind: "browser".into(),
             label: "l".into(),

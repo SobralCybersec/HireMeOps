@@ -1,5 +1,6 @@
-//! Settings commands. Mirrors the frontend `settingsStore` contract:
-//! `get_settings` → `AppSettings`, `update_settings({ settings })`.
+//! Settings commands. Mirrors the frontend `settingsStore` contract.
+//! Key: `get_settings` — loads `AppSettings` via `storage::settings::load`.
+//! Key: `update_settings` — persists `AppSettings` via `storage::settings::save`.
 
 use tauri::State;
 

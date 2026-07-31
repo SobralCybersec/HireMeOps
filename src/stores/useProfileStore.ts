@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Profile } from "../types/domain";
-import { safeInvoke } from "../lib/tauriInvoke";
+import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
 import { useSettingsStore } from "./useSettingsStore";
 
 interface ProfileStoreState {
@@ -14,6 +14,10 @@ interface ProfileStoreState {
    * to let callers await the write when they care about visible errors.
    */
   setActiveProfile: (id: string) => Promise<void>;
+  /** Create a new profile (own cookie jar / CVs / variants); returns its id. */
+  createProfile: (name: string) => Promise<string>;
+  /** Rename a profile's display name. */
+  renameProfile: (id: string, name: string) => Promise<void>;
 }
 
 /**
@@ -71,6 +75,17 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
     if (settings && settings.activeProfileId !== id) {
       await updateSettings({ activeProfileId: id });
     }
+  },
+
+  createProfile: async (name) => {
+    const created = await invokeStrict<Profile>("create_profile", { name });
+    await get().loadProfiles();
+    return created.id;
+  },
+
+  renameProfile: async (id, name) => {
+    await invokeStrict<void>("rename_profile", { profileId: id, name });
+    await get().loadProfiles();
   },
 }));
 

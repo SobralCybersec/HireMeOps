@@ -1,6 +1,8 @@
 //! Application commands: draft a tailored application for a scored job match.
 //! Thin IPC wrappers that delegate to the concrete `ApplicationService` and
 //! flatten `DomainError` into a `String` for the frontend.
+//! Key: `draft_application` — AI-tailored cover letter + form answers for a job match.
+//! Key: `submit_application` — queue a reviewed draft for the manual-assist automation flow.
 
 use tauri::State;
 
@@ -11,8 +13,6 @@ fn service(state: &AppState) -> ApplicationServiceImpl {
     ApplicationServiceImpl::new(state.db.clone(), state.paths.cv_files_dir.clone())
 }
 
-/// Draft an application (cover letter + form answers) for `job_match_id`,
-/// tailored via the cached AI provider. Returns the new `application_drafts.id`.
 #[tauri::command]
 pub async fn draft_application(
     state: State<'_, AppState>,
@@ -24,8 +24,6 @@ pub async fn draft_application(
         .map_err(|e| e.to_string())
 }
 
-/// Queue a reviewed draft for the manual-assist browser automation flow.
-/// Returns the new `application_runs.id` (or a duplicate-skipped run id).
 #[tauri::command]
 pub async fn submit_application(
     state: State<'_, AppState>,

@@ -1,9 +1,8 @@
-//! HireMeOps — local-first job-search automation cockpit (Tauri 2 backend).
-//!
-//! Phase 1 wires the foundation: path resolution (incl. portable mode),
-//! SQLite pool + migrations, app-event bus, settings repo, Tauri command surface.
-//! Phase 3 adds the jobs module: canonical URL, dedupe, search-query building,
-//! and the full job-preference / job-post / job-match command surface.
+//! HireMeOps Tauri backend entry point: app state, setup, and command registry.
+//! Key: `AppState` — shared db pool, resolved paths, emergency-stop flag, Playwright driver.
+//! Key: `run()` — builds the Tauri app, wires plugins, calls `init_state`, spawns startup tasks.
+//! Key: `invoke_handler` registry in `run()` — every `#[tauri::command]` exposed to the frontend.
+//! Key: `util::spawn_self_mem_logger()` call in `run()`'s `setup` — starts the RSS/mem logger.
 
 mod ai;
 mod auth;
@@ -23,19 +22,10 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-/// Shared application state, managed by Tauri and injected into commands.
 pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub paths: storage::paths::AppPaths,
-    /// Canonical emergency-stop latch. `automation_stop` /
-    /// `automation_emergency_stop` set it; `automation_start` clears it. Every
-    /// `BrowserSupervisor` is constructed sharing this exact `Arc` (via
-    /// `with_stop_flag`), so tripping it halts any in-flight browser task at its
-    /// next checkpoint — the kill-switch is always live, even between tasks.
     pub emergency_stop: Arc<AtomicBool>,
-    /// Singleton Playwright driver shared across automation sessions.
-    /// Lives here so `confirm_submit_parked` / `reject_submit_parked` commands
-    /// can resume the parked form from a separate IPC call.
     #[cfg(feature = "real-browser")]
     pub playwright: Arc<browser::playwright::PlaywrightDriver>,
 }
@@ -49,9 +39,7 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     Ok(AppState {
         db,
         #[cfg(feature = "real-browser")]
-        playwright: Arc::new(browser::playwright::PlaywrightDriver::new(
-            &paths.data_dir,
-        )),
+        playwright: Arc::new(browser::playwright::PlaywrightDriver::new(&paths.data_dir)),
         paths,
         emergency_stop: Arc::new(AtomicBool::new(false)),
     })
@@ -75,14 +63,31 @@ pub fn run() {
                 tracing::error!("startup failed: {e:#}");
                 e.to_string()
             })?;
+            let data_dir = state.paths.data_dir.clone();
+            #[cfg(feature = "real-browser")]
+            let playwright = state.playwright.clone();
             app.manage(state);
+            util::spawn_self_mem_logger();
+            #[cfg(feature = "real-browser")]
+            tauri::async_runtime::spawn(async move {
+                playwright.prewarm().await;
+            });
+            tauri::async_runtime::spawn(async move {
+                let bridge_dir = data_dir.join("chatgpt-bridge");
+                let _ = std::fs::create_dir_all(&bridge_dir);
+                std::env::set_var("HIREMEOPS_CHATGPT_PROFILE_DIR", &bridge_dir);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::setup::install_dependencies,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::profiles::list_profiles,
-            // Phase 2 — CV
+            commands::profiles::create_profile,
+            commands::profiles::rename_profile,
+            commands::profiles::get_profile_facts,
+            commands::profiles::save_profile_facts,
             commands::cv::import_cv_document,
             commands::cv::analyze_cv_document,
             commands::cv::rewrite_cv_document,
@@ -94,7 +99,6 @@ pub fn run() {
             commands::cv::list_cv_rewrites,
             commands::cv::export_cv_rewrite,
             commands::cv::save_cv_rewrite_pdf,
-            // LinkedIn profile variants (built from CV rewrites)
             commands::profile_variants::create_profile_variant,
             commands::profile_variants::list_profile_variants,
             commands::profile_variants::get_profile_variant,
@@ -102,8 +106,16 @@ pub fn run() {
             commands::profile_variants::build_profile_sync_plan,
             commands::profile_variants::update_profile_variant,
             commands::profile_variants::push_variant_to_linkedin,
+            commands::profile_variants::catho_login,
+            commands::profile_variants::push_variant_to_catho,
+            commands::profile_variants::gupy_login,
+            commands::profile_variants::push_variant_to_gupy,
+            commands::profile_variants::infojobs_login,
+            commands::profile_variants::push_variant_to_infojobs,
+            commands::profile_variants::open_all_logins,
+            commands::profile_variants::check_all_logins,
+            commands::profile_variants::open_gmail,
             commands::profile_variants::auto_connect_linkedin,
-            // Phase 4 — applications
             commands::applications::draft_application,
             commands::applications::submit_application,
             commands::automation::automation_start,
@@ -113,15 +125,16 @@ pub fn run() {
             commands::automation::automation_emergency_stop,
             commands::automation::automation_confirm_submit,
             commands::automation::automation_reject_submit,
+            commands::automation::indeed_login,
             commands::automation::automation_start_indeed,
             commands::automation::automation_confirm_indeed_submit,
             commands::automation::automation_reject_indeed_submit,
             commands::events::emit_test_event,
-            // Phase 3 — jobs
             commands::jobs::list_job_preferences,
             commands::jobs::create_job_preference,
             commands::jobs::list_search_queries,
             commands::jobs::generate_search_queries,
+            commands::jobs::delete_search_query,
             commands::jobs::ingest_job_post,
             commands::jobs::list_job_posts,
             commands::jobs::update_job_status,
@@ -129,9 +142,20 @@ pub fn run() {
             commands::jobs::score_job_match,
             commands::jobs::list_job_matches,
             commands::jobs::run_linkedin_search,
+            commands::jobs::run_google_search,
+            commands::jobs::run_linkedin_posts_search,
+            commands::jobs::gmail_send_application,
             commands::jobs::linkedin_job_login,
+            commands::jobs::linkedin_job_login_status,
             commands::jobs::run_indeed_search,
-            // Phase 6/7 — exports & backups
+            commands::jobs::run_catho_search,
+            commands::jobs::run_upwork_search,
+            commands::jobs::run_freelas99_search,
+            commands::jobs::run_infojobs_search,
+            commands::jobs::run_gupy_search,
+            commands::jobs::catho_apply,
+            commands::jobs::infojobs_apply,
+            commands::jobs::delete_old_scans,
             commands::exports::export_profiles_json,
             commands::exports::export_jobs_csv,
             commands::exports::export_applications_csv,
@@ -139,16 +163,13 @@ pub fn run() {
             commands::exports::create_backup,
             commands::exports::list_backups,
             commands::exports::restore_backup,
-            // P1 — live-preview screencast (always registered; stubs when feature is off)
             commands::preview::preview_open,
             commands::preview::preview_close,
-            // AI provider
             commands::ai::test_provider,
             commands::ai::list_models,
             commands::ai::set_api_key,
             commands::ai::clear_api_key,
             commands::ai::has_api_key,
-            // Subscription OAuth (Claude Pro/Max, ChatGPT, Gemini)
             commands::auth::oauth_supported,
             commands::auth::oauth_begin,
             commands::auth::oauth_complete,
@@ -156,7 +177,6 @@ pub fn run() {
             commands::auth::oauth_status,
             commands::auth::oauth_refresh,
             commands::auth::oauth_logout,
-            // Browser-backed "free" provider (native Playwright bridge)
             commands::browser_provider::browser_provider_login,
             commands::browser_provider::browser_provider_status,
             commands::browser_provider::browser_provider_models,

@@ -1,11 +1,10 @@
-//! Application drafting + submission service (Phase 4+, Phase 6/7).
+//! Application drafting and submission service.
 //!
-//! `draft` composes the job posting, the profile (and pinned role variant), and
-//! the attached CV into a tailored cover letter + form answers via the cached
-//! AI provider, persisting the result as an `application_drafts` row. `submit`
-//! enforces the per-URL `application_url_locks` (one application per profile +
-//! platform + canonical URL — never double-apply), records an `application_runs`
-//! row, and enqueues the `apply_job` browser task the AutomationSupervisor drives.
+//! Key: ApplicationService — trait exposing `draft` and `submit`
+//! Key: ApplicationServiceImpl::draft — composes job + profile + CV into a tailored cover letter via AI, persists `application_drafts`
+//! Key: ApplicationServiceImpl::submit — enforces per-URL `application_url_locks`, records `application_runs`, enqueues the `apply_job` task
+//! Key: contact_fact_answers — builds deterministic form answers from `profile_facts` + variant `ContactInfo`
+//! Key: map_answers — remaps a draft's `{question, answer}` pairs into the `{label, value}` shape the browser task expects
 
 use std::path::PathBuf;
 
@@ -22,29 +21,12 @@ use crate::domain::ai::CompletionRequest;
 use crate::storage::settings::load_ai_providers;
 use crate::util::now_iso;
 
-/// Builds `application_drafts`, renders `application_artifacts`, and records
-/// `application_runs`. The per-URL lock (`application_url_locks`) prevents
-/// double-applying to the same posting.
 #[allow(async_fn_in_trait)]
 pub trait ApplicationService: Send + Sync {
     async fn draft(&self, job_match_id: &str) -> DomainResult<String>;
     async fn submit(&self, application_draft_id: &str) -> DomainResult<String>;
 }
 
-/// Placeholder implementation (kept for reference / early Phase-1 wiring).
-pub struct ApplicationServiceStub;
-
-impl ApplicationService for ApplicationServiceStub {
-    async fn draft(&self, _job_match_id: &str) -> DomainResult<String> {
-        Err(DomainError::NotImplemented("ApplicationService::draft"))
-    }
-    async fn submit(&self, _application_draft_id: &str) -> DomainResult<String> {
-        Err(DomainError::NotImplemented("ApplicationService::submit"))
-    }
-}
-
-/// Concrete `ApplicationService` backed by the SQLite pool and the on-disk CV
-/// file store (needed to re-extract CV text for the draft prompt).
 pub struct ApplicationServiceImpl {
     db: SqlitePool,
     cv_files_dir: PathBuf,
@@ -55,7 +37,6 @@ impl ApplicationServiceImpl {
         Self { db, cv_files_dir }
     }
 
-    /// Re-extract text from a stored CV document. Returns `(text, file_hash)`.
     async fn cv_text(&self, cv_document_id: &str) -> DomainResult<(String, String)> {
         let (file_type, file_hash, stored_path): (String, String, String) = sqlx::query_as(
             "SELECT file_type, file_hash, stored_path FROM cv_documents WHERE id = ?1",
@@ -76,7 +57,6 @@ impl ApplicationServiceImpl {
                 )))
             }
         };
-        // `cv_files_dir` anchors the store; `stored_path` is the absolute file.
         let _ = &self.cv_files_dir;
         let bytes = std::fs::read(&stored_path)
             .map_err(|e| DomainError::InvalidInput(format!("read {stored_path}: {e}")))?;
@@ -88,8 +68,6 @@ impl ApplicationServiceImpl {
 
 impl ApplicationService for ApplicationServiceImpl {
     async fn draft(&self, job_match_id: &str) -> DomainResult<String> {
-        // Load the match: it ties together the job, profile, and the CV / role
-        // variant that scoring selected for this posting.
         let (job_id, profile_id, cv_document_id, role_variant_id): (
             String,
             String,
@@ -104,7 +82,6 @@ impl ApplicationService for ApplicationServiceImpl {
         .await?
         .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_match: {job_match_id}")))?;
 
-        // The posting supplies the job facts and the cache-stabilising content hash.
         let (title, company, location, description, content_hash): (
             String,
             String,
@@ -120,7 +97,6 @@ impl ApplicationService for ApplicationServiceImpl {
         .await?
         .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_post: {job_id}")))?;
 
-        // The profile supplies the candidate identity + baseline summary.
         let (display_name, profile_summary): (String, Option<String>) =
             sqlx::query_as("SELECT display_name, summary FROM profiles WHERE id = ?1")
                 .bind(&profile_id)
@@ -130,7 +106,6 @@ impl ApplicationService for ApplicationServiceImpl {
                     DomainError::InvalidInput(format!("unknown profile: {profile_id}"))
                 })?;
 
-        // A pinned role variant overrides the target/summary the model tailors to.
         let variant: Option<(String, Option<String>, Option<String>)> =
             match &role_variant_id {
                 Some(vid) => sqlx::query_as(
@@ -153,7 +128,6 @@ impl ApplicationService for ApplicationServiceImpl {
             .and_then(|(_, _, s)| s.clone())
             .or(profile_summary);
 
-        // Attach CV text when the match pinned a document; keep its hash for the key.
         let (cv_text, cv_hash): (Option<String>, Option<String>) = match &cv_document_id {
             Some(cid) => {
                 let (text, hash) = self.cv_text(cid).await?;
@@ -162,9 +136,6 @@ impl ApplicationService for ApplicationServiceImpl {
             None => (None, None),
         };
 
-        // If an automation run already scraped the hiring-manager card for this
-        // job+profile pair, pull it through so the AI prompt can address them by
-        // name rather than falling back to a generic salutation.
         let (hr_name_owned, hr_link_owned): (Option<String>, Option<String>) = sqlx::query_as(
             "SELECT hr_name, hr_link
              FROM automation_tasks
@@ -181,12 +152,8 @@ impl ApplicationService for ApplicationServiceImpl {
         .await?
         .unwrap_or((None, None));
 
-        // Select the configured provider; the API key is env-resolved (not stored
-        // unencrypted). A disabled/empty provider surfaces a clear error on call.
         let (providers, default_index) = load_ai_providers(&self.db).await?;
         let provider = select_provider_resolved(&providers, default_index).await;
-        // Fail fast before building the prompt / touching the cache: a disabled
-        // provider can never complete, so surface the clear error here.
         if provider.is_disabled() {
             return Err(DomainError::InvalidInput(
                 "no AI provider configured — add one in Settings".into(),
@@ -202,9 +169,6 @@ impl ApplicationService for ApplicationServiceImpl {
             candidate_summary: candidate_summary.as_deref(),
             cv_text: cv_text.as_deref(),
             variant_target: variant_target.as_deref(),
-            // If the automation engine already scraped the hiring-manager card
-            // for this job, hand it to the model so it can address the letter
-            // directly rather than relying on post-generation substitution.
             hr_name: hr_name_owned.as_deref(),
             hr_link: hr_link_owned.as_deref(),
         };
@@ -213,8 +177,6 @@ impl ApplicationService for ApplicationServiceImpl {
             model: provider.default_model().to_string(),
             prompt: draft_prompt(&input),
             system: Some(draft_system()),
-            // Fold the prompt version, the job content hash, the CV hash, and the
-            // pinned variant into the key so any of them changing re-runs the draft.
             input_hash: input_hash(&[
                 DRAFT_PROMPT_VERSION,
                 &job_id,
@@ -226,7 +188,6 @@ impl ApplicationService for ApplicationServiceImpl {
         let resp = complete_cached(&self.db, &provider, req).await?;
         let content = parse_draft(&resp.text);
 
-        // Persist the draft.
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
         let form_answers_json =
@@ -257,14 +218,15 @@ impl ApplicationService for ApplicationServiceImpl {
 
     async fn submit(&self, application_draft_id: &str) -> DomainResult<String> {
         let mut tx = self.db.begin().await?;
-        // Load the draft we're submitting.
-        let (job_id, profile_id, cover_letter, form_answers_json): (
+        let (job_id, profile_id, cover_letter, form_answers_json, role_variant_id, cv_document_id): (
             String,
             String,
+            Option<String>,
+            Option<String>,
             Option<String>,
             Option<String>,
         ) = sqlx::query_as(
-            "SELECT job_id, profile_id, cover_letter, form_answers_json
+            "SELECT job_id, profile_id, cover_letter, form_answers_json, role_variant_id, cv_document_id
              FROM application_drafts WHERE id = ?1",
         )
         .bind(application_draft_id)
@@ -274,8 +236,6 @@ impl ApplicationService for ApplicationServiceImpl {
             DomainError::InvalidInput(format!("unknown application_draft: {application_draft_id}"))
         })?;
 
-        // Repeated clicks/retries return the existing run instead of turning the
-        // draft into a false duplicate or enqueuing a second browser task.
         if let Some(run_id) = sqlx::query_scalar::<_, String>(
             "SELECT id FROM application_runs WHERE draft_id = ?1 ORDER BY started_at LIMIT 1",
         )
@@ -287,7 +247,6 @@ impl ApplicationService for ApplicationServiceImpl {
             return Ok(run_id);
         }
 
-        // Resolve the job's platform + canonical URL (fall back to the raw url).
         let (platform, url, canonical_url): (String, String, Option<String>) =
             sqlx::query_as("SELECT platform, url, canonical_url FROM job_posts WHERE id = ?1")
                 .bind(&job_id)
@@ -300,9 +259,6 @@ impl ApplicationService for ApplicationServiceImpl {
 
         let now = now_iso();
 
-        // SHARED-FILE URL LOCKOUT — one application per (profile, platform,
-        // canonical URL). If a lock already exists we NEVER apply twice: record a
-        // skipped run and stop. This is the core duplicate-application guard.
         let existing_lock: Option<String> = sqlx::query_scalar(
             "SELECT id FROM application_url_locks
              WHERE profile_id = ?1 AND platform = ?2 AND canonical_url = ?3",
@@ -345,9 +301,6 @@ impl ApplicationService for ApplicationServiceImpl {
             return Ok(run_id);
         }
 
-        // First application to this URL: create the run, take the lock, and
-        // enqueue the browser task. The AutomationSupervisor drives it and pauses
-        // for review — the application is never auto-submitted.
         let run_id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO application_runs
@@ -363,8 +316,6 @@ impl ApplicationService for ApplicationServiceImpl {
         .execute(&mut *tx)
         .await?;
 
-        // Acquire the lock. The UNIQUE(profile_id, platform, canonical_url) index
-        // is the real enforcement point against a race between two submits.
         let lock_result = sqlx::query(
             "INSERT INTO application_url_locks
                (id, profile_id, platform, canonical_url, first_job_id, first_application_run_id, locked_at)
@@ -381,8 +332,6 @@ impl ApplicationService for ApplicationServiceImpl {
         .await;
 
         if let Err(e) = lock_result {
-            // Lost the race: someone locked this URL first. Roll our run to
-            // skipped_duplicate_url and stop — never double-apply.
             if is_unique_violation(&e) {
                 sqlx::query(
                     "UPDATE application_runs
@@ -411,12 +360,31 @@ impl ApplicationService for ApplicationServiceImpl {
             return Err(DomainError::Storage(e));
         }
 
-        // Build the `apply_job` payload the AutomationSupervisor consumes.
+        let mut answers = contact_fact_answers(&mut tx, &profile_id, role_variant_id.as_deref())
+            .await
+            .unwrap_or_default();
+        if let serde_json::Value::Array(ai) = map_answers(form_answers_json.as_deref()) {
+            answers.extend(ai);
+        }
+
+        let cv_path: Option<String> = match &cv_document_id {
+            Some(id) => {
+                sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .ok()
+                    .flatten()
+            }
+            None => None,
+        };
+
         let payload = serde_json::json!({
             "url": canonical,
             "platform": platform,
             "cover_letter": cover_letter,
-            "answers": map_answers(form_answers_json.as_deref()),
+            "cv_path": cv_path,
+            "answers": serde_json::Value::Array(answers),
         })
         .to_string();
 
@@ -427,13 +395,12 @@ impl ApplicationService for ApplicationServiceImpl {
         )
         .bind(Uuid::new_v4().to_string())
         .bind(&profile_id)
-        .bind(&run_id) // target_id -> the run this task fulfills
+        .bind(&run_id)
         .bind(&payload)
         .bind(&now)
         .execute(&mut *tx)
         .await?;
 
-        // Move the draft + job into the in-flight state.
         sqlx::query(
             "UPDATE application_drafts SET status = 'submitting', updated_at = ?1 WHERE id = ?2",
         )
@@ -451,14 +418,94 @@ impl ApplicationService for ApplicationServiceImpl {
     }
 }
 
-/// True if a sqlx error is a SQLite UNIQUE constraint violation.
 fn is_unique_violation(e: &sqlx::Error) -> bool {
     matches!(e, sqlx::Error::Database(db) if db.is_unique_violation())
 }
 
-/// Remap the draft's stored `{question, answer}` form answers into the
-/// `{label, value}` shape the browser task payload expects. Best-effort: any
-/// malformed input degrades to an empty answer list.
+async fn contact_fact_answers(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    profile_id: &str,
+    role_variant_id: Option<&str>,
+) -> DomainResult<Vec<serde_json::Value>> {
+    let facts: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT fact_key, fact_value FROM profile_facts WHERE profile_id = ?1",
+        )
+        .bind(profile_id)
+        .fetch_all(&mut **tx)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+
+    let contact = match role_variant_id {
+        Some(vid) => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT contact_json FROM profile_variants WHERE id = ?1",
+        )
+        .bind(vid)
+        .fetch_optional(&mut **tx)
+        .await
+        .ok()
+        .flatten()
+        .flatten()
+        .and_then(|raw| {
+            serde_json::from_str::<crate::domain::profile_variants::ContactInfo>(&raw).ok()
+        })
+        .unwrap_or_default(),
+        None => crate::domain::profile_variants::ContactInfo::default(),
+    };
+
+    let clean = |s: &str| {
+        let t = s.trim();
+        (!t.is_empty()).then(|| t.to_string())
+    };
+    let fact = |k: &str| facts.get(k).and_then(|v| clean(v));
+
+    let phone = fact("phone").or_else(|| contact.phone.as_deref().and_then(clean));
+    let website = fact("portfolio").or_else(|| contact.website.as_deref().and_then(clean));
+    let email = fact("email").or_else(|| contact.email.as_deref().and_then(clean));
+    let specs: [(&[&str], Option<String>); 9] = [
+        (&["phone", "telefone", "celular", "mobile phone"], phone),
+        (
+            &[
+                "pretensão salarial",
+                "pretensao salarial",
+                "salary expectation",
+                "expected salary",
+                "salary",
+                "remuneração",
+            ],
+            fact("salaryMin"),
+        ),
+        (&["linkedin"], fact("linkedin")),
+        (&["github"], fact("github")),
+        (&["portfolio", "website", "personal website", "site"], website),
+        (&["email address", "e-mail"], email),
+        (
+            &["work authorization", "autorização de trabalho", "elegível para trabalhar"],
+            fact("brazilWorkAuth"),
+        ),
+        (
+            &["visa sponsorship", "patrocínio de visto", "sponsorship"],
+            fact("visaSponsorship"),
+        ),
+        (
+            &["english", "inglês", "english level", "nível de inglês"],
+            fact("englishLevel"),
+        ),
+    ];
+
+    let mut out = Vec::new();
+    for (labels, value) in specs {
+        if let Some(v) = value {
+            for label in labels {
+                out.push(serde_json::json!({ "label": label, "value": v }));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn map_answers(form_answers_json: Option<&str>) -> serde_json::Value {
     let Some(raw) = form_answers_json else {
         return serde_json::json!([]);
@@ -574,7 +621,6 @@ mod tests {
         .unwrap();
         assert_eq!(locks, 1);
 
-        // The enqueued payload must be a valid EasyApplyInput (cross-module contract).
         let payload: String = sqlx::query_scalar(
             "SELECT payload_json FROM automation_tasks WHERE task_type = 'apply_job' AND target_id = ?1",
         )
@@ -630,7 +676,6 @@ mod tests {
     async fn duplicate_url_is_skipped_never_double_applies() {
         let pool = mem_pool().await;
         insert_profile(&pool, "p1").await;
-        // Same canonical URL discovered as two separate job rows.
         insert_job(&pool, "j1", "p1", "https://linkedin.com/jobs/view/7").await;
         insert_job(&pool, "j2", "p1", "https://linkedin.com/jobs/view/7").await;
         insert_draft(&pool, "d1", "j1", "p1").await;
@@ -648,7 +693,6 @@ mod tests {
                 .unwrap();
         assert_eq!(status, "skipped_duplicate_url");
 
-        // Exactly one lock and one apply task — the second submit applied nothing.
         let locks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM application_url_locks")
             .fetch_one(&pool)
             .await
@@ -684,7 +728,6 @@ mod tests {
         let run1 = svc.submit("d1").await.unwrap();
         let run2 = svc.submit("d2").await.unwrap();
 
-        // The lockout is per-profile: both applications proceed.
         for run in [&run1, &run2] {
             let status: String =
                 sqlx::query_scalar("SELECT status FROM application_runs WHERE id = ?1")

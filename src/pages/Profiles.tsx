@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Tick01Icon } from "@hugeicons/core-free-icons";
+import { safeInvoke, invokeStrict } from "../lib/tauriInvoke";
 import { useProfileStore } from "../stores/useProfileStore";
-import { Badge, Button, Field, FormRow, Icon, Input, Select } from "../components/ui";
+import { Badge, Button, Dropdown, Field, FormRow, Icon, Input, Select } from "../components/ui";
 import type { Profile } from "../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -17,9 +18,12 @@ interface ProfileFacts {
   startDate: string;
   relocation: string;
   englishLevel: string;
+  location: string;
+  yearsExperience: string;
 }
 
 interface ProfileLinks {
+  phone: string;
   linkedin: string;
   github: string;
   portfolio: string;
@@ -35,9 +39,39 @@ const BLANK_FACTS: ProfileFacts = {
   startDate: "",
   relocation: "",
   englishLevel: "",
+  location: "",
+  yearsExperience: "",
 };
 
-const BLANK_LINKS: ProfileLinks = { linkedin: "", github: "", portfolio: "" };
+const BLANK_LINKS: ProfileLinks = { phone: "", linkedin: "", github: "", portfolio: "" };
+
+// The Profiles form is one flat key→value store (profile_facts). Facts + links
+// live under the SAME keys the Easy Apply injector reads (see contact_fact_answers).
+type FactMap = Record<string, string>;
+function splitFacts(all: FactMap): { facts: ProfileFacts; links: ProfileLinks } {
+  const g = (k: string, d = "") => all[k] ?? d;
+  return {
+    facts: {
+      salaryMin: g("salaryMin"),
+      salaryCurrency: g("salaryCurrency", "USD"),
+      salaryPeriod: g("salaryPeriod", "Annual"),
+      brazilWorkAuth: g("brazilWorkAuth"),
+      euWorkAuth: g("euWorkAuth"),
+      visaSponsorship: g("visaSponsorship"),
+      startDate: g("startDate"),
+      relocation: g("relocation"),
+      englishLevel: g("englishLevel"),
+      location: g("location"),
+      yearsExperience: g("yearsExperience"),
+    },
+    links: {
+      phone: g("phone"),
+      linkedin: g("linkedin"),
+      github: g("github"),
+      portfolio: g("portfolio"),
+    },
+  };
+}
 // ---------------------------------------------------------------------------
 
 export function Profiles() {
@@ -46,8 +80,22 @@ export function Profiles() {
   const isLoading = useProfileStore((s) => s.isLoading);
   const loadProfiles = useProfileStore((s) => s.loadProfiles);
   const setActive = useProfileStore((s) => s.setActiveProfile);
+  const createProfile = useProfileStore((s) => s.createProfile);
+  const renameProfile = useProfileStore((s) => s.renameProfile);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const id = await createProfile(`Profile ${profiles.length + 1}`);
+      setSelectedId(id);
+    } finally {
+      setCreating(false);
+    }
+  };
 
   useEffect(() => {
     void loadProfiles();
@@ -76,9 +124,27 @@ export function Profiles() {
         <span className="page-subtitle">
           {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
         </span>
+        {profiles.length > 0 && (
+          <Dropdown
+            aria-label="Select profile"
+            title="Profiles"
+            value={selected?.id ?? ""}
+            onChange={(id) => setSelectedId(id)}
+            style={{ minWidth: "16rem" }}
+            options={profiles.map((p) => ({
+              value: p.id,
+              label: p.id === activeProfileId ? `${p.name} (active)` : p.name,
+            }))}
+          />
+        )}
         <div className="toolbar-spacer" />
-        <Button variant="primary" size="sm" disabled>
-          + New Profile
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+        >
+          {creating ? "Creating…" : "+ New Profile"}
         </Button>
       </div>
 
@@ -88,62 +154,16 @@ export function Profiles() {
         </div>
       ) : (
         <div
-          className="two-pane"
           style={{
             flex: 1,
-            borderRadius: 0,
-            border: "none",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
             borderTop: "1px solid var(--color-border)",
           }}
         >
-          {/* ── Profile list ── */}
-          <div className="two-pane__list">
-            <div className="two-pane__list-header">
-              <span
-                style={{
-                  fontSize: "var(--text-2xs)",
-                  fontWeight: "var(--fw-semibold)",
-                  letterSpacing: "0.10em",
-                  textTransform: "uppercase",
-                  color: "var(--color-text-muted)",
-                }}
-              >
-                All Profiles
-              </span>
-            </div>
-
-            {profiles.length === 0 ? (
-              <div className="empty-state">
-                <p className="empty-state__title">No profiles</p>
-                <p className="empty-state__body">Create your first profile to get started.</p>
-              </div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {profiles.map((p) => (
-                  <li
-                    key={p.id}
-                    className={selected?.id === p.id ? "list-item selected" : "list-item"}
-                    onClick={() => setSelectedId(p.id)}
-                    tabIndex={0}
-                    role="button"
-                    aria-pressed={selected?.id === p.id}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") setSelectedId(p.id);
-                    }}
-                  >
-                    <div>
-                      <div className="list-item__name">{p.name}</div>
-                      <div className="list-item__meta">{p.id.slice(0, 8)}</div>
-                    </div>
-                    {p.id === activeProfileId && <Badge variant="success">Active</Badge>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* ── Profile detail ── */}
-          <div className="two-pane__detail">
+          {/* ── Profile detail (full-width; profile picked from the header dropdown) ── */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {selected === null ? (
               <div className="empty-state">
                 <div className="empty-state__label">Select</div>
@@ -160,6 +180,7 @@ export function Profiles() {
                 profile={selected}
                 activeProfileId={activeProfileId}
                 onSetActive={setActive}
+                onRename={renameProfile}
               />
             )}
           </div>
@@ -178,14 +199,35 @@ function ProfileDetail({
   profile,
   activeProfileId,
   onSetActive,
+  onRename,
 }: {
   profile: Profile;
   activeProfileId: string | null;
   onSetActive: (id: string) => void | Promise<void>;
+  onRename: (id: string, name: string) => void | Promise<void>;
 }) {
   const [facts, setFacts] = useState<ProfileFacts>(BLANK_FACTS);
   const [links, setLinks] = useState<ProfileLinks>(BLANK_LINKS);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [name, setName] = useState(profile.name);
+  const [savingName, setSavingName] = useState(false);
+  const [savingFacts, setSavingFacts] = useState(false);
+  const [factsMsg, setFactsMsg] = useState<string | null>(null);
+
+  // Load this profile's saved identity facts + links.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const all = await safeInvoke<FactMap>("get_profile_facts", { profileId: profile.id });
+      if (cancelled) return;
+      const split = splitFacts(all ?? {});
+      setFacts(split.facts);
+      setLinks(split.links);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.id]);
 
   function patchFact<K extends keyof ProfileFacts>(k: K, v: ProfileFacts[K]) {
     setFacts((prev) => ({ ...prev, [k]: v }));
@@ -194,20 +236,56 @@ function ProfileDetail({
     setLinks((prev) => ({ ...prev, [k]: v }));
   }
 
+  async function saveFacts() {
+    if (savingFacts) return;
+    setSavingFacts(true);
+    setFactsMsg(null);
+    try {
+      // One flat map — same keys the Easy Apply injector reads.
+      await invokeStrict("save_profile_facts", {
+        profileId: profile.id,
+        facts: { ...facts, ...links },
+      });
+      setFactsMsg("Saved.");
+    } catch (e) {
+      setFactsMsg(String(e));
+    } finally {
+      setSavingFacts(false);
+    }
+  }
+
   return (
     <>
       {/* ── §1 Identity ── */}
       <div className="section-group">
         <h2 className="section-title">Identity</h2>
         <FormRow>
-          <Field label="Name" htmlFor="prof-name" helper="Editing requires backend connection.">
-            <Input
-              id="prof-name"
-              type="text"
-              defaultValue={profile.name}
-              readOnly
-              aria-readonly="true"
-            />
+          <Field label="Name" htmlFor="prof-name" helper="Rename this profile.">
+            <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+              <Input
+                id="prof-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="sm"
+                disabled={savingName || !name.trim() || name.trim() === profile.name}
+                onClick={() => {
+                  void (async () => {
+                    setSavingName(true);
+                    try {
+                      await onRename(profile.id, name.trim());
+                    } finally {
+                      setSavingName(false);
+                    }
+                  })();
+                }}
+              >
+                {savingName ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </Field>
           <Field label="Profile ID">
             <code
@@ -402,6 +480,29 @@ function ProfileDetail({
           </Field>
         </FormRow>
 
+        {/* Location + experience — fill "current location" and years-of-experience
+            / skill questions during Easy Apply. */}
+        <FormRow cols={3}>
+          <Field label="Location (city)" htmlFor="prof-location">
+            <Input
+              id="prof-location"
+              placeholder="e.g. Rio de Janeiro, Brazil"
+              value={facts.location}
+              onChange={(e) => patchFact("location", e.target.value)}
+            />
+          </Field>
+          <Field label="Years of experience" htmlFor="prof-years">
+            <Input
+              id="prof-years"
+              type="number"
+              min="0"
+              placeholder="e.g. 2"
+              value={facts.yearsExperience}
+              onChange={(e) => patchFact("yearsExperience", e.target.value)}
+            />
+          </Field>
+        </FormRow>
+
         <p
           style={{
             margin: "var(--sp-3) 0 0",
@@ -409,15 +510,28 @@ function ProfileDetail({
             color: "var(--color-text-muted)",
           }}
         >
-          Facts are per-profile and used as answers during form automation. Persisted to backend
-          once connection is wired.
+          Facts are per-profile and used as answers during Easy Apply automation (phone, salary,
+          links fill the form). Click Save below to persist.
         </p>
       </div>
 
       {/* ── §4 Links ── */}
       <div className="section-group">
-        <h2 className="section-title">Links</h2>
+        <h2 className="section-title">Links &amp; Contact</h2>
         <FormRow cols={3}>
+          <Field
+            label="Phone"
+            htmlFor="prof-phone"
+            helper="Used to fill the Easy Apply contact page."
+          >
+            <Input
+              id="prof-phone"
+              type="tel"
+              value={links.phone}
+              onChange={(e) => patchLink("phone", e.target.value)}
+              placeholder="+55 21 91234-5678"
+            />
+          </Field>
           <Field label="LinkedIn" htmlFor="prof-linkedin">
             <Input
               id="prof-linkedin"
@@ -446,6 +560,23 @@ function ProfileDetail({
             />
           </Field>
         </FormRow>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-3)",
+            marginTop: "var(--sp-3)",
+          }}
+        >
+          <Button size="sm" disabled={savingFacts} onClick={() => void saveFacts()}>
+            {savingFacts ? "Saving…" : "Save facts & links"}
+          </Button>
+          {factsMsg && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+              {factsMsg}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ── §5 Browser Session ── */}

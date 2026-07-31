@@ -69,33 +69,50 @@ export function clearCvDocumentCache(): void {
   thumbCache.clear();
 }
 
-// ---- Page-1 thumbnail cache -------------------------------------------------
-
+// ---- Page-1 raster caches ---------------------------------------------------
+// Two independent caches keyed by cvId: the small grid tile and the larger,
+// higher-resolution hover peek. Keeping them separate lets the peek render at a
+// genuinely higher resolution than the tile without either overwriting the other.
 const thumbCache = new Map<string, string>();
 const thumbInflight = new Map<string, Promise<string | null>>();
+const peekCache = new Map<string, string>();
+const peekInflight = new Map<string, Promise<string | null>>();
 
-/** Synchronous cache peek - lets components render instantly on re-mount. */
+/** Synchronous cache read for the grid tile - instant render on re-mount. */
 export function getCachedThumb(cvId: string): string | null {
   return thumbCache.get(cvId) ?? null;
 }
 
-/** Render page 1 to a PNG data URL (deduped + cached). Null when unavailable. */
-export function renderCvThumbnail(
+/** Synchronous read for the hover peek; falls back to the tile so the peek can
+ *  show something the instant the pointer arrives, before the hi-res render lands. */
+export function getCachedPeek(cvId: string): string | null {
+  return peekCache.get(cvId) ?? thumbCache.get(cvId) ?? null;
+}
+
+/** Render page 1 to a PNG data URL at `targetWidth` CSS px (deduped + cached in
+ *  the supplied cache). Null when the document bytes aren't available. */
+function renderPage1(
   cvId: string,
   loader: CvBytesLoader,
-  targetWidth = 240,
+  targetWidth: number,
+  cache: Map<string, string>,
+  inflight: Map<string, Promise<string | null>>,
 ): Promise<string | null> {
-  const cached = thumbCache.get(cvId);
+  const cached = cache.get(cvId);
   if (cached) return Promise.resolve(cached);
-  const inflight = thumbInflight.get(cvId);
-  if (inflight) return inflight;
+  const running = inflight.get(cvId);
+  if (running) return running;
 
   const pending = (async (): Promise<string | null> => {
     const doc = await loadCvDocument(cvId, loader);
     if (!doc) return null;
     const page = await doc.getPage(1);
     const base = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: targetWidth / base.width });
+    // Oversample the backing store (≥2×, rising with DPR) so the image stays
+    // crisp when laid out at its CSS width, including on retina panels.
+    const dpr = Math.max(1, (typeof window !== "undefined" && window.devicePixelRatio) || 1);
+    const oversample = Math.max(2, dpr);
+    const viewport = page.getViewport({ scale: (targetWidth / base.width) * oversample });
 
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
@@ -103,14 +120,40 @@ export function renderCvThumbnail(
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
+    // White ground: PDFs render text without their own background, so on a
+    // transparent canvas the glyphs would sit on nothing and read faint over the
+    // dark card. Paint white first, then draw the page over it.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     await page.render({ canvas, canvasContext: ctx, viewport }).promise;
     const url = canvas.toDataURL("image/png");
-    thumbCache.set(cvId, url);
+    cache.set(cvId, url);
     return url;
   })()
     .catch(() => null)
-    .finally(() => thumbInflight.delete(cvId));
+    .finally(() => inflight.delete(cvId));
 
-  thumbInflight.set(cvId, pending);
+  inflight.set(cvId, pending);
   return pending;
+}
+
+/** Small grid-tile render — sized for the card thumbnail. */
+export function renderCvThumbnail(
+  cvId: string,
+  loader: CvBytesLoader,
+  targetWidth = 520,
+): Promise<string | null> {
+  return renderPage1(cvId, loader, targetWidth, thumbCache, thumbInflight);
+}
+
+/** Dedicated high-resolution render for the enlarged hover peek. Rendered lazily
+ *  (only when the pointer actually reaches a card) so its extra pixels cost
+ *  nothing for CVs the user never hovers. */
+export function renderCvPeek(
+  cvId: string,
+  loader: CvBytesLoader,
+  targetWidth = 760,
+): Promise<string | null> {
+  return renderPage1(cvId, loader, targetWidth, peekCache, peekInflight);
 }

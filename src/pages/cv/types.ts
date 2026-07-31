@@ -61,6 +61,16 @@ export interface CvAnalysisReport {
   createdAt: string;
 }
 
+/** Contact block extracted verbatim from the source CV (mirrors `ai::prompt::CvContact`). */
+export interface CvContact {
+  email: string;
+  phone: string;
+  location: string;
+  linkedin: string;
+  github: string;
+  website: string;
+}
+
 /** One skill group of a rewritten CV: category → comma-separated skills. */
 export interface CvSkillGroup {
   category: string;
@@ -92,6 +102,8 @@ export interface CvEducationEntry {
  */
 export interface CvRewrite {
   name: string;
+  /** Contact details + links (email, phone, LinkedIn, GitHub, portfolio). Absent on old rows. */
+  contact?: CvContact;
   positions: string[];
   summary: string;
   skills: CvSkillGroup[];
@@ -136,6 +148,9 @@ export interface CvRewriteReport {
   rewrite: CvRewrite;
   /** PDF metadata derived from `rewrite`. */
   metadata: CvMetadata;
+  /** Original extracted CV text this rewrite was built from — the "before" of
+   *  the CV Library comparison. Null for rewrites made before this was stored. */
+  sourceText?: string | null;
   /** ISO timestamp the rewrite was persisted. */
   createdAt: string;
 }

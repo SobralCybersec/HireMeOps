@@ -8,21 +8,9 @@ interface ThemeStoreState {
   setReducedEffects: (mode: ReducedEffectsMode) => void;
 }
 
-/** The concrete `[data-theme]` values that have a token block in theme.css. */
-type ResolvedTheme = "dark" | "light" | "red" | "solo-leveling";
-
-/**
- * Map the stored preference to the concrete `[data-theme]` value.
- * Named themes ("dark", "light", "red", "solo-leveling") pass through as-is;
- * only "system" resolves live against the OS color-scheme. color-scheme itself
- * is declared per token block in theme.css (all themes are dark-based except
- * "light"), so nothing to set here beyond the attribute.
- */
-function resolveThemeAttr(theme: ThemeMode): ResolvedTheme {
-  if (theme !== "system") return theme;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
+// Single HUD theme. The app ships one dark-blue command-center palette, so the
+// stored ThemeMode preference is accepted (settings still round-trips it) but
+// always resolves to "dark" — the only token block in theme.css.
 function wantsReducedEffects(mode: ReducedEffectsMode): boolean {
   if (mode === "on") return true;
   if (mode === "off") return false;
@@ -30,8 +18,8 @@ function wantsReducedEffects(mode: ReducedEffectsMode): boolean {
 }
 
 /** Applies [data-theme] + the `.reduced-effects` guard class to <html>. */
-function applyThemeToDocument(theme: ThemeMode, reducedEffects: ReducedEffectsMode): void {
-  document.documentElement.setAttribute("data-theme", resolveThemeAttr(theme));
+function applyThemeToDocument(_theme: ThemeMode, reducedEffects: ReducedEffectsMode): void {
+  document.documentElement.setAttribute("data-theme", "dark");
   document.documentElement.classList.toggle("reduced-effects", wantsReducedEffects(reducedEffects));
 }
 

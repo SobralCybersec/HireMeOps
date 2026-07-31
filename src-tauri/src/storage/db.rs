@@ -1,4 +1,6 @@
 //! SQLite pool creation and migration runner.
+//! Key: `init_pool()` — opens the DB with WAL journaling, foreign keys, busy timeout.
+//! Key: `run_migrations()` — applies all embedded migrations from `src-tauri/migrations/`.
 
 use std::time::Duration;
 
@@ -8,8 +10,6 @@ use sqlx::SqlitePool;
 
 use super::paths::AppPaths;
 
-/// Open (creating if needed) the SQLite database with sane local-first
-/// pragmas: WAL journaling, enforced foreign keys and a busy timeout.
 pub async fn init_pool(paths: &AppPaths) -> Result<SqlitePool> {
     let options = SqliteConnectOptions::new()
         .filename(&paths.db_path)
@@ -28,7 +28,6 @@ pub async fn init_pool(paths: &AppPaths) -> Result<SqlitePool> {
     Ok(pool)
 }
 
-/// Apply all embedded migrations from `src-tauri/migrations/`.
 pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::migrate!("./migrations")
         .run(pool)

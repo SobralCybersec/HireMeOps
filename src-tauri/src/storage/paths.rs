@@ -1,28 +1,21 @@
-//! Application path resolution.
-//!
-//! Supports two layouts:
-//!  * **Portable** — a `portable.txt` marker next to the executable pins all
-//!    state into `./data` beside the binary (USB-stick / no-install use).
-//!  * **Installed** — state lives in the OS-standard per-user app-data dir.
+//! Application path resolution: portable (`./data` beside the executable) vs
+//! installed (OS-standard per-user app-data dir) layouts.
+//! Key: `AppPaths` — resolved data/db/evidence/export/cv_files dirs + portable flag.
+//! Key: `AppPaths::resolve()` — detects portable mode, creates all sub-dirs.
+//! Key: `automation_profile_dir()` — canonical per-profile browser-profile dir shared by all automation flows.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone)]
 pub struct AppPaths {
-    /// Root directory holding the DB, evidence, exports and backups.
     pub data_dir: PathBuf,
-    /// Absolute path to the SQLite database file.
     pub db_path: PathBuf,
-    /// Sub-directory for automation evidence (screenshots, HTML snapshots).
     pub evidence_dir: PathBuf,
-    /// Sub-directory for exports and backups.
     pub export_dir: PathBuf,
-    /// Sub-directory holding imported CV files (per-profile sub-dirs created lazily).
     pub cv_files_dir: PathBuf,
-    /// Whether the app is running in portable mode.
     pub portable: bool,
 }
 
@@ -63,5 +56,26 @@ impl AppPaths {
             cv_files_dir,
             portable,
         })
+    }
+}
+
+#[cfg_attr(not(feature = "real-browser"), allow(dead_code))]
+pub fn automation_profile_dir(data_dir: &Path, profile_id: &str) -> PathBuf {
+    data_dir.join("profiles").join(profile_id).join("browser")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automation_profile_dir_same_inputs_same_output() {
+        let root = PathBuf::from("/data");
+        let a = automation_profile_dir(&root, "profile-1");
+        let b = automation_profile_dir(&root, "profile-1");
+        let c = automation_profile_dir(&root, "profile-2");
+        assert_eq!(a, b, "same inputs must produce identical paths");
+        assert_ne!(a, c, "different profile_ids must produce different paths");
+        assert_eq!(a, PathBuf::from("/data/profiles/profile-1/browser"));
     }
 }

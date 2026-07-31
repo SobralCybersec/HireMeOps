@@ -1,12 +1,9 @@
 //! Human-readable rationale for a match score.
 //!
-//! Turns a [`MatchScore`](super::scorer::MatchScore) into a compact,
-//! deterministic sentence the UI can show without any AI round-trip. Phase 4
-//! may overwrite `explanation` with a richer model-authored version.
+//! Key: build_explanation — turns a MatchScore into a deterministic sentence, no AI round-trip needed
 
 use super::scorer::{MatchScore, Recommendation};
 
-/// Build a one-paragraph explanation of why a job scored the way it did.
 pub fn build_explanation(s: &MatchScore) -> String {
     let verdict = match s.recommendation {
         Recommendation::AutoApply => "Strong match — eligible for auto-apply",
@@ -15,7 +12,6 @@ pub fn build_explanation(s: &MatchScore) -> String {
         Recommendation::SaveForLater => "Weak match — saved for later",
     };
 
-    // Order sub-scores best→worst so the strongest reasons lead.
     let mut factors: Vec<(&str, u8)> = vec![
         ("role", s.role_score),
         ("skills", s.skill_score),
@@ -89,7 +85,6 @@ mod tests {
     #[test]
     fn orders_factors_best_first() {
         let e = build_explanation(&score());
-        // salary (40) is weakest, so it must come last in the breakdown list.
         let breakdown = e.split("Breakdown: ").nth(1).unwrap();
         let salary_pos = breakdown.find("salary").unwrap();
         let role_pos = breakdown.find("role").unwrap();

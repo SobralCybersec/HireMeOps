@@ -1,4 +1,6 @@
 //! Canonical URL normalization for job deduplication and URL locking.
+//! Key: `canonicalize()` — lowercases scheme+host, strips tracking params, drops fragment, sorts query.
+//! Key: `TRACKING_EXACT` / `is_tracking()` — non-`utm_` tracking-param denylist.
 
 const TRACKING_EXACT: &[&str] = &[
     "gclid",
@@ -41,26 +43,19 @@ fn lowercase_scheme_host(s: &str) -> String {
     }
 }
 
-/// Normalize a job URL for deduplication and locking:
-/// lowercase scheme+host, strip tracking params, drop fragment,
-/// remove trailing slash, sort remaining query params.
 pub fn canonicalize(url: &str) -> String {
-    // 1. Drop fragment.
     let no_frag = url.split_once('#').map(|(l, _)| l).unwrap_or(url);
 
-    // 2. Split path vs query.
     let (path_raw, query_opt) = match no_frag.split_once('?') {
         Some((p, q)) => (p, Some(q)),
         None => (no_frag, None),
     };
 
-    // 3. Lowercase scheme+host, strip trailing slash.
     let mut canon = lowercase_scheme_host(path_raw);
     if canon.len() > 1 && canon.ends_with('/') {
         canon.pop();
     }
 
-    // 4. Filter tracking params, sort the rest.
     let query = match query_opt {
         None | Some("") => String::new(),
         Some(q) => {

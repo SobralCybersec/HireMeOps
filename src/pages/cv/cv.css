@@ -633,12 +633,16 @@
   gap: var(--sp-1);
 }
 
-/* Model summary paragraph inside the Summary card. */
+/* Model summary paragraph inside the Summary card. Long unbroken tokens (URLs,
+ * IDs) must wrap instead of forcing the card wider than its column. */
 .cvx-summary-text {
   margin: 0;
+  min-width: 0;
   font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--color-text-2);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Muted fallback shown in a detail card when its list is empty, so the card
@@ -707,4 +711,152 @@
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--color-text-muted);
+}
+
+/* ---- Inspector: extra-info + rewrite actions ------------------- */
+.cvx-inspector__extra {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+}
+.cvx-inspector__extra-label {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--color-text-muted);
+}
+.cvx-inspector__rewrite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* ---- Before/after comparison overlay -------------------------- */
+.cvx-compare {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+.cvx-compare__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.cvx-compare__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+.cvx-compare__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--color-border);
+}
+@media (max-width: 760px) {
+  .cvx-compare__body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}
+.cvx-compare__col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-bg);
+}
+.cvx-compare__col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: var(--text-xs);
+  color: var(--color-text-2);
+  flex-shrink: 0;
+}
+.cvx-compare__source {
+  margin: 0;
+  padding: var(--sp-4);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-2);
+}
+.cvx-compare__after {
+  padding: var(--sp-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.cvx-compare__block h4 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--color-accent-text);
+}
+.cvx-compare__block p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text-2);
+}
+.cvx-compare__block ul {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.cvx-compare__block li {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+.cvx-compare__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.cvx-compare__entry:first-of-type {
+  border-top: none;
+}
+.cvx-compare__entry strong {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+.cvx-compare__meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Magnifier loupe (in the expanded viewer) ------------------ */
+.cvx-viewer-loupe {
+  position: fixed;
+  z-index: var(--z-modal);
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  box-shadow:
+    var(--shadow-3),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.55);
+  background-color: #ffffff;
+  pointer-events: none;
 }

@@ -1,26 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { useThemeStore } from "../stores/useThemeStore";
-import { useEventStore } from "../stores/useEventStore";
 import {
   Button,
-  DataTable,
-  EmptyState,
   Field,
   FormRow,
   Icon,
   Input,
-  KpiCard,
   RadioGroup,
   Select,
   Switch,
   Toolbar,
   ToolbarSep,
 } from "../components/ui";
-import type { Column } from "../components/ui";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
-import type { ThemeMode, ReducedEffectsMode, AiProviderSettings } from "../types/settings";
-import type { AppEvent } from "../types/events";
+import type { ReducedEffectsMode, AiProviderSettings } from "../types/settings";
 import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import { AiProviderForm } from "./settings/AiProviderForm";
 import { ProviderIcon } from "./settings/ProviderIcon";
@@ -29,18 +23,27 @@ import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import { DataCleanupPanel } from "./settings/DataCleanupPanel";
 import { BrowserExtensionsPanel } from "./settings/BrowserExtensionsPanel";
 
+// Automations that open a browser session, each with a stable task key (matches
+// the Rust command layer) and a per-flow default. `defaultHeadless` overrides
+// the global toggle as the baseline: Catho fill defaults to visible for login.
+const HEADLESS_TASKS: { key: string; label: string; defaultHeadless?: boolean }[] = [
+  { key: "linkedin_search", label: "LinkedIn job search" },
+  { key: "google_search", label: "Web / board search" },
+  { key: "linkedin_posts", label: "LinkedIn posts search" },
+  { key: "linkedin_push", label: "LinkedIn profile sync" },
+  { key: "linkedin_connect", label: "LinkedIn auto-connect" },
+  { key: "job_apply", label: "Job apply (Easy Apply)" },
+  { key: "catho_search", label: "Catho job search (hidden window when on)" },
+  { key: "infojobs_search", label: "InfoJobs job search" },
+  { key: "infojobs_apply", label: "InfoJobs — apply to job", defaultHeadless: false },
+  { key: "gupy_search", label: "Gupy job search" },
+  { key: "catho_apply", label: "Catho — apply to job", defaultHeadless: false },
+  { key: "catho_fill", label: "Catho resume fill", defaultHeadless: false },
+  { key: "gmail_send", label: "Gmail — send application" },
+];
+
 // ── Tab catalogue ──────────────────────────────────────────────────────────
-type Tab =
-  | "general"
-  | "theme"
-  | "ai"
-  | "browser"
-  | "data"
-  | "exports"
-  | "backups"
-  | "cleanup"
-  | "auditlogs"
-  | "evidence";
+type Tab = "general" | "effects" | "ai" | "browser" | "data" | "exports" | "backups" | "cleanup";
 
 interface TabGroup {
   label: string;
@@ -52,7 +55,7 @@ const TAB_GROUPS: TabGroup[] = [
     label: "Preferences",
     tabs: [
       { key: "general", label: "General" },
-      { key: "theme", label: "Theme & Effects" },
+      { key: "effects", label: "Motion" },
     ],
   },
   {
@@ -71,70 +74,15 @@ const TAB_GROUPS: TabGroup[] = [
       { key: "cleanup", label: "Cleanup" },
     ],
   },
-  {
-    label: "Diagnostics",
-    tabs: [
-      { key: "auditlogs", label: "Audit Logs" },
-      { key: "evidence", label: "Evidence" },
-    ],
-  },
 ];
 
 // Flat list for keyboard nav index calculations
 const TABS = TAB_GROUPS.flatMap((g) => g.tabs);
 
-// ── Theme option tables ────────────────────────────────────────────────────
-const THEME_OPTS: { value: string; label: string }[] = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-  { value: "system", label: "System (follow OS)" },
-  { value: "red", label: "Crimson - dark with red accent" },
-  { value: "solo-leveling", label: "Solo Leveling - anime system UI" },
-];
-
 const REDUCED_OPTS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto - follow OS prefers-reduced-motion" },
   { value: "off", label: "Off - allow all transitions" },
   { value: "on", label: "On - disable all transitions" },
-];
-
-// ── Audit log columns (DataTable) ─────────────────────────────────────────
-const AUDIT_COLUMNS: Column<AppEvent>[] = [
-  {
-    key: "createdAt",
-    header: "Time",
-    width: "8rem",
-    mono: true,
-    render: (e) => <time dateTime={e.createdAt}>{new Date(e.createdAt).toLocaleTimeString()}</time>,
-  },
-  {
-    key: "type",
-    header: "Event type",
-    primary: true,
-    render: (e) => e.type,
-  },
-  {
-    key: "profileId",
-    header: "Profile",
-    width: "5rem",
-    mono: true,
-    render: (e) => (
-      <span style={{ color: "var(--color-text-muted)", fontSize: "var(--text-xs)" }}>
-        {e.profileId ? e.profileId.slice(0, 6) : "-"}
-      </span>
-    ),
-  },
-  {
-    key: "id",
-    header: "ID",
-    width: "6rem",
-    mono: true,
-    render: (e) => (
-      <span style={{ color: "var(--color-text-muted)", fontSize: "var(--text-xs)" }}>
-        {e.id.slice(0, 8)}
-      </span>
-    ),
-  },
 ];
 
 // ── AI provider helpers ────────────────────────────────────────────────────
@@ -209,14 +157,9 @@ export function SettingsLogs() {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  // Theme store
-  const theme = useThemeStore((s) => s.theme);
+  // Theme store — single HUD theme; only motion preference is user-facing.
   const reducedEffects = useThemeStore((s) => s.reducedEffects);
-  const setTheme = useThemeStore((s) => s.setTheme);
   const setReducedEffects = useThemeStore((s) => s.setReducedEffects);
-
-  // Event store (audit log)
-  const events = useEventStore((s) => s.events);
 
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [exportingKey, setExportingKey] = useState<string | null>(null);
@@ -340,7 +283,7 @@ export function SettingsLogs() {
           flexShrink: 0,
         }}
       >
-        <h1 className="page-title">Settings &amp; Logs</h1>
+        <h1 className="page-title">Settings</h1>
       </div>
 
       {/* ── Settings layout ─────────────────────────────────────────────── */}
@@ -490,44 +433,31 @@ export function SettingsLogs() {
                 </div>
               )}
 
-              {/* ════ THEME & EFFECTS ════════════════════════════════════ */}
-              {activeTab === "theme" && (
-                <>
-                  <div className="section-group">
-                    <h2 className="section-title">Color theme</h2>
-                    <RadioGroup
-                      name="theme-mode"
-                      value={theme}
-                      options={THEME_OPTS}
-                      onChange={(v) => setTheme(v as ThemeMode)}
-                      label="Color theme"
-                    />
-                  </div>
-
-                  <div className="section-group">
-                    <h2 className="section-title">Motion and effects</h2>
-                    <RadioGroup
-                      name="reduced-effects"
-                      value={reducedEffects}
-                      options={REDUCED_OPTS}
-                      onChange={(v) => setReducedEffects(v as ReducedEffectsMode)}
-                      label="Motion and effects"
-                    />
-                    <p
-                      style={{
-                        margin: 0,
-                        marginTop: "var(--sp-3)",
-                        fontSize: "var(--text-xs)",
-                        color: "var(--color-text-muted)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      When enabled, adds <code className="code">reduced-effects</code> to{" "}
-                      <code className="code">&lt;html&gt;</code>, suppressing all CSS transitions
-                      and animations project-wide.
-                    </p>
-                  </div>
-                </>
+              {/* ════ MOTION ═════════════════════════════════════════════ */}
+              {activeTab === "effects" && (
+                <div className="section-group">
+                  <h2 className="section-title">Motion and effects</h2>
+                  <RadioGroup
+                    name="reduced-effects"
+                    value={reducedEffects}
+                    options={REDUCED_OPTS}
+                    onChange={(v) => setReducedEffects(v as ReducedEffectsMode)}
+                    label="Motion and effects"
+                  />
+                  <p
+                    style={{
+                      margin: 0,
+                      marginTop: "var(--sp-3)",
+                      fontSize: "var(--text-xs)",
+                      color: "var(--color-text-muted)",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    When enabled, adds <code className="code">reduced-effects</code> to{" "}
+                    <code className="code">&lt;html&gt;</code>, suppressing all CSS transitions and
+                    animations project-wide. HireMeOps ships one dark-blue HUD theme.
+                  </p>
+                </div>
               )}
 
               {/* ════ AI PROVIDERS ═══════════════════════════════════════ */}
@@ -658,6 +588,84 @@ export function SettingsLogs() {
                   </div>
 
                   <div style={{ marginTop: "var(--sp-4)" }}>
+                    <h2 className="section-title">Automation</h2>
+                    <Switch
+                      checked={settings?.automationHeadless ?? true}
+                      onChange={(checked) => void updateSettings({ automationHeadless: checked })}
+                    >
+                      Headless automation — hide browser windows while automating
+                    </Switch>
+                    <p
+                      style={{
+                        margin: 0,
+                        marginTop: "var(--sp-2)",
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-text-muted)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      When off, browser windows are visible during automation runs. The manual
+                      LinkedIn login window always opens visible regardless of this setting.
+                    </p>
+
+                    <p
+                      style={{
+                        margin: 0,
+                        marginTop: "var(--sp-4)",
+                        marginBottom: "var(--sp-2)",
+                        fontSize: "var(--text-xs)",
+                        fontWeight: "var(--fw-semibold)",
+                        color: "var(--color-text-2)",
+                      }}
+                    >
+                      Per automation — override the setting above for individual tasks
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+                      {HEADLESS_TASKS.map((task) => {
+                        const overrides = settings?.automationHeadlessOverrides ?? {};
+                        const fallback = task.defaultHeadless ?? settings?.automationHeadless ?? true;
+                        const checked = overrides[task.key] ?? fallback;
+                        return (
+                          <Switch
+                            key={task.key}
+                            checked={checked}
+                            onChange={(value) =>
+                              void updateSettings({
+                                automationHeadlessOverrides: { ...overrides, [task.key]: value },
+                              })
+                            }
+                          >
+                            {task.label}
+                          </Switch>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "var(--sp-4)" }}>
+                    <h2 className="section-title">AI Provider</h2>
+                    <Switch
+                      checked={settings?.aiAutoInit ?? true}
+                      onChange={(checked) => void updateSettings({ aiAutoInit: checked })}
+                    >
+                      Auto-start AI provider on launch (headless)
+                    </Switch>
+                    <p
+                      style={{
+                        margin: 0,
+                        marginTop: "var(--sp-2)",
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-text-muted)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      When on, the ChatGPT browser session is warmed up silently at startup so
+                      the first AI completion has no cold-start delay. Disable if you prefer the
+                      browser to launch only when explicitly triggered.
+                    </p>
+                  </div>
+
+                  <div style={{ marginTop: "var(--sp-4)" }}>
                     <h2 className="section-title">Extensions</h2>
                     <BrowserExtensionsPanel />
                   </div>
@@ -668,13 +676,6 @@ export function SettingsLogs() {
               {activeTab === "data" && (
                 <div className="section-group">
                   <h2 className="section-title">Data Storage</h2>
-
-                  <div className="stat-grid" style={{ marginBottom: "var(--sp-4)" }}>
-                    <KpiCard label="Profiles" value="-" meta="backend not connected" />
-                    <KpiCard label="Jobs" value="-" meta="backend not connected" />
-                    <KpiCard label="Applications" value="-" meta="backend not connected" />
-                    <KpiCard label="DB size" value="-" meta="backend not connected" />
-                  </div>
 
                   <Field label="Database path">
                     <code
@@ -689,12 +690,6 @@ export function SettingsLogs() {
                       {settings?.databasePath || "-"}
                     </code>
                   </Field>
-
-                  <div style={{ marginTop: "var(--sp-3)" }}>
-                    <Button variant="ghost" disabled>
-                      Open data folder
-                    </Button>
-                  </div>
                 </div>
               )}
 
@@ -843,51 +838,6 @@ export function SettingsLogs() {
                   </div>
 
                   <DataCleanupPanel />
-                </div>
-              )}
-
-              {/* ════ AUDIT LOGS ═════════════════════════════════════════ */}
-              {activeTab === "auditlogs" && (
-                <div className="section-group">
-                  <h2 className="section-title">
-                    Audit Logs
-                    <span
-                      style={{
-                        marginLeft: "var(--sp-2)",
-                        fontSize: "var(--text-xs)",
-                        fontWeight: "var(--fw-regular)",
-                        fontFamily: "var(--font-mono)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
-                      {events.length} session events
-                    </span>
-                  </h2>
-
-                  <DataTable
-                    columns={AUDIT_COLUMNS}
-                    rows={events}
-                    getRowKey={(e) => e.id}
-                    empty={
-                      <EmptyState
-                        label="Audit logs"
-                        title="No events this session"
-                        body="Events are written here as automation runs, job searches, and CV analysis complete. Persistent logs (30-day retention) are stored in the database."
-                      />
-                    }
-                  />
-                </div>
-              )}
-
-              {/* ════ EVIDENCE ═══════════════════════════════════════════ */}
-              {activeTab === "evidence" && (
-                <div className="section-group">
-                  <h2 className="section-title">Automation Evidence</h2>
-                  <EmptyState
-                    label="Evidence"
-                    title="No evidence files"
-                    body="Screenshots, DOM snapshots, and form-fill evidence are stored here during automation runs. Evidence retention defaults to 1 day. Configure in Cleanup."
-                  />
                 </div>
               )}
             </>

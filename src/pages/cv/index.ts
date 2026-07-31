@@ -9,6 +9,7 @@ export { defaultCvBytesLoader, PROPOSED_CV_BYTES_COMMAND } from "./pdf";
 export { loadCvLibrary, importCvDocument } from "./library";
 export { loadCvAnalysisReports, runCvAnalysis } from "./analysis";
 export { loadCvRewrites, runCvRewrite, exportCvRewrite, saveCvRewritePdf } from "./rewrite";
+export { renderInlineBold } from "./markdown";
 export type { CvExportMode } from "./rewrite";
 export type {
   CvAnalysisReport,

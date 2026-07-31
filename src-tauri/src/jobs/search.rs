@@ -1,5 +1,8 @@
-//! Search query builder — produce query strings from job-preference inputs.
-//! The browser adapter that actually runs the search is out of scope here.
+//! Search query builder: produces query strings from job-preference inputs.
+//! Key: `SearchQueryInput` / `BuiltQuery` — the input DTO and one built query.
+//! Key: `build_linkedin_query()` — boolean title/skill/remote/seniority query.
+//! Key: `build_google_dork()` — multi-board `site:` dork with a last-30-days `after:` filter.
+//! Key: `build_queries()` — fans an input into LinkedIn + Google + hiring-posts queries.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +26,6 @@ pub struct BuiltQuery {
     pub query_string: String,
 }
 
-/// LinkedIn keyword search: `("Title A" OR "Title B") ("Skill1" OR "Skill2") remote`
 pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
     let mut parts: Vec<String> = Vec::new();
 
@@ -86,9 +88,8 @@ pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
     }
 }
 
-/// Google dork: `(site:linkedin.com/jobs OR site:greenhouse.io) intitle:"Title" Skill1 remote`
 pub fn build_google_dork(input: &SearchQueryInput) -> BuiltQuery {
-    let sites = "(site:linkedin.com/jobs OR site:greenhouse.io OR site:lever.co OR site:boards.greenhouse.io)";
+    let sites = "(site:inhire.app inurl:vagas OR site:linkedin.com/jobs OR site:br.indeed.com OR site:indeed.com OR site:catho.com.br OR site:vagas.com.br OR site:gupy.io OR site:glassdoor.com.br OR site:infojobs.com.br OR site:greenhouse.io OR site:boards.greenhouse.io OR site:jobs.lever.co OR site:jobs.ashbyhq.com OR site:programathor.com.br/jobs OR site:coodesh.com OR site:trampos.co OR site:remotar.com.br OR site:weworkremotely.com/remote-jobs OR site:remotive.com/remote-jobs)";
     let mut parts = vec![sites.to_owned()];
 
     if let Some(title) = input.titles.first() {
@@ -114,6 +115,14 @@ pub fn build_google_dork(input: &SearchQueryInput) -> BuiltQuery {
         }
     }
 
+    let cutoff = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).date();
+    parts.push(format!(
+        "after:{:04}-{:02}-{:02}",
+        cutoff.year(),
+        u8::from(cutoff.month()),
+        cutoff.day()
+    ));
+
     BuiltQuery {
         platform: "google".into(),
         query_type: "google_dork".into(),
@@ -121,9 +130,27 @@ pub fn build_google_dork(input: &SearchQueryInput) -> BuiltQuery {
     }
 }
 
-/// Build all relevant queries for the given input.
+pub fn build_hiring_posts_query(input: &SearchQueryInput) -> BuiltQuery {
+    let mut terms: Vec<&str> = Vec::new();
+    for t in &input.titles {
+        terms.push(t);
+    }
+    for s in input.required_skills.iter().take(6) {
+        terms.push(s);
+    }
+    BuiltQuery {
+        platform: "linkedin_post".into(),
+        query_type: "linkedin_search".into(),
+        query_string: terms.join(", "),
+    }
+}
+
 pub fn build_queries(input: &SearchQueryInput) -> Vec<BuiltQuery> {
-    vec![build_linkedin_query(input), build_google_dork(input)]
+    vec![
+        build_linkedin_query(input),
+        build_google_dork(input),
+        build_hiring_posts_query(input),
+    ]
 }
 
 #[cfg(test)]
@@ -195,8 +222,30 @@ mod tests {
     }
 
     #[test]
-    fn build_queries_returns_two() {
-        assert_eq!(build_queries(&sample()).len(), 2);
+    fn google_dork_includes_inhire_and_recent_filter() {
+        let q = build_google_dork(&sample()).query_string;
+        assert!(q.contains("site:inhire.app inurl:vagas"), "{q}");
+        assert!(q.contains("site:programathor.com.br/jobs"), "{q}");
+        assert!(q.contains("site:weworkremotely.com/remote-jobs"), "{q}");
+        assert!(q.contains("after:"), "{q}");
+        let after = q.split("after:").nth(1).unwrap().split_whitespace().next().unwrap();
+        assert_eq!(after.len(), 10, "after date should be YYYY-MM-DD: {after}");
+        assert_eq!(after.matches('-').count(), 2, "{after}");
+    }
+
+    #[test]
+    fn build_queries_returns_three() {
+        assert_eq!(build_queries(&sample()).len(), 3);
+    }
+
+    #[test]
+    fn hiring_posts_query_contains_title_and_marker() {
+        let q = build_hiring_posts_query(&sample());
+        assert!(
+            q.query_string.contains("Senior Rust Engineer"),
+            "{}",
+            q.query_string
+        );
     }
 
     #[test]
@@ -210,7 +259,6 @@ mod tests {
             remote_mode: None,
             seniority: vec![],
         };
-        // must not panic
         let _ = build_queries(&input);
     }
 
@@ -225,7 +273,7 @@ mod tests {
 
     #[test]
     fn linkedin_no_not_exclusion_for_senior() {
-        let q = build_linkedin_query(&sample()); // sample has seniority: ["senior"]
+        let q = build_linkedin_query(&sample());
         assert!(!q.query_string.contains("NOT"), "{}", q.query_string);
     }
 
@@ -237,7 +285,7 @@ mod tests {
 
     #[test]
     fn linkedin_no_location_in_keywords() {
-        let q = build_linkedin_query(&sample()); // sample has location: Some("Berlin")
+        let q = build_linkedin_query(&sample());
         assert!(!q.query_string.contains("Berlin"), "{}", q.query_string);
     }
 
@@ -246,7 +294,11 @@ mod tests {
         let mut input = sample();
         input.required_skills = vec!["Spring Boot".into(), "Java".into()];
         let q = build_linkedin_query(&input);
-        assert!(q.query_string.contains("\"Spring Boot\""), "{}", q.query_string);
+        assert!(
+            q.query_string.contains("\"Spring Boot\""),
+            "{}",
+            q.query_string
+        );
         assert!(!q.query_string.contains("\"Java\""), "{}", q.query_string);
         assert!(q.query_string.contains("Java"), "{}", q.query_string);
     }

@@ -1,13 +1,6 @@
-//! Domain layer — service traits and module skeleton (Phase 1).
-//!
-//! Each submodule owns one feature area. Phase 1 defines the trait contracts
-//! and DTO shapes only; concrete implementations land in later phases. Keeping
-//! the traits here lets commands and the automation supervisor depend on
-//! abstractions rather than concrete engines (e.g. swap AI providers or the
-//! browser backend without touching callers).
-//!
-//! Phase 1 ships trait + stub definitions that are not yet wired into any
-//! caller, so intentional dead-code is allowed crate-wide for this module tree.
+//! Domain layer: service trait contracts and DTO shapes, one submodule per feature area.
+//! Key: DomainError — shared error type for domain services
+//! Key: DomainResult<T> — Result<T, DomainError> alias used across all domain services
 #![allow(dead_code)]
 
 pub mod ai;
@@ -21,7 +14,6 @@ pub mod profile_variants;
 
 use thiserror::Error;
 
-/// Shared error type for domain services.
 #[derive(Debug, Error)]
 pub enum DomainError {
     #[error("not implemented: {0}")]

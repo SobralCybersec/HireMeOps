@@ -10,6 +10,7 @@ pub mod events;
 pub mod exports;
 pub mod jobs;
 pub mod preview;
+pub mod setup;
 pub mod profile_variants;
 pub mod profiles;
 pub mod settings;

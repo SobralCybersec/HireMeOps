@@ -6,15 +6,11 @@
 import {
   DashboardBrowsingIcon,
   UserGroupIcon,
-  Layers01Icon,
   Book02Icon,
   Analytics01Icon,
-  FilterIcon,
   Search01Icon,
   InboxIcon,
-  BotIcon,
   Settings01Icon,
-  Idea01Icon,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 
@@ -32,13 +28,12 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ to: "/", label: "Field Desk", icon: DashboardBrowsingIcon }],
+    items: [{ to: "/", label: "Command Center", icon: DashboardBrowsingIcon }],
   },
   {
     label: "Identity",
     items: [
       { to: "/profiles", label: "Profiles", icon: UserGroupIcon },
-      { to: "/profile-variants", label: "Variants", icon: Layers01Icon },
       { to: "/cv-library", label: "CV Library", icon: Book02Icon },
       { to: "/cv-analysis", label: "CV Analysis", icon: Analytics01Icon },
     ],
@@ -46,39 +41,30 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Search",
     items: [
-      { to: "/job-preferences", label: "Preferences", icon: FilterIcon },
       { to: "/job-search", label: "Job Search", icon: Search01Icon },
     ],
   },
   {
     label: "Pipeline",
-    items: [
-      { to: "/applications", label: "Applications", icon: InboxIcon },
-      { to: "/automation", label: "Automation", icon: BotIcon },
-    ],
+    items: [{ to: "/applications", label: "Applications", icon: InboxIcon }],
   },
   {
     label: "System",
     items: [
       { to: "/settings", label: "Settings", icon: Settings01Icon },
-      { to: "/tutorial", label: "Tutorial", icon: Idea01Icon },
     ],
   },
 ];
 
 // Longer, page-header-friendly titles keyed by pathname.
 export const ROUTE_TITLES: Record<string, string> = {
-  "/": "Application Field Desk",
-  "/profiles": "Profiles",
-  "/profile-variants": "Profile Variants",
+  "/": "Command Center",
+  "/profiles": "Profiles & Variants",
   "/cv-library": "CV Library",
   "/cv-analysis": "CV Analysis",
-  "/job-preferences": "Job Preferences",
   "/job-search": "Job Search",
   "/applications": "Applications Queue",
-  "/automation": "Automation Cockpit",
-  "/settings": "Settings & Logs",
-  "/tutorial": "Tutorial",
+  "/settings": "Settings",
 };
 
 export function routeTitle(pathname: string): string {

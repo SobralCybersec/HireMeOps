@@ -1,17 +1,21 @@
-//! Browser automation supervisor (Phase 5).
+//! Browser automation supervisor: drives `automation_tasks` through a real
+//! browser via `BrowserDriver`, pausing for human review at captcha walls
+//! and before the final submit. Never solves captchas or auto-submits forms.
 //!
-//! Owns `browser_sessions`, captures `automation_evidence`, and pauses for
-//! human intervention on captcha/anti-bot walls and before the final submit
-//! (assist-and-pause). The supervisor subscribes to an emergency-stop latch so
-//! an in-flight task can be aborted immediately.
-//!
-//! # Non-negotiable safety rule
-//! This code **never** attempts to solve, bypass, or defeat a captcha or
-//! anti-bot wall. When one is detected it captures evidence, marks the session
-//! `paused_captcha`, leaves the browser open, and hands control to the human.
-//! Likewise, a filled LinkedIn "Easy Apply" form is **never** submitted
-//! automatically — the flow stops at `pending_review` for the user to confirm.
+//! Key: BrowserSupervisor::run_task — loads the task row, opens the browser
+//!   session, and hands off to `drive`.
+//! Key: BrowserSupervisor::drive — the step machine: navigate, probe, and
+//!   either pause (captcha/review), complete, or abort.
+//! Key: BrowserDriver — the mockable seam over the Playwright/Chromium
+//!   sidecar; `MockDriver`/`HrMockDriver` substitute it in tests.
+//! Key: EasyApplyInput / ApplyForm handling in `drive` — fills the Easy
+//!   Apply form but always parks at `pending_review`, never auto-submits.
+//! Key: generate_form_answers — drafts answers for blank Easy Apply
+//!   questions from saved facts + the CV via AI.
+//! Key: run_automation_queue — drains queued `apply_job` tasks through the
+//!   supervisor, emitting cockpit state as it goes.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,48 +25,31 @@ use sqlx::SqlitePool;
 use super::{DomainError, DomainResult};
 use crate::util::{new_id, now_iso};
 
-/// Supervisor lifecycle state, surfaced to the UI status indicator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutomationStatus {
     Idle,
     Running,
-    /// Stopped at a captcha/anti-bot wall — waiting for the human. Never bypassed.
     PausedForCaptcha,
-    /// A form is filled and waiting for the user to confirm the final submit.
     PausedForReview,
     Stopped,
 }
 
-/// Terminal outcome of running a single automation task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskOutcome {
-    /// Reached a terminal, non-submit end (e.g. a read/navigate task).
     Completed,
-    /// Hit a captcha/anti-bot wall — paused, evidence captured, never solved.
     PausedForCaptcha,
-    /// Form filled and sitting at the submit button — paused for user review.
     PausedForReview,
-    /// Aborted by the emergency-stop latch.
     Aborted,
 }
 
-/// What the driver reports about the current page after acting on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageState {
-    /// A captcha or anti-bot challenge is present. The driver MUST NOT solve it.
     CaptchaWall,
-    /// An Easy-Apply form is present and fillable.
     ApplyForm,
-    /// Nothing left to do on this page.
     NoAction,
-    /// LinkedIn returned the "exceeded the daily Easy Apply limit" feedback.
-    /// The entire run must stop — retrying will keep hitting the same wall.
     DailyLimitReached,
 }
 
-/// The kinds of evidence persisted to `automation_evidence`.
-///
-/// Mirrors the `evidence_type` CHECK constraint in the schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceKind {
     Screenshot,
@@ -84,48 +71,40 @@ impl EvidenceKind {
     }
 }
 
-/// How to open a browser session for a profile.
 #[derive(Debug, Clone)]
 pub struct SessionSpec {
     pub profile_id: String,
     pub platform: String,
     pub user_data_dir: String,
-    /// Filesystem paths to unpacked Chrome extensions to side-load. Empty by
-    /// default; populated from `AppSettings.browser_extensions`.
     pub extensions: Vec<String>,
+    pub headless: bool,
 }
 
-/// One answer to a form question, produced upstream by the application draft.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnswerField {
     pub label: String,
     pub value: String,
 }
 
-/// The payload of an `apply_job` automation task (stored as `payload_json`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EasyApplyInput {
-    /// Job posting / apply URL to drive.
     pub url: String,
     #[serde(default = "default_platform")]
     pub platform: String,
-    /// Persistent per-profile browser data dir; derived if omitted.
     #[serde(default)]
     pub user_data_dir: Option<String>,
     #[serde(default)]
     pub cover_letter: Option<String>,
     #[serde(default)]
+    pub cv_path: Option<String>,
+    #[serde(default)]
     pub answers: Vec<AnswerField>,
-    /// Hiring-manager name scraped from the job page (filled in by `drive`).
     #[serde(default)]
     pub hr_name: Option<String>,
-    /// Hiring-manager LinkedIn profile URL scraped from the job page (filled in by `drive`).
     #[serde(default)]
     pub hr_link: Option<String>,
-    /// Runtime-only: the automation task row id. Not stored in payload_json.
     #[serde(default, skip_serializing)]
     pub task_id: Option<String>,
-    /// Runtime-only: the browser_sessions row id. Not stored in payload_json.
     #[serde(default, skip_serializing)]
     pub session_id: Option<String>,
 }
@@ -134,29 +113,25 @@ fn default_platform() -> String {
     "linkedin".to_string()
 }
 
-/// Input for a LinkedIn job search scrape (one page).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchJobsInput {
     pub keywords: String,
     #[serde(default)]
     pub location: String,
-    /// Zero-based page index (25 results per page on LinkedIn).
     #[serde(default)]
     pub page_index: u32,
-    /// If true, only Easy Apply jobs are returned (LinkedIn `f_AL=true`).
     #[serde(default = "default_true")]
     pub easy_apply_only: bool,
-    /// If true, only remote jobs (`f_WT=2`).
     #[serde(default)]
     pub remote_only: bool,
-    /// Optional date filter: "24h" or "week".
     #[serde(default)]
     pub date_posted: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
-/// A single job card scraped from a LinkedIn search results page.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCard {
     pub job_id: Option<String>,
@@ -165,45 +140,91 @@ pub struct JobCard {
     pub location: Option<String>,
     pub apply_url: Option<String>,
     pub is_easy_apply: bool,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
-/// Result of a `search_jobs` call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchJobsResult {
     pub jobs: Vec<JobCard>,
     pub has_next_page: bool,
 }
 
-/// The mockable seam over the real Playwright/Chromium sidecar. The production
-/// implementation talks to the sidecar over IPC; tests substitute a mock so the
-/// supervisor's orchestration and persistence logic is exercised directly.
-#[allow(async_fn_in_trait)]
-pub trait BrowserDriver: Send + Sync {
-    /// Launch a browser session and return an opaque handle.
-    async fn open(&self, spec: &SessionSpec) -> DomainResult<String>;
-    /// Navigate the session to a URL.
-    async fn navigate(&self, handle: &str, url: &str) -> DomainResult<()>;
-    /// Inspect the current page and classify it.
-    async fn probe(&self, handle: &str) -> DomainResult<PageState>;
-    /// Fill the Easy-Apply form — but never submit it.
-    async fn fill_easy_apply(&self, handle: &str, input: &EasyApplyInput) -> DomainResult<()>;
-    /// Capture a screenshot; returns the written file path.
-    async fn screenshot(&self, handle: &str) -> DomainResult<String>;
-    /// Capture the DOM as text.
-    async fn dom_snapshot(&self, handle: &str) -> DomainResult<String>;
-    /// Close the session and release the browser.
-    async fn close(&self, handle: &str) -> DomainResult<()>;
-    /// Extract hiring-manager card from the current page.
-    /// Returns a JSON string `{"name":"…","profile_url":"…"}` or `None` if
-    /// no hirer card is present. Never navigates; reads the current DOM only.
-    async fn extract_hr(&self, handle: &str) -> DomainResult<Option<String>>;
-    /// Scrape one page of LinkedIn Jobs search results.
-    /// Returns up to 25 job cards and a flag indicating whether a next page exists.
-    async fn search_jobs(&self, handle: &str, input: &SearchJobsInput) -> DomainResult<SearchJobsResult>;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleResult {
+    pub url: String,
+    pub title: String,
+    pub snippet: String,
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
-/// Drives `automation_tasks` through a real browser while never bypassing
-/// captcha/anti-bot defenses and never auto-submitting an application.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleSearchResult {
+    pub results: Vec<GoogleResult>,
+    #[serde(default)]
+    pub blocked: bool,
+    #[serde(default)]
+    pub has_next_page: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedInPost {
+    #[serde(default)]
+    pub url: Option<String>,
+    pub text: String,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedInPostsResult {
+    pub posts: Vec<LinkedInPost>,
+    #[serde(default)]
+    pub has_next_page: bool,
+}
+
+#[allow(async_fn_in_trait)]
+pub trait BrowserDriver: Send + Sync {
+    async fn open(&self, spec: &SessionSpec) -> DomainResult<String>;
+    async fn navigate(&self, handle: &str, url: &str) -> DomainResult<()>;
+    async fn probe(&self, handle: &str) -> DomainResult<PageState>;
+    async fn fill_easy_apply(&self, handle: &str, input: &EasyApplyInput) -> DomainResult<()>;
+    async fn fill_easy_apply_collect(
+        &self,
+        handle: &str,
+        input: &EasyApplyInput,
+    ) -> DomainResult<Vec<serde_json::Value>> {
+        self.fill_easy_apply(handle, input).await?;
+        Ok(Vec::new())
+    }
+    async fn answer_easy_apply(
+        &self,
+        _handle: &str,
+        _questions: &serde_json::Value,
+    ) -> DomainResult<Vec<serde_json::Value>> {
+        Ok(Vec::new())
+    }
+    async fn confirm_submit(&self, _handle: &str) -> DomainResult<bool> {
+        Ok(true)
+    }
+    async fn screenshot(&self, handle: &str) -> DomainResult<String>;
+    async fn dom_snapshot(&self, handle: &str) -> DomainResult<String>;
+    async fn close(&self, handle: &str) -> DomainResult<()>;
+    async fn extract_hr(&self, handle: &str) -> DomainResult<Option<String>>;
+    async fn search_jobs(
+        &self,
+        handle: &str,
+        input: &SearchJobsInput,
+    ) -> DomainResult<SearchJobsResult>;
+}
+
 #[allow(async_fn_in_trait)]
 pub trait AutomationSupervisor: Send + Sync {
     async fn start_task(&self, automation_task_id: &str) -> DomainResult<()>;
@@ -211,31 +232,34 @@ pub trait AutomationSupervisor: Send + Sync {
     fn status(&self) -> AutomationStatus;
 }
 
-/// Concrete supervisor backed by a [`BrowserDriver`] and the SQLite store.
 pub struct BrowserSupervisor<D: BrowserDriver> {
     db: SqlitePool,
     driver: D,
     stop: Arc<AtomicBool>,
     status: Mutex<AutomationStatus>,
+    data_dir: PathBuf,
 }
 
 impl<D: BrowserDriver> BrowserSupervisor<D> {
-    pub fn new(db: SqlitePool, driver: D) -> Self {
-        Self::with_stop_flag(db, driver, Arc::new(AtomicBool::new(false)))
+    pub fn new(db: SqlitePool, driver: D, data_dir: impl Into<PathBuf>) -> Self {
+        Self::with_stop_flag(db, driver, Arc::new(AtomicBool::new(false)), data_dir)
     }
 
-    /// Construct sharing an existing emergency-stop latch, so an external
-    /// signal (or a mock driver, in tests) can trip the stop mid-task.
-    pub fn with_stop_flag(db: SqlitePool, driver: D, stop: Arc<AtomicBool>) -> Self {
+    pub fn with_stop_flag(
+        db: SqlitePool,
+        driver: D,
+        stop: Arc<AtomicBool>,
+        data_dir: impl Into<PathBuf>,
+    ) -> Self {
         Self {
             db,
             driver,
             stop,
             status: Mutex::new(AutomationStatus::Idle),
+            data_dir: data_dir.into(),
         }
     }
 
-    /// A clone of the shared emergency-stop latch.
     pub fn stop_flag(&self) -> Arc<AtomicBool> {
         self.stop.clone()
     }
@@ -244,12 +268,9 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         *self.status.lock().expect("status mutex poisoned") = s;
     }
 
-    /// Run one task end-to-end, returning its terminal outcome. `start_task`
-    /// delegates here; the outcome is also persisted to the task row.
     pub async fn run_task(&self, task_id: &str) -> DomainResult<TaskOutcome> {
         let (profile_id, payload_json) = self.load_task(task_id).await?;
 
-        // A deliberate new start clears any prior emergency-stop latch.
         self.stop.store(false, Ordering::SeqCst);
         self.set_status(AutomationStatus::Running);
 
@@ -270,10 +291,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         self.open_session_row(&session_id, &profile_id, &input)
             .await?;
 
-        // Side-load user-configured unpacked Chrome extensions. Read the raw
-        // `browser_extensions` JSON array straight from the settings table so we
-        // avoid an `AppPaths` dependency here; a malformed/absent value yields
-        // an empty list (no extensions loaded).
         let extensions: Vec<String> = sqlx::query_scalar::<_, String>(
             "SELECT value FROM app_settings WHERE key = 'browser_extensions'",
         )
@@ -282,14 +299,20 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
         .unwrap_or_default();
 
+        let headless =
+            crate::storage::settings::read_automation_headless_for(&self.db, "job_apply", false)
+                .await;
+
         let spec = SessionSpec {
             profile_id: profile_id.clone(),
             platform: input.platform.clone(),
-            user_data_dir: input
-                .user_data_dir
-                .clone()
-                .unwrap_or_else(|| format!("profiles/{profile_id}/browser")),
+            user_data_dir: input.user_data_dir.clone().unwrap_or_else(|| {
+                crate::storage::paths::automation_profile_dir(&self.data_dir, &profile_id)
+                    .to_string_lossy()
+                    .into_owned()
+            }),
             extensions,
+            headless,
         };
 
         let handle = match self.driver.open(&spec).await {
@@ -312,8 +335,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         }
     }
 
-    /// The step machine: navigate, classify, and either pause (captcha/review),
-    /// complete, or abort. Persists session + task + evidence transitions.
     async fn drive(
         &self,
         task_id: &str,
@@ -330,7 +351,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
 
         match self.driver.probe(handle).await? {
             PageState::CaptchaWall => {
-                // Capture evidence and hand off. NEVER attempt to solve.
                 let shot = self.driver.screenshot(handle).await?;
                 self.record_evidence(task_id, EvidenceKind::Screenshot, Some(&shot), None)
                     .await?;
@@ -365,41 +385,45 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                 Ok(TaskOutcome::PausedForCaptcha)
             }
             PageState::ApplyForm => {
-                // Try to pull the hiring-manager info; non-fatal if absent.
                 let (hr_name, hr_link) = {
                     let raw = self.driver.extract_hr(handle).await.unwrap_or(None);
                     match raw {
                         None => (None, None),
                         Some(json) => {
-                            // JS returns JSON string: {"name":"…","profile_url":"…"}
                             let v: serde_json::Value =
                                 serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
-                            let name = v.get("name")
+                            let name = v
+                                .get("name")
                                 .and_then(|n| n.as_str())
                                 .filter(|s| !s.is_empty())
                                 .map(str::to_owned);
-                            let link = v.get("profile_url")
+                            let link = v
+                                .get("profile_url")
                                 .and_then(|u| u.as_str())
                                 .filter(|s| !s.is_empty())
                                 .map(str::to_owned);
                             if let Some(ref n) = name {
-                                tracing::info!(task_id, name = n.as_str(), "extract_hr: found hiring manager");
+                                tracing::info!(
+                                    task_id,
+                                    name = n.as_str(),
+                                    "extract_hr: found hiring manager"
+                                );
                             }
                             (name, link)
                         }
                     }
                 };
-                // Substitute {{hr_name}} / {{hr_link}} placeholders in the cover-letter
-                // template so callers can personalise without knowing the HR in advance.
                 let cover_letter = input.cover_letter.as_deref().map(|tpl| {
                     let mut s = tpl.to_owned();
-                    if let Some(ref n) = hr_name { s = s.replace("{{hr_name}}", n); }
-                    if let Some(ref l) = hr_link { s = s.replace("{{hr_link}}", l); }
+                    if let Some(ref n) = hr_name {
+                        s = s.replace("{{hr_name}}", n);
+                    }
+                    if let Some(ref l) = hr_link {
+                        s = s.replace("{{hr_link}}", l);
+                    }
                     s
                 });
 
-                // Build an owned input with hr_name/hr_link/cover_letter populated so
-                // fill_easy_apply can personalise without mutating the caller's value.
                 let enriched = EasyApplyInput {
                     hr_name,
                     hr_link,
@@ -409,7 +433,43 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                     ..input.clone()
                 };
 
-                self.driver.fill_easy_apply(handle, &enriched).await?;
+                let unanswered = self.driver.fill_easy_apply_collect(handle, &enriched).await?;
+                let mut needs_human = 0usize;
+                if !unanswered.is_empty() {
+                    let profile_id: String =
+                        sqlx::query_scalar("SELECT profile_id FROM automation_tasks WHERE id = ?1")
+                            .bind(task_id)
+                            .fetch_optional(&self.db)
+                            .await
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                    match generate_form_answers(&self.db, &profile_id, &unanswered).await {
+                        Ok((qmap, human)) => {
+                            needs_human += human;
+                            if qmap.is_empty() {
+                                needs_human += unanswered.len();
+                            } else {
+                                let payload =
+                                    serde_json::json!({ "questions": serde_json::Value::Object(qmap) });
+                                match self.driver.answer_easy_apply(handle, &payload).await {
+                                    Ok(leftover) => needs_human += leftover.len(),
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Easy Apply AI refill failed");
+                                        needs_human += unanswered.len();
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Easy Apply answer generation failed; parking for review");
+                            needs_human += unanswered.len();
+                        }
+                    }
+                }
+                if needs_human > 0 {
+                    tracing::info!(task_id, needs_human, "Easy Apply: questions still need the human");
+                }
 
                 if self.stop.load(Ordering::SeqCst) {
                     self.abort(session_id, task_id, handle).await?;
@@ -423,7 +483,63 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                 self.record_evidence(task_id, EvidenceKind::Screenshot, Some(&shot), None)
                     .await?;
 
-                // Assist-and-pause: filled, but the user must confirm the submit.
+                // Auto-submit: LO opted out of the manual review gate, so when
+                // every question was answered we press "Enviar candidatura"
+                // ourselves and mark the job applied. If a required field made it
+                // bounce (submitted == false) or the RPC errored, fall through to
+                // the park below so the human can finish it.
+                if needs_human == 0 {
+                    match self.driver.confirm_submit(handle).await {
+                        Ok(true) => {
+                            let now = now_iso();
+                            if let Ok(after) = self.driver.screenshot(handle).await {
+                                self.record_evidence(
+                                    task_id,
+                                    EvidenceKind::Screenshot,
+                                    Some(&after),
+                                    None,
+                                )
+                                .await?;
+                            }
+                            self.driver.close(handle).await.ok();
+                            sqlx::query(
+                                "UPDATE browser_sessions SET status = 'closed', \
+                                 ended_at = ?1, updated_at = ?1 WHERE id = ?2",
+                            )
+                            .bind(&now)
+                            .bind(session_id)
+                            .execute(&self.db)
+                            .await?;
+                            self.update_application_outcome(
+                                task_id, session_id, "submitted", "applied",
+                            )
+                            .await?;
+                            sqlx::query(
+                                "UPDATE automation_tasks SET status = 'completed', \
+                                 finished_at = ?1, hr_name = ?3, hr_link = ?4, \
+                                 result_json = '{\"outcome\":\"submitted\"}', \
+                                 updated_at = ?1 WHERE id = ?2",
+                            )
+                            .bind(&now)
+                            .bind(task_id)
+                            .bind(enriched.hr_name.as_deref())
+                            .bind(enriched.hr_link.as_deref())
+                            .execute(&self.db)
+                            .await?;
+                            tracing::info!(task_id, "Easy Apply auto-submitted");
+                            return Ok(TaskOutcome::Completed);
+                        }
+                        Ok(false) => tracing::warn!(
+                            task_id,
+                            "auto-submit bounced (required field) — parking for review"
+                        ),
+                        Err(e) => tracing::warn!(
+                            task_id, error = %e,
+                            "auto-submit failed — parking for review"
+                        ),
+                    }
+                }
+
                 let now = now_iso();
                 sqlx::query(
                     "UPDATE browser_sessions SET status = 'paused_review', updated_at = ?1 WHERE id = ?2",
@@ -484,10 +600,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                 self.set_status(AutomationStatus::Idle);
                 Ok(TaskOutcome::Completed)
             }
-            // LinkedIn told us the daily Easy Apply cap is exhausted.
-            // Fail this task with a clear reason and bubble a distinct error
-            // so `run_automation_queue` stops the entire run immediately —
-            // every subsequent task would hit the same wall.
             PageState::DailyLimitReached => {
                 self.driver.close(handle).await?;
                 let now = now_iso();
@@ -508,13 +620,13 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
                      WHERE id = ?3",
                 )
                 .bind(&now)
-                .bind(format!("{{\"outcome\":\"daily_limit_reached\",\"reason\":\"{msg}\"}}"))
+                .bind(format!(
+                    "{{\"outcome\":\"daily_limit_reached\",\"reason\":\"{msg}\"}}"
+                ))
                 .bind(task_id)
                 .execute(&self.db)
                 .await?;
                 self.set_status(AutomationStatus::Idle);
-                // Propagate as an error so the queue loop in
-                // `run_automation_queue` surfaces it and stops draining.
                 Err(DomainError::Other(anyhow::anyhow!("{msg}")))
             }
         }
@@ -571,10 +683,11 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         input: &EasyApplyInput,
     ) -> DomainResult<()> {
         let now = now_iso();
-        let user_data_dir = input
-            .user_data_dir
-            .clone()
-            .unwrap_or_else(|| format!("profiles/{profile_id}/browser"));
+        let user_data_dir = input.user_data_dir.clone().unwrap_or_else(|| {
+            crate::storage::paths::automation_profile_dir(&self.data_dir, profile_id)
+                .to_string_lossy()
+                .into_owned()
+        });
         sqlx::query(
             "INSERT INTO browser_sessions
                (id, profile_id, platform, engine, user_data_dir, status, started_at, created_at, updated_at)
@@ -614,7 +727,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         Ok(())
     }
 
-    /// Emergency-stop mid-task: close, mark the session stopped, requeue the task.
     async fn abort(&self, session_id: &str, task_id: &str, handle: &str) -> DomainResult<()> {
         let _ = self.driver.close(handle).await;
         let now = now_iso();
@@ -638,7 +750,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         Ok(())
     }
 
-    /// Best-effort cleanup after a driver failure once a session is open.
     async fn fail(&self, session_id: &str, task_id: &str, handle: &str, msg: &str) {
         let _ = self.driver.close(handle).await;
         let now = now_iso();
@@ -661,7 +772,6 @@ impl<D: BrowserDriver> BrowserSupervisor<D> {
         self.set_status(AutomationStatus::Idle);
     }
 
-    /// Cleanup when the browser never even opened.
     async fn fail_session_open(&self, session_id: &str, task_id: &str, msg: &str) {
         let now = now_iso();
         let _ = sqlx::query(
@@ -714,73 +824,242 @@ fn parse_payload(payload: Option<&str>) -> DomainResult<EasyApplyInput> {
         .map_err(|e| DomainError::InvalidInput(format!("invalid apply payload: {e}")))
 }
 
-/// Phase-1 stub retained for wiring that has not yet adopted [`BrowserSupervisor`].
-pub struct AutomationSupervisorStub;
-
-impl AutomationSupervisor for AutomationSupervisorStub {
-    async fn start_task(&self, _automation_task_id: &str) -> DomainResult<()> {
-        Err(DomainError::NotImplemented(
-            "AutomationSupervisor::start_task",
-        ))
-    }
-    async fn stop_all(&self) -> DomainResult<()> {
-        Ok(())
-    }
-    fn status(&self) -> AutomationStatus {
-        AutomationStatus::Idle
-    }
-}
-
-/// The cockpit-facing [`AutomationState`] string (kept in sync with the TS
-/// `AutomationState` union) for a task's terminal outcome.
 fn outcome_state(outcome: TaskOutcome) -> &'static str {
     match outcome {
         TaskOutcome::Completed => "Completed",
         TaskOutcome::PausedForCaptcha => "PausedForCaptcha",
-        // A filled-but-unsubmitted form needs the human to confirm the submit.
         TaskOutcome::PausedForReview => "NeedsReview",
         TaskOutcome::Aborted => "Stopped",
     }
 }
 
-/// Summary of one [`run_automation_queue`] drain pass.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct QueueRunSummary {
-    /// Tasks actually run through the supervisor.
     pub ran: usize,
-    /// Tasks that reached a completed (non-submit) terminal end.
     pub completed: usize,
-    /// Tasks that paused for the human (captcha or review).
     pub paused: usize,
-    /// Tasks aborted by the emergency-stop latch.
     pub aborted: usize,
-    /// True when there were no runnable `apply_job` tasks queued.
     pub was_empty: bool,
 }
 
-/// Drain the queued `apply_job` automation tasks through a [`BrowserSupervisor`]
-/// over the injected `driver`, pushing a coarse [`AutomationState`] string to
-/// the `emit` sink as the run progresses.
-///
-/// This is the link between *enqueuing* an application (Phase 4's
-/// `submit_application`) and *running* it: without it the cockpit optimistically
-/// showed "Preparing Browser" forever because nothing ever drove the state
-/// forward. Pure orchestration over an injected driver + emit sink, so it is
-/// unit-testable with the mock driver and never touches Tauri.
-///
-/// Emission contract — each call is `emit(state, task_id, url)`:
-///   - `"PreparingBrowser"` once at entry (`task_id = None`, `url = None`).
-///   - one terminal state per task drained (`Some(task_id)`, `Some(job_url)`).
-///   - a terminal `"Stopped"` (`None`, `None`) if the emergency-stop latch trips,
-///     or `"Completed"` (`None`, `None`) when the queue drains — so the cockpit
-///     **always** settles on a terminal state and never hangs.
-///
-/// The `url` slot carries the job's application URL so the cockpit can wire it
-/// into the live `<BrowserPreview>` without a separate query round-trip.
+pub(crate) async fn generate_form_answers(
+    db: &sqlx::SqlitePool,
+    profile_id: &str,
+    unanswered: &[serde_json::Value],
+) -> Result<(serde_json::Map<String, serde_json::Value>, usize), String> {
+    use crate::ai::prompt::{
+        indeed_answer_prompt, indeed_answer_system, INDEED_ANSWER_PROMPT_VERSION,
+        NEEDS_HUMAN_SENTINEL,
+    };
+    use crate::ai::{complete_cached, input_hash, select_provider_resolved};
+    use crate::domain::ai::CompletionRequest;
+    use crate::domain::profile_variants::{ProfileVariantService, ProfileVariantServiceImpl};
+    use crate::storage::settings::load_ai_providers;
+
+    let (providers, default_index) = load_ai_providers(db).await.map_err(|e| e.to_string())?;
+    let provider = select_provider_resolved(&providers, default_index).await;
+    if provider.is_disabled() {
+        return Err("no AI provider configured".into());
+    }
+
+    let svc = ProfileVariantServiceImpl::new(db.clone());
+    let variant = svc
+        .list(profile_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next();
+    let (summary, cv_text) = match &variant {
+        Some(v) => {
+            let summary = if v.summary.trim().is_empty() {
+                v.headline.clone()
+            } else {
+                v.summary.clone()
+            };
+            (summary, v.about_text.clone())
+        }
+        None => (String::new(), String::new()),
+    };
+
+    let facts: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT fact_key, fact_value FROM profile_facts WHERE profile_id = ?1",
+        )
+        .bind(profile_id)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let contact = variant.as_ref().map(|v| v.contact.clone()).unwrap_or_default();
+    let clean = |s: &str| {
+        let t = s.trim();
+        (!t.is_empty()).then(|| t.to_string())
+    };
+    let f = |k: &str| facts.get(k).and_then(|v| clean(v));
+    let phone = f("phone").or_else(|| contact.phone.as_deref().and_then(clean));
+    let salary = f("salaryMin");
+    let email = f("email").or_else(|| contact.email.as_deref().and_then(clean));
+    let website = f("portfolio").or_else(|| contact.website.as_deref().and_then(clean));
+    let linkedin = f("linkedin");
+    let github = f("github");
+    let city = f("location").or_else(|| f("city")).or_else(|| clean(&contact.location));
+    let years: Option<String> = f("yearsExperience").or_else(|| Some("2".to_string()));
+    let resolve_known = |label: &str| -> Option<String> {
+        let l = label.to_lowercase();
+        let has = |kw: &[&str]| kw.iter().any(|k| l.contains(k));
+        if has(&[
+            "years of experience",
+            "years experience",
+            "how many years",
+            "anos de experi",
+            "quantos anos",
+        ]) {
+            return years.clone();
+        }
+        if has(&["phone", "telefone", "celular", "mobile"]) {
+            return phone.clone();
+        }
+        if has(&["salary", "salário", "salario", "pretensão", "pretensao", "remuner", "compensation"]) {
+            return salary.clone();
+        }
+        if has(&["linkedin"]) {
+            return linkedin.clone();
+        }
+        if has(&["github"]) {
+            return github.clone();
+        }
+        if has(&["portfolio", "website", "site pessoal", "personal site"]) {
+            return website.clone();
+        }
+        if has(&["e-mail", "email"]) {
+            return email.clone();
+        }
+        if has(&["city", "cidade", "localiz", "location"]) {
+            return city.clone();
+        }
+        if has(&[
+            "summary",
+            "resumo",
+            "about you",
+            "about yourself",
+            "sobre você",
+            "sobre voce",
+            "tell us about yourself",
+            "fale sobre você",
+            "apresente-se",
+            "apresentação pessoal",
+            "short bio",
+            "brief description",
+        ]) {
+            return clean(&summary).or_else(|| clean(&cv_text));
+        }
+        None
+    };
+
+    let mut out = serde_json::Map::new();
+    let mut human = 0usize;
+    for q in unanswered {
+        let label = q
+            .get("label")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if label.is_empty() {
+            continue;
+        }
+        if let Some(v) = resolve_known(label) {
+            out.insert(label.to_string(), serde_json::json!(v));
+            continue;
+        }
+        let options: Vec<String> = q
+            .get("options")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let max_len = q.get("maxLength").and_then(|v| v.as_u64());
+        if options.is_empty() && max_len.map_or(false, |n| n <= 15) {
+            if let Some(y) = years.clone() {
+                out.insert(label.to_string(), serde_json::json!(y));
+                continue;
+            }
+        }
+        let multi = q.get("multi").and_then(|v| v.as_bool()).unwrap_or(false);
+        let mut constraint = String::new();
+        if !options.is_empty() {
+            constraint = if multi {
+                format!(
+                    "\n(Multiple choice — SELECT ALL correct options. Reply with ONLY \
+                     the chosen option texts VERBATIM in their ORIGINAL language, \
+                     separated by ' | ', nothing else. This is a knowledge / \
+                     best-practice question: pick the technically correct options \
+                     using professional judgment even if not stated in the CV; NEVER \
+                     output [NEEDS_HUMAN]. Options: {})",
+                    options.join(" | ")
+                )
+            } else {
+                format!(
+                    "\n(Multiple choice — reply with EXACTLY ONE option, verbatim in \
+                     its ORIGINAL language, nothing else. Pick the BEST / most-correct \
+                     option using professional judgment (skill level, best action, \
+                     education, or yes/no) — grounded in the CV when relevant; NEVER \
+                     output [NEEDS_HUMAN]. Options: {})",
+                    options.join(" | ")
+                )
+            };
+        } else if let Some(n) = max_len {
+            if n <= 15 {
+                constraint = format!(
+                    "\n(VERY SHORT field, max {n} characters. This is almost \
+                     certainly a years-of-experience question about the \
+                     skill/technology named in the label — reply with ONLY a \
+                     number of years as a digit, e.g. \"2\". Never write a sentence.)"
+                );
+            } else {
+                constraint = format!("\n(Answer in at most {n} characters — be concise.)");
+            }
+        }
+        let question_for_prompt = format!("{label}{constraint}");
+        let req = CompletionRequest {
+            model: provider.default_model().to_string(),
+            prompt: indeed_answer_prompt(&question_for_prompt, &summary, &cv_text),
+            system: Some(indeed_answer_system()),
+            input_hash: input_hash(&[
+                INDEED_ANSWER_PROMPT_VERSION,
+                profile_id,
+                label,
+                &max_len.map(|n| n.to_string()).unwrap_or_default(),
+                &options.join("|"),
+            ]),
+        };
+        match complete_cached(db, &provider, req).await {
+            Ok(resp) => {
+                let text = resp.text.trim();
+                if text.is_empty() || text.contains(NEEDS_HUMAN_SENTINEL) {
+                    human += 1;
+                } else {
+                    out.insert(label.to_string(), serde_json::json!(text));
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, question = label, "form answer draft failed");
+                human += 1;
+            }
+        }
+    }
+    Ok((out, human))
+}
+
 pub async fn run_automation_queue<D, F>(
     db: &SqlitePool,
     driver: D,
     stop: Arc<AtomicBool>,
+    data_dir: PathBuf,
     mut emit: F,
 ) -> DomainResult<QueueRunSummary>
 where
@@ -802,21 +1081,15 @@ where
         ..Default::default()
     };
 
-    let sup = BrowserSupervisor::with_stop_flag(db.clone(), driver, stop.clone());
+    let sup = BrowserSupervisor::with_stop_flag(db.clone(), driver, stop.clone(), data_dir);
 
     for task_id in &queued {
-        // A stop set *between* tasks halts the drain before starting the next
-        // one. (In-task stops are caught inside `run_task`, which returns
-        // `Aborted`.)
         if stop.load(Ordering::SeqCst) {
             emit("Stopped", None, None, None, None);
             summary.aborted += 1;
             return Ok(summary);
         }
 
-        // Fetch the job URL from the task payload so we can hand it to the
-        // cockpit's live browser preview once the task terminates. A missing or
-        // malformed payload yields None — the preview just keeps its previous URL.
         let job_url: Option<String> = sqlx::query_scalar::<_, Option<String>>(
             "SELECT json_extract(payload_json, '$.url')
              FROM automation_tasks WHERE id = ?1",
@@ -836,8 +1109,6 @@ where
             TaskOutcome::Aborted => summary.aborted += 1,
         }
 
-        // For NeedsReview pauses, surface the hr contact so the cockpit card
-        // can show "Review with Jane Smith" without a separate round-trip.
         let (hr_name, hr_link) = if matches!(outcome, TaskOutcome::PausedForReview) {
             sqlx::query_as::<_, (Option<String>, Option<String>)>(
                 "SELECT hr_name, hr_link FROM automation_tasks WHERE id = ?1",
@@ -857,9 +1128,6 @@ where
             hr_link.as_deref(),
         );
 
-        // Human handoff and abort outcomes must stop the drain. Starting another
-        // browser task would overwrite the cockpit pause and leak two sessions
-        // that both need operator attention.
         if matches!(outcome, TaskOutcome::Aborted) {
             emit("Stopped", None, None, None, None);
             return Ok(summary);
@@ -872,11 +1140,6 @@ where
         }
     }
 
-    // Each task already emitted its own terminal state, so a drained non-empty
-    // queue leaves the cockpit on the last task's outcome (e.g. a lingering
-    // `PausedForCaptcha` is NOT masked by a blanket "Completed"). Only when
-    // nothing ran do we settle explicitly — so an empty Start still never hangs
-    // on "Preparing Browser".
     if summary.was_empty {
         emit("Completed", None, None, None, None);
     }
@@ -940,8 +1203,6 @@ mod tests {
         stop_on_navigate: Option<Arc<AtomicBool>>,
         fill_calls: Arc<AtomicUsize>,
         closed: Arc<AtomicBool>,
-        /// Records `spec.extensions` from the last `open()` so a test can prove
-        /// the settings→spec wiring reached the driver.
         opened_extensions: Arc<Mutex<Option<Vec<String>>>>,
     }
 
@@ -996,8 +1257,15 @@ mod tests {
         async fn extract_hr(&self, _handle: &str) -> DomainResult<Option<String>> {
             Ok(None)
         }
-        async fn search_jobs(&self, _handle: &str, _input: &SearchJobsInput) -> DomainResult<SearchJobsResult> {
-            Ok(SearchJobsResult { jobs: vec![], has_next_page: false })
+        async fn search_jobs(
+            &self,
+            _handle: &str,
+            _input: &SearchJobsInput,
+        ) -> DomainResult<SearchJobsResult> {
+            Ok(SearchJobsResult {
+                jobs: vec![],
+                has_next_page: false,
+            })
         }
     }
 
@@ -1044,7 +1312,11 @@ mod tests {
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
 
-        let sup = BrowserSupervisor::new(pool.clone(), MockDriver::new(PageState::NoAction));
+        let sup = BrowserSupervisor::new(
+            pool.clone(),
+            MockDriver::new(PageState::NoAction),
+            PathBuf::new(),
+        );
         let out = sup.run_task("t1").await.unwrap();
 
         assert_eq!(out, TaskOutcome::Completed);
@@ -1053,7 +1325,7 @@ mod tests {
         assert_eq!(status, "closed");
         assert!(ended.is_some(), "closed session must have ended_at");
         assert_eq!(task_status(&pool, "t1").await, "completed");
-        assert_eq!(evidence_count(&pool, "t1").await, 1); // dom snapshot
+        assert_eq!(evidence_count(&pool, "t1").await, 1);
     }
 
     #[tokio::test]
@@ -1064,40 +1336,40 @@ mod tests {
 
         let driver = MockDriver::new(PageState::CaptchaWall);
         let fills = driver.fill_calls.clone();
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         let out = sup.run_task("t1").await.unwrap();
 
         assert_eq!(out, TaskOutcome::PausedForCaptcha);
         assert_eq!(sup.status(), AutomationStatus::PausedForCaptcha);
-        // The safety guarantee: we never touched the form.
         assert_eq!(fills.load(Ordering::SeqCst), 0);
         let (status, ended) = session_status(&pool, "p1").await;
         assert_eq!(status, "paused_captcha");
         assert!(ended.is_none(), "paused session stays open for the human");
         assert_eq!(task_status(&pool, "t1").await, "paused_captcha");
-        assert_eq!(evidence_count(&pool, "t1").await, 2); // screenshot + dom
+        assert_eq!(evidence_count(&pool, "t1").await, 2);
     }
 
     #[tokio::test]
-    async fn apply_form_fills_then_pauses_for_review() {
+    async fn apply_form_fills_then_auto_submits() {
         let pool = mem_pool().await;
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
 
+        // Every question answered (mock returns no unanswered) → the review gate
+        // is skipped and the form is auto-submitted (LO opted out of the pause).
         let driver = MockDriver::new(PageState::ApplyForm);
         let fills = driver.fill_calls.clone();
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         let out = sup.run_task("t1").await.unwrap();
 
-        assert_eq!(out, TaskOutcome::PausedForReview);
-        assert_eq!(sup.status(), AutomationStatus::PausedForReview);
+        assert_eq!(out, TaskOutcome::Completed);
         assert_eq!(fills.load(Ordering::SeqCst), 1, "form filled exactly once");
         let (status, ended) = session_status(&pool, "p1").await;
-        assert_eq!(status, "paused_review");
-        assert!(ended.is_none(), "review pause leaves the browser open");
-        // Never auto-submitted: task stops at pending_review.
-        assert_eq!(task_status(&pool, "t1").await, "pending_review");
-        assert_eq!(evidence_count(&pool, "t1").await, 2); // form_state + screenshot
+        assert_eq!(status, "closed");
+        assert!(ended.is_some(), "auto-submit closes the browser session");
+        assert_eq!(task_status(&pool, "t1").await, "completed");
+        // FormState + pre-submit screenshot + post-submit screenshot
+        assert_eq!(evidence_count(&pool, "t1").await, 3);
     }
 
     #[tokio::test]
@@ -1108,9 +1380,9 @@ mod tests {
 
         let stop = Arc::new(AtomicBool::new(false));
         let mut driver = MockDriver::new(PageState::ApplyForm);
-        driver.stop_on_navigate = Some(stop.clone()); // user hits stop during navigation
+        driver.stop_on_navigate = Some(stop.clone());
         let fills = driver.fill_calls.clone();
-        let sup = BrowserSupervisor::with_stop_flag(pool.clone(), driver, stop);
+        let sup = BrowserSupervisor::with_stop_flag(pool.clone(), driver, stop, PathBuf::new());
         let out = sup.run_task("t1").await.unwrap();
 
         assert_eq!(out, TaskOutcome::Aborted);
@@ -1119,7 +1391,7 @@ mod tests {
         let (status, ended) = session_status(&pool, "p1").await;
         assert_eq!(status, "stopped");
         assert!(ended.is_some());
-        assert_eq!(task_status(&pool, "t1").await, "queued"); // requeued
+        assert_eq!(task_status(&pool, "t1").await, "queued");
     }
 
     #[tokio::test]
@@ -1137,7 +1409,11 @@ mod tests {
         .await
         .unwrap();
 
-        let sup = BrowserSupervisor::new(pool.clone(), MockDriver::new(PageState::NoAction));
+        let sup = BrowserSupervisor::new(
+            pool.clone(),
+            MockDriver::new(PageState::NoAction),
+            PathBuf::new(),
+        );
         sup.stop_all().await.unwrap();
 
         assert_eq!(sup.status(), AutomationStatus::Stopped);
@@ -1150,7 +1426,8 @@ mod tests {
     #[tokio::test]
     async fn missing_task_is_invalid_input() {
         let pool = mem_pool().await;
-        let sup = BrowserSupervisor::new(pool, MockDriver::new(PageState::NoAction));
+        let sup =
+            BrowserSupervisor::new(pool, MockDriver::new(PageState::NoAction), PathBuf::new());
         let err = sup.run_task("nope").await.unwrap_err();
         assert!(matches!(err, DomainError::InvalidInput(_)));
     }
@@ -1163,7 +1440,7 @@ mod tests {
 
         let mut driver = MockDriver::new(PageState::NoAction);
         driver.open_fails = true;
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         let err = sup.run_task("t1").await.unwrap_err();
 
         assert!(matches!(err, DomainError::Other(_)));
@@ -1178,13 +1455,11 @@ mod tests {
         let pool = mem_pool().await;
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
-        // The whole point: the paths must travel from the settings table, not a
-        // literal — so seed the row and prove it reaches SessionSpec.extensions.
         set_setting(&pool, "browser_extensions", r#"["/ext/a","/ext/b"]"#).await;
 
         let driver = MockDriver::new(PageState::NoAction);
         let captured = driver.opened_extensions.clone();
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         sup.run_task("t1").await.unwrap();
 
         let seen = captured.lock().unwrap().clone();
@@ -1193,23 +1468,18 @@ mod tests {
 
     #[tokio::test]
     async fn run_task_defaults_to_no_extensions_when_setting_absent() {
-        // No `browser_extensions` row seeded: the read must fall back to empty,
-        // not error, and hand the driver an empty extension list.
         let pool = mem_pool().await;
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
 
         let driver = MockDriver::new(PageState::NoAction);
         let captured = driver.opened_extensions.clone();
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         sup.run_task("t1").await.unwrap();
 
         assert_eq!(captured.lock().unwrap().clone(), Some(Vec::<String>::new()));
     }
 
-    // --- run_automation_queue: the enqueue→run bridge that fixes the stuck
-    // "Preparing Browser" hang.
-    // Capture emissions as (state, taskId, url, hrName, hrLink) tuples.
     type Emission = (
         String,
         Option<String>,
@@ -1246,15 +1516,24 @@ mod tests {
         let (log, emit) = recorder();
         let stop = Arc::new(AtomicBool::new(false));
 
-        let summary = run_automation_queue(&pool, MockDriver::new(PageState::NoAction), stop, emit)
-            .await
-            .unwrap();
+        let summary = run_automation_queue(
+            &pool,
+            MockDriver::new(PageState::NoAction),
+            stop,
+            PathBuf::new(),
+            emit,
+        )
+        .await
+        .unwrap();
 
         assert!(summary.was_empty);
         assert_eq!(summary.ran, 0);
-        // The anti-hang guarantee: PreparingBrowser is always followed by a
-        // terminal state even with nothing queued.
-        let states: Vec<String> = log.lock().unwrap().iter().map(|(s, _, _, _, _)| s.clone()).collect();
+        let states: Vec<String> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(s, _, _, _, _)| s.clone())
+            .collect();
         assert_eq!(states, vec!["PreparingBrowser", "Completed"]);
     }
 
@@ -1267,20 +1546,34 @@ mod tests {
         let (log, emit) = recorder();
         let stop = Arc::new(AtomicBool::new(false));
 
-        let summary = run_automation_queue(&pool, MockDriver::new(PageState::NoAction), stop, emit)
-            .await
-            .unwrap();
+        let summary = run_automation_queue(
+            &pool,
+            MockDriver::new(PageState::NoAction),
+            stop,
+            PathBuf::new(),
+            emit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(summary.ran, 2);
         assert_eq!(summary.completed, 2);
         assert!(!summary.was_empty);
         assert_eq!(task_status(&pool, "t1").await, "completed");
         assert_eq!(task_status(&pool, "t2").await, "completed");
-        // One terminal emit per task; no blanket trailing "Completed" clobbers them.
         let emitted = log.lock().unwrap().clone();
-        assert_eq!(emitted[0], ("PreparingBrowser".into(), None, None, None, None));
+        assert_eq!(
+            emitted[0],
+            ("PreparingBrowser".into(), None, None, None, None)
+        );
         let url = Some("https://linkedin.com/jobs/view/1".to_string());
-        assert!(emitted.contains(&("Completed".into(), Some("t1".into()), url.clone(), None, None)));
+        assert!(emitted.contains(&(
+            "Completed".into(),
+            Some("t1".into()),
+            url.clone(),
+            None,
+            None
+        )));
         assert!(emitted.contains(&("Completed".into(), Some("t2".into()), url, None, None)));
     }
 
@@ -1290,17 +1583,27 @@ mod tests {
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
         let (log, emit) = recorder();
-        let stop = Arc::new(AtomicBool::new(true)); // operator already stopped
+        let stop = Arc::new(AtomicBool::new(true));
 
-        let summary = run_automation_queue(&pool, MockDriver::new(PageState::NoAction), stop, emit)
-            .await
-            .unwrap();
+        let summary = run_automation_queue(
+            &pool,
+            MockDriver::new(PageState::NoAction),
+            stop,
+            PathBuf::new(),
+            emit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(summary.ran, 0);
         assert_eq!(summary.aborted, 1);
-        // Task untouched, still queued for a later start.
         assert_eq!(task_status(&pool, "t1").await, "queued");
-        let states: Vec<String> = log.lock().unwrap().iter().map(|(s, _, _, _, _)| s.clone()).collect();
+        let states: Vec<String> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(s, _, _, _, _)| s.clone())
+            .collect();
         assert_eq!(states, vec!["PreparingBrowser", "Stopped"]);
     }
 
@@ -1313,17 +1616,20 @@ mod tests {
         let (log, emit) = recorder();
         let stop = Arc::new(AtomicBool::new(false));
 
-        let summary =
-            run_automation_queue(&pool, MockDriver::new(PageState::CaptchaWall), stop, emit)
-                .await
-                .unwrap();
+        let summary = run_automation_queue(
+            &pool,
+            MockDriver::new(PageState::CaptchaWall),
+            stop,
+            PathBuf::new(),
+            emit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(summary.paused, 1);
         assert_eq!(summary.ran, 1);
         assert_eq!(task_status(&pool, "t1").await, "paused_captcha");
         assert_eq!(task_status(&pool, "t2").await, "queued");
-        // The final emitted state must remain the human-handoff pause, so the
-        // cockpit does not falsely claim the run finished.
         let last = log.lock().unwrap().last().unwrap().clone();
         assert_eq!(
             last,
@@ -1337,11 +1643,6 @@ mod tests {
         );
     }
 
-    // ── new: DailyLimitReached ─────────────────────────────────────────────
-
-    /// A `DailyLimitReached` page stops the *entire* run immediately.
-    /// `run_automation_queue` bubbles it as `Err` so the cockpit can display
-    /// the reason; the task row is marked `failed` with the LinkedIn message.
     #[tokio::test]
     async fn daily_limit_reached_stops_run_and_propagates_as_error() {
         let pool = mem_pool().await;
@@ -1354,22 +1655,19 @@ mod tests {
             &pool,
             MockDriver::new(PageState::DailyLimitReached),
             stop,
+            PathBuf::new(),
             emit,
         )
         .await;
 
-        // Must surface as Err so the cockpit can show the reason string.
         assert!(result.is_err(), "expected Err but got Ok");
         let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("daily") || msg.contains("limit"),
             "error message should mention the limit; got: {msg}"
         );
-        // The task row must be marked failed (not left running/queued).
         assert_eq!(task_status(&pool, "t1").await, "failed");
     }
-
-    // ── new: hr_link persisted to pending_review row ──────────────────────
 
     struct HrMockDriver {
         inner: MockDriver,
@@ -1410,8 +1708,6 @@ mod tests {
             self.inner.close(h).await
         }
         async fn extract_hr(&self, _handle: &str) -> DomainResult<Option<String>> {
-            // Return a synthetic JSON blob matching the format the real driver
-            // produces: `{"name":"…","profile_url":"…"}` encoded as a bare string.
             match (&self.hr_name, &self.hr_link) {
                 (Some(n), Some(l)) => {
                     let json = serde_json::json!({"name": n, "profile_url": l});
@@ -1420,32 +1716,36 @@ mod tests {
                 _ => Ok(None),
             }
         }
-        async fn search_jobs(&self, _handle: &str, _input: &SearchJobsInput) -> DomainResult<SearchJobsResult> {
-            Ok(SearchJobsResult { jobs: vec![], has_next_page: false })
+        async fn search_jobs(
+            &self,
+            _handle: &str,
+            _input: &SearchJobsInput,
+        ) -> DomainResult<SearchJobsResult> {
+            Ok(SearchJobsResult {
+                jobs: vec![],
+                has_next_page: false,
+            })
         }
     }
 
-    /// When `extract_hr` succeeds, `hr_name` and `hr_link` must be written to
-    /// the `automation_tasks` row so later steps (cover-letter, analytics) can
-    /// read them without re-scraping.
     #[tokio::test]
-    async fn apply_form_persists_hr_link_to_pending_review_row() {
+    async fn apply_form_persists_hr_link_to_completed_row() {
         let pool = mem_pool().await;
         insert_profile(&pool, "p1").await;
         insert_apply_task(&pool, "t1", "p1").await;
 
         let driver = HrMockDriver::new(Some("Jane Smith"), Some("https://linkedin.com/in/jsmith"));
-        let sup = BrowserSupervisor::new(pool.clone(), driver);
+        let sup = BrowserSupervisor::new(pool.clone(), driver, PathBuf::new());
         let out = sup.run_task("t1").await.unwrap();
 
-        assert_eq!(out, TaskOutcome::PausedForReview);
+        // Auto-submitted (all answered); hr contact still recorded on the row.
+        assert_eq!(out, TaskOutcome::Completed);
 
-        let (hr_name, hr_link): (Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT hr_name, hr_link FROM automation_tasks WHERE id = 't1'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (hr_name, hr_link): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT hr_name, hr_link FROM automation_tasks WHERE id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(hr_name.as_deref(), Some("Jane Smith"));
         assert_eq!(hr_link.as_deref(), Some("https://linkedin.com/in/jsmith"));

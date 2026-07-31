@@ -1,14 +1,11 @@
 //! Best-CV selection for a job.
 //!
-//! `cv_documents` carries only file metadata (no structured skills), but
-//! `profile_variants` carries a `target_title`, `keywords_json`, and a
-//! `preferred_cv_document_id`. So "pick the best CV" = pick the variant whose
-//! title/keywords best fit the job, then use that variant's preferred CV.
-//! Pure and unit-testable; the command layer supplies the candidates.
+//! Key: select_best_cv — picks the profile variant whose title/keywords best fit the job, then uses that variant's preferred CV
+//! Key: VariantCandidate — one profile variant as a scoring candidate (title, keywords, preferred CV id)
+//! Key: CvSelection — the chosen variant + its CV, with a 0.0-1.0 match_ratio
 
 use super::scorer::normalize_tokens;
 
-/// One profile variant, as a scoring candidate.
 #[derive(Debug, Clone)]
 pub struct VariantCandidate {
     pub variant_id: String,
@@ -17,18 +14,13 @@ pub struct VariantCandidate {
     pub preferred_cv_document_id: Option<String>,
 }
 
-/// The chosen variant + its CV (if the variant pins one).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CvSelection {
     pub variant_id: String,
     pub cv_document_id: Option<String>,
-    /// 0.0–1.0 fit of the winning variant against the job.
     pub match_ratio: f32,
 }
 
-/// Pick the best-fitting variant for a job. Returns `None` when there are no
-/// candidates. The score blends title-token overlap (0.6) with keyword
-/// presence in the job text (0.4); ties break toward the earlier candidate.
 pub fn select_best_cv(
     job_title: &str,
     job_text: &str,
@@ -71,7 +63,6 @@ pub fn select_best_cv(
         };
 
         let ratio = 0.6 * title_overlap + 0.4 * kw_cov;
-        // Strictly-greater keeps the earliest candidate on ties.
         if best.is_none_or(|(b, _)| ratio > b) {
             best = Some((ratio, idx));
         }
@@ -133,7 +124,6 @@ mod tests {
 
     #[test]
     fn keywords_break_a_title_tie() {
-        // Both titles equally unrelated to the job title, keywords decide.
         let cands = vec![
             cand("v_a", "Specialist", &["marketing", "seo"], Some("cv_a")),
             cand("v_b", "Specialist", &["rust", "kubernetes"], Some("cv_b")),
@@ -158,7 +148,12 @@ mod tests {
     #[test]
     fn multiword_keyword_phrase_matches_in_job_text() {
         let cands = vec![
-            cand("v_rn", "Mobile Dev", &["react native", "expo"], Some("cv_rn")),
+            cand(
+                "v_rn",
+                "Mobile Dev",
+                &["react native", "expo"],
+                Some("cv_rn"),
+            ),
             cand("v_web", "Web Dev", &["angular", "vue"], Some("cv_web")),
         ];
         let sel = select_best_cv(
@@ -172,7 +167,6 @@ mod tests {
 
     #[test]
     fn ties_broken_toward_first_candidate() {
-        // Both have the same title and no keywords → ratio 0.0 for both; first wins.
         let cands = vec![
             cand("first", "Unrelated Role", &[], Some("cv_1")),
             cand("second", "Unrelated Role", &[], Some("cv_2")),
@@ -192,18 +186,8 @@ mod tests {
 
     #[test]
     fn match_ratio_is_between_zero_and_one() {
-        let cands = vec![cand(
-            "v",
-            "Backend Engineer",
-            &["Rust", "PostgreSQL"],
-            None,
-        )];
-        let sel = select_best_cv(
-            "Backend Engineer",
-            "We use Rust and PostgreSQL",
-            &cands,
-        )
-        .unwrap();
+        let cands = vec![cand("v", "Backend Engineer", &["Rust", "PostgreSQL"], None)];
+        let sel = select_best_cv("Backend Engineer", "We use Rust and PostgreSQL", &cands).unwrap();
         assert!(
             (0.0..=1.0).contains(&sel.match_ratio),
             "match_ratio out of range: {}",

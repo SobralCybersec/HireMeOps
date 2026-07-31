@@ -1,4 +1,10 @@
-//! CV import / parsing / analysis service (Phase 2+).
+//! CV import, parsing, analysis, and rewrite service.
+//!
+//! Key: CvService — trait exposing import_document, analyze, rewrite, list_rewrites, read_bytes, list_documents, list_analysis_reports, delete_document
+//! Key: CvServiceImpl::import_document — idempotent per (profile_id, file_hash); parses and stores the CV file
+//! Key: CvServiceImpl::analyze — runs AI gap/quality analysis, persists cv_analysis_reports
+//! Key: CvServiceImpl::rewrite — produces a tailored rewritten CV, persists cv_rewrites
+//! Key: CvAnalysisReport / CvRewriteReport — joined view-models for the CV Library/Analysis pages
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -19,7 +25,6 @@ use crate::domain::ai::{AiProvider, CompletionRequest};
 use crate::storage::settings::load_ai_providers;
 use crate::util::now_iso;
 
-/// A role variant a CV is assigned to (for the library inspector).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CvVariantRef {
@@ -27,8 +32,6 @@ pub struct CvVariantRef {
     pub name: String,
 }
 
-/// Library view-model for one stored CV document. Matches the frontend
-/// `CvLibraryDoc` shape so the CV Library page can render real rows directly.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CvDocumentSummary {
@@ -44,27 +47,19 @@ pub struct CvDocumentSummary {
     pub last_used_at: Option<String>,
     pub file_hash: String,
     pub assigned_variants: Vec<CvVariantRef>,
-    /// Detected section headings — not persisted yet, always empty for now.
     pub sections: Vec<String>,
 }
 
-/// A persisted CV analysis run, read back for the CV Analysis page. Mirrors a
-/// `cv_analysis_reports` row with the `*_json` columns decoded into lists and
-/// the document/variant names joined in for display.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CvAnalysisReport {
     pub id: String,
     pub cv_document_id: Option<String>,
-    /// Joined file name of the analysed document; empty if the document row was
-    /// since deleted (the report survives via `ON DELETE SET NULL`).
     pub cv_file_name: String,
     pub role_variant_id: Option<String>,
-    /// Joined variant name when the report targeted a specific variant.
     pub variant_name: Option<String>,
     pub model_provider: String,
     pub model_name: String,
-    /// Overall 0–100 score, or null when the model didn't return one.
     pub score: Option<i64>,
     pub summary: String,
     pub optimization_needed: bool,
@@ -75,106 +70,40 @@ pub struct CvAnalysisReport {
     pub created_at: String,
 }
 
-/// A persisted AI CV rewrite, read back for the CV page. Mirrors a `cv_rewrites`
-/// row with the `rewrite_json` / `metadata_json` columns decoded into structs
-/// and the document/variant names joined in for display. Additive alongside
-/// [`CvAnalysisReport`] — a rewrite is the tailored CV itself, not a critique.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CvRewriteReport {
     pub id: String,
     pub cv_document_id: Option<String>,
-    /// Joined file name of the source document; empty if it was since deleted
-    /// (the rewrite survives via `ON DELETE SET NULL`).
     pub cv_file_name: String,
     pub role_variant_id: Option<String>,
-    /// Joined variant name when the rewrite targeted a specific variant.
     pub variant_name: Option<String>,
     pub model_provider: String,
     pub model_name: String,
-    /// The full rewritten CV the model produced (structured, round-trippable).
     pub rewrite: CvRewrite,
-    /// PDF metadata derived from `rewrite`, matching `ResumeService`.
     pub metadata: CvMetadata,
+    pub source_text: Option<String>,
     pub created_at: String,
 }
 
-/// Ingests CV documents, parses them into structured profile facts, and runs
-/// gap/quality analysis producing `cv_analysis_reports`.
 #[allow(async_fn_in_trait)]
 pub trait CvService: Send + Sync {
     async fn import_document(&self, profile_id: &str, path: &str) -> DomainResult<String>;
     async fn analyze(&self, cv_document_id: &str, language: Language) -> DomainResult<String>;
-    /// Produce a REWRITTEN CV (not a critique) tailored to `target_title`,
-    /// tailored to the source document, and persist it plus its derived PDF
-    /// metadata to `cv_rewrites`. Returns the new rewrite row id. `language`
-    /// selects the output language (content + LaTeX section titles).
     async fn rewrite(
         &self,
         cv_document_id: &str,
         target_title: Option<&str>,
         language: Language,
+        extra_context: Option<&str>,
     ) -> DomainResult<String>;
-    /// List a profile's persisted CV rewrites, newest first, with the
-    /// `*_json` columns decoded and document/variant names joined in.
     async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>>;
-    /// Read the raw bytes of a stored CV document (for the frontend PDF viewer).
     async fn read_bytes(&self, cv_document_id: &str) -> DomainResult<Vec<u8>>;
-    /// List a profile's CV documents enriched for the library UI (active flag,
-    /// latest analysis score, and assigned variants).
     async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>>;
-    /// List a profile's persisted CV analysis reports, newest first, with the
-    /// `*_json` columns decoded and document/variant names joined in.
     async fn list_analysis_reports(&self, profile_id: &str) -> DomainResult<Vec<CvAnalysisReport>>;
-    /// Delete a CV document row and its stored file from disk. Analysis rows
-    /// cascade-delete; rewrite rows lose their FK but survive (SET NULL).
     async fn delete_document(&self, cv_document_id: &str) -> DomainResult<()>;
 }
 
-/// Placeholder implementation (kept for reference / early Phase-1 wiring).
-pub struct CvServiceStub;
-
-impl CvService for CvServiceStub {
-    async fn import_document(&self, _profile_id: &str, _path: &str) -> DomainResult<String> {
-        Err(DomainError::NotImplemented("CvService::import_document"))
-    }
-    async fn analyze(&self, _cv_document_id: &str, _language: Language) -> DomainResult<String> {
-        Err(DomainError::NotImplemented("CvService::analyze"))
-    }
-    async fn rewrite(
-        &self,
-        _cv_document_id: &str,
-        _target_title: Option<&str>,
-        _language: Language,
-    ) -> DomainResult<String> {
-        Err(DomainError::NotImplemented("CvService::rewrite"))
-    }
-    async fn list_rewrites(&self, _profile_id: &str) -> DomainResult<Vec<CvRewriteReport>> {
-        Err(DomainError::NotImplemented("CvService::list_rewrites"))
-    }
-    async fn read_bytes(&self, _cv_document_id: &str) -> DomainResult<Vec<u8>> {
-        Err(DomainError::NotImplemented("CvService::read_bytes"))
-    }
-    async fn list_documents(&self, _profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>> {
-        Err(DomainError::NotImplemented("CvService::list_documents"))
-    }
-    async fn list_analysis_reports(
-        &self,
-        _profile_id: &str,
-    ) -> DomainResult<Vec<CvAnalysisReport>> {
-        Err(DomainError::NotImplemented(
-            "CvService::list_analysis_reports",
-        ))
-    }
-    async fn delete_document(&self, _cv_document_id: &str) -> DomainResult<()> {
-        Err(DomainError::NotImplemented("CvService::delete_document"))
-    }
-}
-
-/// Concrete `CvService` backed by the SQLite pool and the on-disk CV file store.
-///
-/// `import_document` is idempotent per `(profile_id, file_hash)`: re-importing
-/// identical bytes returns the existing document id instead of duplicating.
 pub struct CvServiceImpl {
     db: SqlitePool,
     cv_files_dir: PathBuf,
@@ -185,18 +114,15 @@ impl CvServiceImpl {
         Self { db, cv_files_dir }
     }
 
-    /// Most-recent analysis for a document, decoded into a [`CvAnalysis`], or
-    /// `None` when the document was never analysed. A malformed `*_json` column
-    /// degrades to an empty list rather than failing the rewrite.
     async fn latest_analysis(&self, cv_document_id: &str) -> DomainResult<Option<CvAnalysis>> {
         type Row = (
-            Option<i64>,    // score
-            Option<String>, // summary
-            i64,            // optimization_needed
-            Option<String>, // missing_keywords_json
-            Option<String>, // strengths_json
-            Option<String>, // weaknesses_json
-            Option<String>, // recommendations_json
+            Option<i64>,
+            Option<String>,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
         );
         let row: Option<Row> = sqlx::query_as(
             "SELECT score, summary, optimization_needed, missing_keywords_json,
@@ -243,8 +169,6 @@ impl CvService for CvServiceImpl {
     }
 
     async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>> {
-        // Base rows — newest first. size_bytes / page_count are nullable
-        // (added in migration 0002), so coalesce to 0 for the view-model.
         let rows: Vec<(
             String,
             String,
@@ -261,7 +185,6 @@ impl CvService for CvServiceImpl {
         .fetch_all(&self.db)
         .await?;
 
-        // Documents currently marked active for this profile.
         let active_rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT cv_document_id FROM profile_active_cvs WHERE profile_id = ?1",
         )
@@ -270,7 +193,6 @@ impl CvService for CvServiceImpl {
         .await?;
         let active: HashSet<String> = active_rows.into_iter().map(|(id,)| id).collect();
 
-        // Assigned variants per document (only rows with a variant attached).
         let variant_rows: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT pac.cv_document_id, pv.id, pv.name
              FROM profile_active_cvs pac
@@ -289,8 +211,6 @@ impl CvService for CvServiceImpl {
             });
         }
 
-        // Latest analysis score per document (reports ordered newest first;
-        // first score we see per doc wins).
         let score_rows: Vec<(Option<String>, Option<i64>)> = sqlx::query_as(
             "SELECT cv_document_id, score FROM cv_analysis_reports
              WHERE profile_id = ?1 AND cv_document_id IS NOT NULL
@@ -320,7 +240,6 @@ impl CvService for CvServiceImpl {
                         size_bytes: size_bytes.unwrap_or(0),
                         page_count: page_count.unwrap_or(0),
                         created_at,
-                        // "Last used" tracking isn't persisted yet → never.
                         last_used_at: None,
                         file_hash,
                         file_name,
@@ -337,25 +256,22 @@ impl CvService for CvServiceImpl {
     }
 
     async fn list_analysis_reports(&self, profile_id: &str) -> DomainResult<Vec<CvAnalysisReport>> {
-        // Newest first. LEFT JOINs so a report survives its document/variant
-        // being deleted (both FKs are ON DELETE SET NULL) — the joined name is
-        // then NULL and we fall back to an empty string / None in the view-model.
         type Row = (
-            String,         // id
-            Option<String>, // cv_document_id
-            Option<String>, // joined file_name
-            Option<String>, // role_variant_id
-            Option<String>, // joined variant name
-            Option<String>, // model_provider
-            Option<String>, // model_name
-            Option<i64>,    // score
-            Option<String>, // summary
-            i64,            // optimization_needed
-            Option<String>, // missing_keywords_json
-            Option<String>, // strengths_json
-            Option<String>, // weaknesses_json
-            Option<String>, // recommendations_json
-            String,         // created_at
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
@@ -372,8 +288,6 @@ impl CvService for CvServiceImpl {
         .fetch_all(&self.db)
         .await?;
 
-        // Decode a nullable `*_json` TEXT column into a list, treating NULL or
-        // malformed JSON as an empty list rather than failing the whole read.
         let decode = |s: Option<String>| -> Vec<String> {
             s.and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
                 .unwrap_or_default()
@@ -423,7 +337,6 @@ impl CvService for CvServiceImpl {
             .map_err(|e| DomainError::InvalidInput(format!("read {path}: {e}")))?;
         let file_hash = cv::hash_bytes(&bytes);
 
-        // Idempotent import: identical content for this profile → existing row.
         if let Some(existing) = sqlx::query_scalar::<_, String>(
             "SELECT id FROM cv_documents WHERE profile_id = ?1 AND file_hash = ?2",
         )
@@ -435,8 +348,6 @@ impl CvService for CvServiceImpl {
             return Ok(existing);
         }
 
-        // Validate + extract by actually parsing *before* persisting anything —
-        // a corrupt/unsupported file must never leave a dangling row or copy.
         let parsed = cv::parse(kind, &bytes)
             .map_err(|e| DomainError::InvalidInput(format!("parse {file_name}: {e}")))?;
         tracing::debug!(
@@ -448,7 +359,6 @@ impl CvService for CvServiceImpl {
             "parsed CV document"
         );
 
-        // Copy into the per-profile store: {cv_files_dir}/{profile_id}/{hash}.{ext}
         let profile_dir = self.cv_files_dir.join(profile_id);
         std::fs::create_dir_all(&profile_dir).map_err(|e| {
             DomainError::Other(anyhow::anyhow!("create {}: {e}", profile_dir.display()))
@@ -476,13 +386,13 @@ impl CvService for CvServiceImpl {
         .bind(file_type)
         .bind(&file_hash)
         .bind(&stored_path)
-        .bind(Option::<String>::None) // preview_path — rendered lazily by the viewer
+        .bind(Option::<String>::None)
         .bind(cv::PARSER_VERSION)
-        .bind(&now) // last_parsed_at
+        .bind(&now)
         .bind(size_bytes)
         .bind(page_count)
-        .bind(&now) // created_at
-        .bind(&now) // updated_at
+        .bind(&now)
+        .bind(&now)
         .execute(&self.db)
         .await?;
 
@@ -490,8 +400,6 @@ impl CvService for CvServiceImpl {
     }
 
     async fn analyze(&self, cv_document_id: &str, language: Language) -> DomainResult<String> {
-        // Load the document row: we need the on-disk file to re-extract its text,
-        // plus profile_id/file_hash for the report row and the cache key.
         let (profile_id, file_type, file_hash, stored_path): (String, String, String, String) =
             sqlx::query_as(
                 "SELECT profile_id, file_type, file_hash, stored_path
@@ -504,7 +412,6 @@ impl CvService for CvServiceImpl {
                 DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
             })?;
 
-        // Re-extract text from the stored file (parsed text isn't persisted).
         let kind = match file_type.as_str() {
             "pdf" => DocKind::Pdf,
             "docx" => DocKind::Docx,
@@ -519,12 +426,8 @@ impl CvService for CvServiceImpl {
         let parsed = cv::parse(kind, &bytes)
             .map_err(|e| DomainError::InvalidInput(format!("parse cv document: {e}")))?;
 
-        // Select the configured provider; the API key is env-resolved (not stored
-        // unencrypted). A disabled/empty provider surfaces a clear error on call.
         let (providers, default_index) = load_ai_providers(&self.db).await?;
         let provider = select_provider_resolved(&providers, default_index).await;
-        // Fail fast before building the prompt / touching the cache: a disabled
-        // provider can never complete, so surface the clear error here.
         if provider.is_disabled() {
             return Err(DomainError::InvalidInput(
                 "no AI provider configured — add one in Settings".into(),
@@ -535,15 +438,11 @@ impl CvService for CvServiceImpl {
             model: provider.default_model().to_string(),
             prompt: cv_analysis_prompt(&parsed.text, None, language),
             system: Some(cv_analysis_system(language)),
-            // Fold the prompt version + CV content hash + language into the cache
-            // key so a prompt-wording bump, a different CV, or a different output
-            // language re-runs the analysis.
             input_hash: input_hash(&[CV_ANALYSIS_PROMPT_VERSION, &file_hash, language.code()]),
         };
         let resp = complete_cached(&self.db, &provider, req).await?;
         let analysis = parse_cv_analysis(&resp.text);
 
-        // Persist the structured report.
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
         let model_provider = provider.id();
@@ -559,7 +458,7 @@ impl CvService for CvServiceImpl {
         .bind(&id)
         .bind(&profile_id)
         .bind(cv_document_id)
-        .bind(Option::<String>::None) // role_variant_id — not targeted here
+        .bind(Option::<String>::None)
         .bind(model_provider)
         .bind(model_name)
         .bind(analysis.score)
@@ -581,9 +480,8 @@ impl CvService for CvServiceImpl {
         cv_document_id: &str,
         target_title: Option<&str>,
         language: Language,
+        extra_context: Option<&str>,
     ) -> DomainResult<String> {
-        // Load the document row: we need the on-disk file to re-extract its text,
-        // plus profile_id/file_hash for the rewrite row and the cache key.
         let (profile_id, file_type, file_hash, stored_path): (String, String, String, String) =
             sqlx::query_as(
                 "SELECT profile_id, file_type, file_hash, stored_path
@@ -596,7 +494,6 @@ impl CvService for CvServiceImpl {
                 DomainError::InvalidInput(format!("unknown cv_document: {cv_document_id}"))
             })?;
 
-        // Re-extract text from the stored file (parsed text isn't persisted).
         let kind = match file_type.as_str() {
             "pdf" => DocKind::Pdf,
             "docx" => DocKind::Docx,
@@ -611,8 +508,6 @@ impl CvService for CvServiceImpl {
         let parsed = cv::parse(kind, &bytes)
             .map_err(|e| DomainError::InvalidInput(format!("parse cv document: {e}")))?;
 
-        // Select the configured provider (env-resolved API key). Fail fast on a
-        // disabled/empty provider before building the prompt or touching cache.
         let (providers, default_index) = load_ai_providers(&self.db).await?;
         let provider = select_provider_resolved(&providers, default_index).await;
         if provider.is_disabled() {
@@ -621,35 +516,32 @@ impl CvService for CvServiceImpl {
             ));
         }
 
-        // Pull the most-recent analysis for this document (if any) so the rewrite
-        // acts on its weaknesses/recommendations/missing-keywords instead of
-        // running blind. Absent (never analysed) → the rewrite proceeds as before.
         let analysis = self.latest_analysis(cv_document_id).await?;
 
         let req = CompletionRequest {
             model: provider.default_model().to_string(),
-            prompt: cv_rewrite_prompt(&parsed.text, target_title, analysis.as_ref(), language),
+            prompt: cv_rewrite_prompt(
+                &parsed.text,
+                target_title,
+                analysis.as_ref(),
+                language,
+                extra_context,
+            ),
             system: Some(cv_rewrite_system(language)),
-            // Fold the prompt version, CV content hash, target title, output
-            // language, and the analysis fingerprint into the cache key so a
-            // wording bump, a different CV, a different target, a different
-            // language, or a fresh/updated analysis all re-run the rewrite
-            // (rather than serving a stale/pre-analysis result).
             input_hash: input_hash(&[
                 CV_REWRITE_PROMPT_VERSION,
                 &file_hash,
                 target_title.unwrap_or(""),
                 language.code(),
                 &analysis_fingerprint(analysis.as_ref()),
+                extra_context.unwrap_or(""),
             ]),
         };
         let resp = complete_cached(&self.db, &provider, req).await?;
         let mut rewrite = parse_cv_rewrite(&resp.text);
-        rewrite.language = language; // AI never writes this field; stamp it so LaTeX picks the right section titles
+        rewrite.language = language;
         let metadata = rewrite.cv_metadata();
 
-        // Persist the rewrite + derived metadata alongside (never replacing) the
-        // analysis reports. Serialization never fails for these owned structs.
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
         let rewrite_json = serde_json::to_string(&rewrite).unwrap_or_else(|_| "{}".to_string());
@@ -657,17 +549,19 @@ impl CvService for CvServiceImpl {
         sqlx::query(
             "INSERT INTO cv_rewrites (
                 id, profile_id, cv_document_id, role_variant_id,
-                model_provider, model_name, rewrite_json, metadata_json, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                model_provider, model_name, rewrite_json, metadata_json,
+                source_text, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )
         .bind(&id)
         .bind(&profile_id)
         .bind(cv_document_id)
-        .bind(Option::<String>::None) // role_variant_id — not targeted here
+        .bind(Option::<String>::None)
         .bind(provider.id())
         .bind(provider.default_model())
         .bind(&rewrite_json)
         .bind(&metadata_json)
+        .bind(&parsed.text)
         .bind(&now)
         .execute(&self.db)
         .await?;
@@ -676,25 +570,23 @@ impl CvService for CvServiceImpl {
     }
 
     async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>> {
-        // Newest first. LEFT JOINs so a rewrite survives its document/variant
-        // being deleted (both FKs are ON DELETE SET NULL) — the joined name is
-        // then NULL and we fall back to an empty string / None in the view-model.
         type Row = (
-            String,         // id
-            Option<String>, // cv_document_id
-            Option<String>, // joined file_name
-            Option<String>, // role_variant_id
-            Option<String>, // joined variant name
-            Option<String>, // model_provider
-            Option<String>, // model_name
-            String,         // rewrite_json
-            String,         // metadata_json
-            String,         // created_at
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            Option<String>,
+            String,
         );
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
                     r.model_provider, r.model_name, r.rewrite_json, r.metadata_json,
-                    r.created_at
+                    r.source_text, r.created_at
              FROM cv_rewrites r
              LEFT JOIN cv_documents d ON d.id = r.cv_document_id
              LEFT JOIN profile_variants v ON v.id = r.role_variant_id
@@ -708,10 +600,6 @@ impl CvService for CvServiceImpl {
         let reports = rows
             .into_iter()
             .map(|r| {
-                // Decode the persisted rewrite; a malformed row degrades to an
-                // empty rewrite rather than failing the whole read. Recompute
-                // metadata from the decoded rewrite so it stays consistent even
-                // if the stored metadata column drifted.
                 let rewrite = serde_json::from_str::<CvRewrite>(&r.7).unwrap_or_default();
                 let metadata = serde_json::from_str::<CvMetadata>(&r.8)
                     .unwrap_or_else(|_| rewrite.cv_metadata());
@@ -725,7 +613,8 @@ impl CvService for CvServiceImpl {
                     model_name: r.6.unwrap_or_default(),
                     rewrite,
                     metadata,
-                    created_at: r.9,
+                    source_text: r.9,
+                    created_at: r.10,
                 }
             })
             .collect();
@@ -736,9 +625,10 @@ impl CvService for CvServiceImpl {
     async fn delete_document(&self, cv_document_id: &str) -> DomainResult<()> {
         let id = cv_document_id.trim();
         if id.is_empty() {
-            return Err(DomainError::InvalidInput("cv_document_id is empty".to_string()));
+            return Err(DomainError::InvalidInput(
+                "cv_document_id is empty".to_string(),
+            ));
         }
-        // Fetch the stored path before deleting so we can remove the file.
         let stored_path: Option<String> =
             sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
                 .bind(id)
@@ -752,7 +642,6 @@ impl CvService for CvServiceImpl {
             .await
             .map_err(|e| DomainError::Other(anyhow::anyhow!(e)))?;
 
-        // Best-effort file removal — don't fail the command if the file is already gone.
         if let Some(path) = stored_path {
             std::fs::remove_file(&path).ok();
         }
@@ -761,16 +650,10 @@ impl CvService for CvServiceImpl {
     }
 }
 
-/// Serialize a string list to a JSON array text column (never fails for `Vec<String>`).
 fn json_array(items: &[String]) -> String {
     serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// Stable cache-key fragment for the analysis feeding a rewrite. Folds every
-/// field the prompt reads (score, summary, optimization flag, and each list) so
-/// a fresh or updated analysis produces a different key and forces a re-run;
-/// `None` (never analysed) collapses to a fixed sentinel. Not a security hash —
-/// just enough entropy to distinguish one analysis from the next.
 fn analysis_fingerprint(analysis: Option<&CvAnalysis>) -> String {
     match analysis {
         None => "no-analysis".to_string(),
@@ -793,8 +676,6 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::str::FromStr;
 
-    /// In-memory pool with the real migrations applied. `max_connections(1)` so
-    /// every query sees the same in-memory database (memory DBs are per-conn).
     async fn mem_pool() -> SqlitePool {
         let opts = SqliteConnectOptions::from_str("sqlite::memory:")
             .unwrap()
@@ -845,13 +726,11 @@ mod tests {
 
         let id = svc.import_document("p1", &pdf).await.unwrap();
 
-        // Bytes read back must be byte-for-byte identical to the source file.
         let got = svc.read_bytes(&id).await.unwrap();
         let expected = std::fs::read(&pdf).unwrap();
         assert_eq!(got, expected);
         assert!(!got.is_empty());
 
-        // Unknown id surfaces an InvalidInput error rather than panicking.
         let err = svc.read_bytes("does-not-exist").await.unwrap_err();
         assert!(matches!(err, DomainError::InvalidInput(_)));
     }
@@ -880,10 +759,8 @@ mod tests {
         assert!(size.unwrap() > 0);
         assert_eq!(ver.as_deref(), Some(cv::PARSER_VERSION));
 
-        // The bytes were copied into the per-profile store.
         assert!(tmp.join("p1").read_dir().unwrap().next().is_some());
 
-        // Re-importing identical bytes returns the same id (dedupe), no dup row.
         let id2 = svc.import_document("p1", &pdf).await.unwrap();
         assert_eq!(id1, id2);
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cv_documents")

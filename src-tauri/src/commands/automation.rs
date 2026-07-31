@@ -1,19 +1,9 @@
-//! Automation control commands — the operator's cockpit over the browser
-//! automation supervisor (see `domain::automation`).
-//!
-//! These commands drive the *canonical* emergency-stop latch held in
-//! [`AppState::emergency_stop`]. Every `BrowserSupervisor` is constructed
-//! sharing that same `Arc<AtomicBool>`, so flipping it here halts any in-flight
-//! browser task at its next checkpoint. The latch is authoritative even when no
-//! supervisor is running: a later task that starts while the latch is set
-//! aborts before opening a browser.
-//!
-//! Semantics:
-//!   - `start` / `resume` → **clear** the latch (work may run again).
-//!   - `pause` / `stop`   → **set** the latch (halt between/within tasks).
-//!   - `emergency_stop`   → **set** the latch immediately; the global
-//!     kill-switch (button + Ctrl/Cmd+Shift hotkey). Synchronous & infallible —
-//!     an atomic store that can never block or fail.
+//! Automation control commands — the operator's cockpit over the browser automation supervisor.
+//! Key: automation_start — clears the emergency-stop latch and spawns the queue-draining engine
+//! Key: automation_confirm_submit / automation_reject_submit — resolve a parked Easy Apply form
+//! Key: automation_start_indeed — drives the Indeed SmartApply flow, parks before final submit
+//! Key: automation_confirm_indeed_submit / automation_reject_indeed_submit — resolve a parked SmartApply popup
+//! Key: automation_pause / automation_resume / automation_stop / automation_emergency_stop — latch control
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -23,10 +13,9 @@ use tauri::{AppHandle, State};
 use crate::events::{AppEvent, AppEventType, EventEmitter};
 use crate::AppState;
 
-/// Emit an authoritative automation lifecycle state to the cockpit. The
-/// frontend maps these `automation.state` events onto `useAutomationStore`, so
-/// the UI reflects what the backend engine is *actually* doing rather than
-/// guessing optimistically.
+#[cfg(feature = "real-browser")]
+use serde_json::{json, Value};
+
 fn emit_state(
     app: &AppHandle,
     state: &str,
@@ -47,55 +36,51 @@ fn emit_state(
     app.emit_app_event(AppEvent::new(AppEventType::AutomationStateChanged, payload));
 }
 
-/// Begin automation: clear the emergency-stop latch, then spawn the engine that
-/// drains queued `apply_job` tasks through the browser supervisor, streaming
-/// authoritative state back to the cockpit.
-///
-/// Previously this only flipped a latch and returned, so the frontend's
-/// optimistic "Preparing Browser" never advanced — clicking Start appeared to
-/// do nothing. Now the backend drives the state to a terminal outcome and
-/// **never leaves the cockpit hanging**, even when there is nothing to run or
-/// no browser engine is compiled in.
 #[tauri::command]
 pub fn automation_start(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.emergency_stop.store(false, Ordering::SeqCst);
     tracing::info!("automation_start — emergency-stop latch cleared");
 
-    // Immediate ack so the cockpit leaves "Queued" the instant Start is
-    // accepted; the spawned engine then drives the authoritative state.
     emit_state(&app, "PreparingBrowser", None, None, None);
 
-    let db    = state.db.clone();
-    let stop  = state.emergency_stop.clone();
+    let db = state.db.clone();
+    let stop = state.emergency_stop.clone();
     let app_for_engine = app.clone();
 
     #[cfg(feature = "real-browser")]
     let driver = state.playwright.clone();
+    #[cfg(feature = "real-browser")]
+    let data_dir = state.paths.data_dir.clone();
 
     tauri::async_runtime::spawn(async move {
         #[cfg(feature = "real-browser")]
-        run_engine(app_for_engine, db, stop, driver).await;
+        run_engine(app_for_engine, db, stop, driver, data_dir).await;
         #[cfg(not(feature = "real-browser"))]
         run_engine_stub(app_for_engine, db).await;
     });
     Ok(())
 }
 
-/// Drive the queued automation tasks to completion using the Playwright worker.
-/// Feature-gated: only compiled when `real-browser` is enabled.
 #[cfg(feature = "real-browser")]
 async fn run_engine(
     app: AppHandle,
     db: sqlx::SqlitePool,
     stop: Arc<std::sync::atomic::AtomicBool>,
     driver: Arc<crate::browser::playwright::PlaywrightDriver>,
+    data_dir: std::path::PathBuf,
 ) {
     use crate::domain::automation::run_automation_queue;
 
     let emitter = app.clone();
-    let result = run_automation_queue(&db, driver, stop, move |s, task, url, hr_name, _hr_link| {
-        emit_state(&emitter, s, task, hr_name, url);
-    })
+    let result = run_automation_queue(
+        &db,
+        driver,
+        stop,
+        data_dir,
+        move |s, task, url, hr_name, _hr_link| {
+            emit_state(&emitter, s, task, hr_name, url);
+        },
+    )
     .await;
 
     if let Err(e) = result {
@@ -104,7 +89,6 @@ async fn run_engine(
     }
 }
 
-/// Feature-off stub: report honestly instead of hanging on "Preparing Browser".
 #[cfg(not(feature = "real-browser"))]
 async fn run_engine_stub(app: AppHandle, db: sqlx::SqlitePool) {
     let queued: i64 = sqlx::query_scalar(
@@ -120,6 +104,7 @@ async fn run_engine_stub(app: AppHandle, db: sqlx::SqlitePool) {
             "Completed",
             None,
             Some("No applications are queued. Draft an application first, then start automation."),
+            None,
         );
     } else {
         emit_state(
@@ -130,21 +115,11 @@ async fn run_engine_stub(app: AppHandle, db: sqlx::SqlitePool) {
                 "{queued} application(s) queued, but the real browser engine is not enabled in \
                  this build. Rebuild with `--features real-browser` to run automation."
             )),
+            None,
         );
     }
 }
 
-// ---------------------------------------------------------------------------
-// Human-in-the-loop confirm / reject
-// ---------------------------------------------------------------------------
-
-/// Confirm the currently-parked Easy Apply form submission.
-///
-/// Called from the cockpit after the user has reviewed the filled form in the
-/// visible Chromium window and decided to proceed.  The Playwright worker
-/// clicks the Submit button on the user's behalf.
-///
-/// Returns an error string if no session is currently parked.
 #[tauri::command]
 pub async fn automation_confirm_submit(
     app: AppHandle,
@@ -158,11 +133,9 @@ pub async fn automation_confirm_submit(
             .await
             .map_err(|e| e.to_string())?;
 
-        // Persist evidence + update DB rows when context ids are available.
         if let (Some(task_id), Some(session_id)) = (&meta.task_id, &meta.session_id) {
             let now = crate::util::now_iso();
 
-            // Screenshot taken right after Submit.
             if let Some(shot) = &meta.screenshot_path {
                 let _ = sqlx::query(
                     "INSERT INTO automation_evidence
@@ -177,7 +150,6 @@ pub async fn automation_confirm_submit(
                 .await;
             }
 
-            // Mark the browser session closed.
             let _ = sqlx::query(
                 "UPDATE browser_sessions
                  SET status = 'closed', ended_at = ?1, updated_at = ?1
@@ -188,7 +160,6 @@ pub async fn automation_confirm_submit(
             .execute(&state.db)
             .await;
 
-            // Mark the automation task completed.
             let _ = sqlx::query(
                 "UPDATE automation_tasks
                  SET status = 'completed', finished_at = ?1,
@@ -200,7 +171,6 @@ pub async fn automation_confirm_submit(
             .execute(&state.db)
             .await;
 
-            // Mark the application run + job_post submitted.
             let _ = sqlx::query(
                 "UPDATE application_runs SET status = 'submitted', browser_session_id = ?1
                  WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?2)",
@@ -221,7 +191,13 @@ pub async fn automation_confirm_submit(
             .execute(&state.db)
             .await;
 
-            emit_state(&app, "Completed", Some(task_id), Some("Application submitted"), None);
+            emit_state(
+                &app,
+                "Completed",
+                Some(task_id),
+                Some("Application submitted"),
+                None,
+            );
         } else {
             emit_state(&app, "Completed", None, Some("Application submitted"), None);
         }
@@ -235,11 +211,6 @@ pub async fn automation_confirm_submit(
     }
 }
 
-/// Reject (dismiss) the currently-parked Easy Apply form without submitting.
-///
-/// Called when the user decides not to apply after reviewing the filled form.
-/// The Playwright worker closes the modal; the task is marked `needs_review`
-/// so it can be re-queued or manually handled later.
 #[tauri::command]
 pub async fn automation_reject_submit(
     app: AppHandle,
@@ -252,7 +223,13 @@ pub async fn automation_reject_submit(
             .reject_submit_parked()
             .await
             .map_err(|e| e.to_string())?;
-        emit_state(&app, "Stopped", None, Some("Application dismissed by user"), None);
+        emit_state(
+            &app,
+            "Stopped",
+            None,
+            Some("Application dismissed by user"),
+            None,
+        );
         return Ok(());
     }
     #[cfg(not(feature = "real-browser"))]
@@ -262,8 +239,6 @@ pub async fn automation_reject_submit(
     }
 }
 
-/// Pause automation: set the latch so no new browser work begins and any
-/// in-flight task aborts at its next checkpoint.
 #[tauri::command]
 pub fn automation_pause(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.emergency_stop.store(true, Ordering::SeqCst);
@@ -275,7 +250,6 @@ pub fn automation_pause(app: AppHandle, state: State<'_, AppState>) -> Result<()
     Ok(())
 }
 
-/// Resume automation after a pause: clear the latch.
 #[tauri::command]
 pub fn automation_resume(state: State<'_, AppState>) -> Result<(), String> {
     state.emergency_stop.store(false, Ordering::SeqCst);
@@ -283,7 +257,6 @@ pub fn automation_resume(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Stop automation: set the latch and broadcast so the UI reflects the halt.
 #[tauri::command]
 pub fn automation_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.emergency_stop.store(true, Ordering::SeqCst);
@@ -295,10 +268,6 @@ pub fn automation_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(),
     Ok(())
 }
 
-/// Global kill-switch — always available (button + Ctrl/Cmd+Shift hotkey).
-///
-/// Flips the shared latch with a single atomic store (immediate, never blocks,
-/// never fails) and broadcasts on the event bus so the whole UI reflects it.
 #[tauri::command]
 pub fn automation_emergency_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.emergency_stop.store(true, Ordering::SeqCst);
@@ -310,48 +279,244 @@ pub fn automation_emergency_stop(app: AppHandle, state: State<'_, AppState>) -> 
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Indeed SmartApply human-in-the-loop flow
-// ---------------------------------------------------------------------------
-
-/// Navigate to a job on Indeed, click "Candidatar-se com o Indeed", step
-/// through the SmartApply multi-step form filling known fields, then park
-/// before the final "Enviar sua candidatura" button.
-///
-/// `handle` — an open browser session (from a prior `open` call or any command
-///   that returns a handle, e.g. `run_indeed_search`).
-/// `job_url` — the Indeed job page URL (e.g. `https://br.indeed.com/viewjob?jk=…`).
-/// `answers` — JSON object with field values:
-///   `firstName`, `lastName`, `email`, `phone`, `postalCode`, `locality`, `address`.
 #[tauri::command]
 pub async fn automation_start_indeed(
     app: AppHandle,
     state: State<'_, AppState>,
-    handle: String,
     job_url: String,
-    answers: serde_json::Value,
+    profile_id: String,
+    answers: Option<serde_json::Value>,
 ) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        emit_state(&app, "PreparingBrowser", None, Some("Opening SmartApply form…"), None);
+        use crate::domain::automation::{BrowserDriver, SessionSpec};
+        use crate::storage::paths::automation_profile_dir;
 
-        state
+        emit_state(
+            &app,
+            "PreparingBrowser",
+            None,
+            Some("Opening SmartApply form…"),
+            None,
+        );
+
+        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+            .to_string_lossy()
+            .into_owned();
+        let headless =
+            crate::storage::settings::read_automation_headless_for(&state.db, "job_apply", false)
+                .await;
+        let handle = state
+            .playwright
+            .open(&SessionSpec {
+                profile_id: profile_id.clone(),
+                platform: "indeed".into(),
+                user_data_dir,
+                extensions: vec![],
+                headless,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut merged = build_indeed_answers(&state.db, &profile_id).await;
+        if let Some(Value::Object(over)) = answers {
+            for (k, v) in over {
+                merged.insert(k, v);
+            }
+        }
+        let answers = Value::Object(merged);
+
+        let reply = state
             .playwright
             .fill_indeed_apply(&handle, &job_url, &answers)
             .await
             .map_err(|e| e.to_string())?;
 
-        emit_state(&app, "PausedForReview", None, Some("Review the SmartApply form, then confirm or reject."), Some(&job_url));
+        let unanswered = reply
+            .get("unanswered")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut needs_human = reply
+            .get("needsHuman")
+            .and_then(Value::as_array)
+            .map(|a| a.len())
+            .unwrap_or(0);
+
+        if !unanswered.is_empty() {
+            emit_state(
+                &app,
+                "GeneratingAnswers",
+                None,
+                Some("Drafting answers for screening questions…"),
+                Some(&job_url),
+            );
+            match crate::domain::automation::generate_form_answers(&state.db, &profile_id, &unanswered).await {
+                Ok((question_map, human)) => {
+                    needs_human += human;
+                    if !question_map.is_empty() {
+                        let payload = json!({ "questions": Value::Object(question_map) });
+                        let refill = state
+                            .playwright
+                            .answer_indeed_free_text(&handle, &payload)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        needs_human += refill
+                            .get("unanswered")
+                            .and_then(Value::as_array)
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                    } else {
+                        needs_human += unanswered.len();
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Indeed answer generation failed; parking for review");
+                    needs_human += unanswered.len();
+                }
+            }
+        }
+
+        let detail = if needs_human > 0 {
+            format!("Review the SmartApply form — {needs_human} item(s) need you, then confirm or reject.")
+        } else {
+            "Review the SmartApply form, then confirm or reject.".to_string()
+        };
+        emit_state(&app, "PausedForReview", None, Some(&detail), Some(&job_url));
         return Ok(());
     }
     #[cfg(not(feature = "real-browser"))]
     {
-        let _ = (app, state, handle, job_url, answers);
+        let _ = (app, state, job_url, profile_id, answers);
         Err("real-browser feature not enabled".to_string())
     }
 }
 
-/// Click "Enviar sua candidatura" in the currently-parked SmartApply popup.
+#[cfg(feature = "real-browser")]
+async fn build_indeed_answers(
+    db: &sqlx::SqlitePool,
+    profile_id: &str,
+) -> serde_json::Map<String, Value> {
+    use crate::domain::profile_variants::{ProfileVariantService, ProfileVariantServiceImpl};
+
+    let mut m = serde_json::Map::new();
+    let svc = ProfileVariantServiceImpl::new(db.clone());
+    if let Ok(Some(v)) = svc.list(profile_id).await.map(|vs| vs.into_iter().next()) {
+        let c = &v.contact;
+        let (first, last) = split_contact_name(&c.name);
+        if !first.is_empty() {
+            m.insert("firstName".into(), json!(first));
+        }
+        if let Some(last) = last.filter(|l| !l.is_empty()) {
+            m.insert("lastName".into(), json!(last));
+        }
+        if let Some(e) = c.email.as_deref().filter(|s| !s.trim().is_empty()) {
+            m.insert("email".into(), json!(e.trim()));
+        }
+        if let Some(p) = c.phone.as_deref().filter(|s| !s.trim().is_empty()) {
+            m.insert("phone".into(), json!(p.trim()));
+        }
+        if let Some(w) = c.website.as_deref().filter(|s| !s.trim().is_empty()) {
+            m.insert("linkedinUrl".into(), json!(w.trim()));
+        }
+    }
+
+    if let Ok(Some((Some(min), currency))) = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+        "SELECT min_salary, salary_currency FROM job_preferences WHERE profile_id = ?1 LIMIT 1",
+    )
+    .bind(profile_id)
+    .fetch_optional(db)
+    .await
+    {
+        let salary = format_desired_salary(min, currency.as_deref().unwrap_or(""));
+        m.insert("salary".into(), json!(salary));
+    }
+    m
+}
+
+#[cfg(feature = "real-browser")]
+fn split_contact_name(name: &str) -> (String, Option<String>) {
+    let name = name.trim();
+    match name.split_once(' ') {
+        Some((first, rest)) => (first.to_string(), Some(rest.trim().to_string())),
+        None => (name.to_string(), None),
+    }
+}
+
+#[cfg(feature = "real-browser")]
+fn format_desired_salary(min: i64, currency: &str) -> String {
+    let cur = currency.trim();
+    if cur.is_empty() {
+        min.to_string()
+    } else {
+        format!("{min} {cur}")
+    }
+}
+
+#[cfg(all(test, feature = "real-browser"))]
+mod indeed_answer_tests {
+    use super::{format_desired_salary, split_contact_name};
+
+    #[test]
+    fn split_name_handles_single_double_and_multi() {
+        assert_eq!(split_contact_name("Jane"), ("Jane".into(), None));
+        assert_eq!(
+            split_contact_name("Jane Doe"),
+            ("Jane".into(), Some("Doe".into()))
+        );
+        assert_eq!(
+            split_contact_name("  Ana Paula Souza  "),
+            ("Ana".into(), Some("Paula Souza".into()))
+        );
+        assert_eq!(split_contact_name(""), (String::new(), None));
+    }
+
+    #[test]
+    fn salary_appends_currency_only_when_present() {
+        assert_eq!(format_desired_salary(8000, "BRL"), "8000 BRL");
+        assert_eq!(format_desired_salary(8000, "  "), "8000");
+        assert_eq!(format_desired_salary(12000, ""), "12000");
+    }
+}
+
+#[tauri::command]
+pub async fn indeed_login(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {
+    #[cfg(feature = "real-browser")]
+    {
+        use crate::domain::automation::{BrowserDriver, SessionSpec};
+        use crate::storage::paths::automation_profile_dir;
+
+        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+            .to_string_lossy()
+            .into_owned();
+
+        let handle = state
+            .playwright
+            .open_login_session(&SessionSpec {
+                profile_id,
+                platform: "indeed".into(),
+                user_data_dir: dir,
+                extensions: vec![],
+                headless: false,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        state
+            .playwright
+            .navigate(&handle, "https://secure.indeed.com/auth")
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (state, profile_id);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn automation_confirm_indeed_submit(
     app: AppHandle,
@@ -368,7 +533,13 @@ pub async fn automation_confirm_indeed_submit(
         if let Some(shot) = &meta.screenshot_path {
             tracing::info!(screenshot = %shot, "Indeed application submitted");
         }
-        emit_state(&app, "Completed", None, Some("Indeed application submitted"), None);
+        emit_state(
+            &app,
+            "Completed",
+            None,
+            Some("Indeed application submitted"),
+            None,
+        );
         return Ok(());
     }
     #[cfg(not(feature = "real-browser"))]
@@ -378,7 +549,6 @@ pub async fn automation_confirm_indeed_submit(
     }
 }
 
-/// Close the SmartApply popup without submitting.
 #[tauri::command]
 pub async fn automation_reject_indeed_submit(
     app: AppHandle,
@@ -391,7 +561,13 @@ pub async fn automation_reject_indeed_submit(
             .reject_indeed_submit_parked()
             .await
             .map_err(|e| e.to_string())?;
-        emit_state(&app, "Stopped", None, Some("Indeed application dismissed"), None);
+        emit_state(
+            &app,
+            "Stopped",
+            None,
+            Some("Indeed application dismissed"),
+            None,
+        );
         return Ok(());
     }
     #[cfg(not(feature = "real-browser"))]

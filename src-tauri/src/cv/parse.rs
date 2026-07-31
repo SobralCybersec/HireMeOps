@@ -1,30 +1,25 @@
-//! PDF / DOCX → text + page count + section headings. Pure: operates on bytes
-//! so it is fully unit-testable without touching Tauri or the filesystem.
+//! PDF / DOCX → text + page count + section headings, byte-in text-out.
+//! Key: `parse` — dispatch on `DocKind` to `parse_pdf` / `parse_docx`.
+//! Key: `detect_kind` — file-extension → `DocKind`.
+//! Key: `docx_xml_to_text` — WordprocessingML body → plain text.
 
 use std::io::{Cursor, Read};
 
 use super::sections::detect_sections;
 
-/// A supported CV document format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocKind {
     Pdf,
     Docx,
 }
 
-/// The structured result of parsing a document's bytes.
 #[derive(Debug, Clone)]
 pub struct ParsedDocument {
-    /// Extracted plain text (best-effort).
     pub text: String,
-    /// Page count when derivable (PDF); `None` for DOCX or if it can't be read.
     pub page_count: Option<u32>,
-    /// Detected section headings, in document order.
     pub sections: Vec<String>,
 }
 
-/// Errors surfaced by parsing. Always returned as a value — parsing never
-/// panics across the boundary (see the `catch_unwind` guard in `parse_pdf`).
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("pdf parse failed: {0}")]
@@ -33,7 +28,6 @@ pub enum ParseError {
     Docx(String),
 }
 
-/// Map a file name's extension to a supported document kind (case-insensitive).
 pub fn detect_kind(file_name: &str) -> Option<DocKind> {
     let ext = file_name.rsplit('.').next()?.to_ascii_lowercase();
     match ext.as_str() {
@@ -43,7 +37,6 @@ pub fn detect_kind(file_name: &str) -> Option<DocKind> {
     }
 }
 
-/// Parse raw document bytes into text + page count + detected sections.
 pub fn parse(kind: DocKind, bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
     match kind {
         DocKind::Pdf => parse_pdf(bytes),
@@ -52,13 +45,10 @@ pub fn parse(kind: DocKind, bytes: &[u8]) -> Result<ParsedDocument, ParseError> 
 }
 
 fn parse_pdf(bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
-    // `pdf-extract` can panic on malformed / encrypted input — never let that
-    // unwind across the command boundary; turn it into a normal error.
     let text = std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(bytes))
         .map_err(|_| ParseError::Pdf("panicked while extracting text".into()))?
         .map_err(|e| ParseError::Pdf(e.to_string()))?;
 
-    // Page count is best-effort: encrypted PDFs may refuse to load → None.
     let page_count = std::panic::catch_unwind(|| {
         lopdf::Document::load_mem(bytes)
             .ok()
@@ -94,8 +84,6 @@ fn parse_docx(bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
     })
 }
 
-/// Extract readable text from a WordprocessingML body: concatenate `<w:t>` runs,
-/// newline at each paragraph end (`</w:p>`) and explicit break (`<w:br/>`).
 fn docx_xml_to_text(xml: &str) -> Result<String, String> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
@@ -110,8 +98,6 @@ fn docx_xml_to_text(xml: &str) -> Result<String, String> {
             Event::End(e) if e.local_name().as_ref() == b"p" => out.push('\n'),
             Event::Empty(e) if e.local_name().as_ref() == b"br" => out.push('\n'),
             Event::Text(t) if in_text => {
-                // quick-xml 0.41: `decode()` handles the byte encoding, then the
-                // free `escape::unescape` resolves entities (&amp; etc.).
                 let decoded = t.decode().map_err(|e| e.to_string())?;
                 let unescaped = quick_xml::escape::unescape(&decoded).map_err(|e| e.to_string())?;
                 out.push_str(&unescaped);
@@ -181,7 +167,6 @@ mod tests {
         let text = docx_xml_to_text(xml).unwrap();
         assert!(text.contains("SUMMARY"));
         assert!(text.contains("Hello world"));
-        // Paragraph boundary produced a newline between the two paragraphs.
         assert!(text.contains("SUMMARY\n"));
     }
 }

@@ -28,7 +28,9 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "resources/playwright-bridge",
+      "resources/playwright-bridge/index.mjs",
+      "resources/playwright-bridge/package.json",
+      "resources/playwright-bridge/README.md",
       "resources/node_modules",
       "resources/cvtex"
     ],

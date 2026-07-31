@@ -1,9 +1,9 @@
-//! `app_settings` key/value repository + the typed [`AppSettings`] DTO that the
+//! `app_settings` key/value repository + the typed `AppSettings` DTO that the
 //! frontend `settingsStore` consumes.
-//!
-//! Scalars are stored as individual key/value rows; `ai_providers` is stored as
-//! a JSON blob under one key. `portable_mode` and `database_path` are *derived*
-//! from [`AppPaths`] at read time and are not persisted.
+//! Key: `AppSettings` — mirrors the TS `AppSettings` interface (camelCase on the wire).
+//! Key: `load()` / `save()` — assemble/persist the typed struct from the key/value table.
+//! Key: `read_automation_headless_for()` — per-task headless override resolution.
+//! Key: `DEFAULTS` — baseline settings seeded via `ensure_defaults()`.
 
 use std::collections::BTreeMap;
 
@@ -14,8 +14,6 @@ use sqlx::SqlitePool;
 use super::paths::AppPaths;
 use crate::util::now_iso;
 
-/// Baseline settings. Migration `0001` seeds a subset; this guard keeps the set
-/// complete when new keys are introduced between releases.
 const DEFAULTS: &[(&str, &str)] = &[
     ("theme", "system"),
     ("reduced_effects", "auto"),
@@ -29,10 +27,11 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("audit_log_retention_days", "30"),
     ("automation_evidence_retention_days", "1"),
     ("browser_extensions", "[]"),
+    ("automation_headless", "true"),
+    ("automation_headless_overrides", "{}"),
+    ("ai_auto_init", "true"),
 ];
 
-/// Default auth mode for a provider when the field is absent from older stored
-/// blobs. API-key (env-sourced) is the historical behaviour.
 fn default_auth_kind() -> String {
     "api_key".to_string()
 }
@@ -45,14 +44,10 @@ pub struct AiProviderSettings {
     pub endpoint_url: String,
     pub api_key_stored: bool,
     pub default_model: String,
-    /// How the provider authenticates: `"api_key"` (env var, default) or
-    /// `"oauth"` (subscription token held in the OS keyring). Defaulted so
-    /// provider blobs written before OAuth landed still deserialize.
     #[serde(default = "default_auth_kind")]
     pub auth_kind: String,
 }
 
-/// Mirrors the TypeScript `AppSettings` interface (camelCase on the wire).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -68,10 +63,22 @@ pub struct AppSettings {
     pub database_path: String,
     pub audit_log_retention_days: i64,
     pub automation_evidence_retention_days: i64,
-    /// Filesystem paths to unpacked Chrome extensions loaded into the driven
-    /// browser via `--load-extension`. Empty by default.
     #[serde(default)]
     pub browser_extensions: Vec<String>,
+    #[serde(default = "default_automation_headless")]
+    pub automation_headless: bool,
+    #[serde(default)]
+    pub automation_headless_overrides: BTreeMap<String, bool>,
+    #[serde(default = "default_ai_auto_init")]
+    pub ai_auto_init: bool,
+}
+
+fn default_automation_headless() -> bool {
+    true
+}
+
+fn default_ai_auto_init() -> bool {
+    true
 }
 
 pub async fn ensure_defaults(pool: &SqlitePool) -> Result<()> {
@@ -112,8 +119,6 @@ async fn set(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// Assemble the typed settings object from the key/value store, deriving the
-/// path-based fields from [`AppPaths`].
 pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
     let m = get_all(pool).await?;
     let get = |k: &str, d: &str| m.get(k).cloned().unwrap_or_else(|| d.to_string());
@@ -123,9 +128,6 @@ pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
         serde_json::from_str(&get("browser_extensions", "[]")).unwrap_or_default();
 
     Ok(AppSettings {
-        // Falls back to the canonical `default` profile seeded by migration
-        // 0003 so a fresh install always references a valid profiles(id) row
-        // (avoids FK 787 on the first CV upload before onboarding runs).
         active_profile_id: Some(
             m.get("active_profile_id")
                 .filter(|s| !s.is_empty())
@@ -146,12 +148,16 @@ pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
         automation_evidence_retention_days: get("automation_evidence_retention_days", "1")
             .parse()
             .unwrap_or(1),
+        automation_headless: get("automation_headless", "true").parse().unwrap_or(true),
+        automation_headless_overrides: serde_json::from_str(&get(
+            "automation_headless_overrides",
+            "{}",
+        ))
+        .unwrap_or_default(),
+        ai_auto_init: get("ai_auto_init", "true").parse().unwrap_or(true),
     })
 }
 
-/// Read just the configured AI providers + default index, without needing
-/// [`AppPaths`]. Used by AI-backed services (CV analysis, application drafting)
-/// that only care about provider config, not the path-derived fields.
 pub async fn load_ai_providers(pool: &SqlitePool) -> Result<(Vec<AiProviderSettings>, i64)> {
     let m = get_all(pool).await?;
     let providers: Vec<AiProviderSettings> =
@@ -164,10 +170,8 @@ pub async fn load_ai_providers(pool: &SqlitePool) -> Result<(Vec<AiProviderSetti
     Ok((providers, idx))
 }
 
-/// Persist the writable fields. Derived fields (`portable_mode`,
-/// `database_path`) are intentionally not written back.
 pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {
-    let pairs: [(&str, String); 11] = [
+    let pairs: [(&str, String); 14] = [
         (
             "active_profile_id",
             s.active_profile_id.clone().unwrap_or_default(),
@@ -200,9 +204,63 @@ pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {
             "automation_evidence_retention_days",
             s.automation_evidence_retention_days.to_string(),
         ),
+        ("automation_headless", s.automation_headless.to_string()),
+        (
+            "automation_headless_overrides",
+            serde_json::to_string(&s.automation_headless_overrides)
+                .unwrap_or_else(|_| "{}".to_string()),
+        ),
+        ("ai_auto_init", s.ai_auto_init.to_string()),
     ];
     for (k, v) in &pairs {
         set(pool, k, v).await?;
     }
     Ok(())
+}
+
+pub async fn read_automation_headless(pool: &SqlitePool) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "SELECT value FROM app_settings WHERE key = 'automation_headless'",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(true)
+}
+
+#[cfg_attr(not(feature = "real-browser"), allow(dead_code))]
+pub async fn read_automation_headless_for(pool: &SqlitePool, task: &str, fallback: bool) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "SELECT value FROM app_settings WHERE key = 'automation_headless_overrides'",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|v| serde_json::from_str::<BTreeMap<String, bool>>(&v).ok())
+    .and_then(|m| m.get(task).copied())
+    .unwrap_or(fallback)
+}
+
+#[allow(dead_code)]
+pub async fn read_ai_auto_init(pool: &SqlitePool) -> bool {
+    sqlx::query_scalar::<_, String>("SELECT value FROM app_settings WHERE key = 'ai_auto_init'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(true)
+}
+
+#[allow(dead_code)]
+pub async fn read_active_profile_id(pool: &SqlitePool) -> Option<String> {
+    sqlx::query_scalar::<_, String>("SELECT value FROM app_settings WHERE key = 'active_profile_id'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
 }

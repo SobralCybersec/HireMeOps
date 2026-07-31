@@ -27,17 +27,21 @@
   --text-2xl: 22px;
   --text-3xl: 28px;
 
-  /* Font families - cockpit is mono-forward. JetBrains Mono is the signature
-     face for both UI and data; the mono fallback chain kicks in only if
-     @fontsource/jetbrains-mono fails to load. */
-  --font-ui: "JetBrains Mono", ui-monospace, "Fira Code", "Cascadia Code", "Courier New", monospace;
+  /* HUD type system. Rajdhani carries UI/body (clean condensed sans), Oxanium
+     the loud surfaces (brand, page/stat titles, HUD labels), JetBrains Mono all
+     data/coordinates/code for tabular alignment. Fallbacks keep first paint sane
+     if a self-hosted face fails to load. */
+  /* UI/body: Chakra Petch — squared HUD sans that rhymes with the pixel display
+     face but stays readable at 13-14px (buttons/forms/tables). */
+  --font-ui: "Chakra Petch", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  /* Display + title lead with Libra Heart (pixel); readable fallbacks behind it. */
+  --font-display: "The Libra Heart Font", "Chakra Petch", ui-sans-serif, sans-serif;
+  --font-title: "The Libra Heart Font", "Calistoga", Georgia, serif;
+  /* Data/IDs/code: IBM Plex Mono — tight retro-terminal, survives dense grids. */
   --font-mono:
-    "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, "Courier New", monospace;
-  /* Display face for the loud surfaces (brand wordmark, page/stat titles,
-     state readout). Defaults to the same mono stack so "dark"/"light" look
-     unchanged; the named themes override it for character. Data always stays
-     --font-mono for tabular alignment. */
-  --font-display: var(--font-ui);
+    "IBM Plex Mono", "Fira Code", "Cascadia Code", ui-monospace, "Courier New", monospace;
+  /* Legacy alias — some page CSS still references --font-data for tabular numerics. */
+  --font-data: var(--font-mono);
 
   /* Font weights */
   --fw-regular: 400;
@@ -61,11 +65,11 @@
   --opacity-disabled: 0.4;
   --opacity-muted: 0.6;
 
-  /* Border radius - tight, instrument-like */
-  --radius-sm: 1px;
-  --radius: 3px;
-  --radius-md: 5px;
-  --radius-lg: 8px;
+  /* Border radius - macOS-rounded window/card chrome */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 
   /* Z-index scale */
   --z-base: 0;
@@ -78,7 +82,7 @@
   /* Layout constants - topbar removed; sidebar owns brand/nav/session/E-STOP.
      Collapsed rail keeps every affordance icon-visible at 52px. */
   --sidebar-w: 220px;
-  --sidebar-w-collapsed: 52px;
+  --sidebar-w-collapsed: 64px;
   --topbar-h: 40px; /* legacy; retained for one-off internal chrome */
   --statusbar-h: 22px;
   --eventlog-w: 252px;
@@ -98,262 +102,104 @@
   --tx-stagger: 40ms;
 }
 
-/* ---- Dark palette (primary) ----------------------------------- */
+/* ---- HUD command-center palette (the only theme) ---------------
+   Deep blue-black instrument field lit by a single cyan HUD accent. macOS
+   hairline borders, cyan edge-glow on interactive surfaces. Danger stays a
+   warm vermilion on its own hue lane so E-STOP never blends into accent
+   chrome; success stays green — meaning outranks palette. */
 [data-theme="dark"],
 html:not([data-theme]) {
   color-scheme: dark;
 
-  --color-bg: #07090e;
-  --color-surface: #0c1018;
-  --color-surface-2: #111825;
-  --color-surface-3: #172030;
-  --color-surface-hover: #1b2638;
-  --color-surface-sunken: #050710;
-  --color-surface-raised: #151d2e;
+  --color-bg: #05080f;
+  --color-surface: #0a0f1b;
+  --color-surface-2: #0f1626;
+  --color-surface-3: #152034;
+  --color-surface-hover: #1a2942;
+  --color-surface-sunken: #04070d;
+  --color-surface-raised: #121b2d;
 
-  --color-border: #1a2236;
-  --color-border-strong: #28364e;
+  --color-border: #1d2c46;
+  --color-border-strong: #2c405f;
 
-  --color-text: #d8e0f0;
-  --color-text-2: #8496b8;
-  --color-text-muted: #3e4e6a;
-  --color-text-inverse: #07090e;
+  --color-text: #dbe7f5;
+  --color-text-2: #7f97b8;
+  --color-text-muted: #465b7c;
+  --color-text-inverse: #05080f;
 
-  --color-accent: #4c7ef3;
-  --color-accent-dim: #101e44;
-  --color-accent-text: #8fb4fb;
-  --color-accent-hover: #6490f5;
+  --color-accent: #38bdf8;
+  --color-accent-dim: #08263a;
+  --color-accent-text: #7fd8ff;
+  --color-accent-hover: #5fd0ff;
 
-  --color-danger: #e03535;
-  --color-danger-dim: #2e0c0c;
-  --color-danger-hover: #f04040;
+  --color-danger: #ef4444;
+  --color-danger-dim: #300c0c;
+  --color-danger-hover: #f75858;
 
-  /* Elevation - overlays/menus/toasts float above the instrument panel */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.32);
-  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.44);
-  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.56);
-  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  /* Elevation - overlays/menus float above the instrument field, cyan-tinted */
+  --shadow-1: 0 1px 2px rgba(0, 4, 12, 0.5);
+  --shadow-2: 0 6px 18px rgba(0, 6, 18, 0.55);
+  --shadow-3: 0 16px 40px rgba(0, 8, 24, 0.62);
+  --shadow-inset: inset 0 1px 2px rgba(0, 4, 14, 0.45);
+
+  /* Cyan glow used sparingly on the HUD signature frame + active nav */
+  --hud-glow: 0 0 0 1px rgba(56, 189, 248, 0.25), 0 0 12px -2px rgba(56, 189, 248, 0.35);
 
   /* Internal dividers - lighter than structural --color-border */
-  --color-border-subtle: #141c2c;
+  --color-border-subtle: #142033;
 
   /* Semantic status tokens */
-  --status-queued-bg: #141c2c;
-  --status-queued-text: #7888aa;
-  --status-running-bg: #101e44;
-  --status-running-text: #4c7ef3;
-  --status-success-bg: #0c2418;
-  --status-success-text: #20c458;
-  --status-failed-bg: #280c0c;
-  --status-failed-text: #e03535;
-  --status-review-bg: #261a06;
-  --status-review-text: #df9522;
-  --status-stopped-bg: #280c0c;
-  --status-stopped-text: #a01818;
-  --status-paused-bg: #181c2c;
-  --status-paused-text: #6878a8;
-  --status-neutral-bg: #111825;
-  --status-neutral-text: #5a6a8a;
-
-  /* Semantic status aliases - used by ai-provider status, event-log dots,
-     KpiCard danger/warning tints. Kept as aliases (not new hex) so palette
-     revamps only touch --status-*-text. */
-  --color-success: var(--status-success-text);
-  --color-warning: var(--status-review-text);
-  --color-info: var(--status-running-text);
-}
-
-/* ---- Light palette -------------------------------------------- */
-[data-theme="light"] {
-  color-scheme: light;
-
-  --color-bg: #eef1f8;
-  --color-surface: #ffffff;
-  --color-surface-2: #edf1f9;
-  --color-surface-3: #e3e9f5;
-  --color-surface-hover: #d8e0f2;
-  --color-surface-sunken: #e2e7f2;
-  --color-surface-raised: #f8f9fc;
-
-  --color-border: #cdd5e8;
-  --color-border-strong: #a4b0cc;
-
-  --color-text: #080f20;
-  --color-text-2: #36487a;
-  --color-text-muted: #7a8ebc;
-  --color-text-inverse: #ffffff;
-
-  --color-accent: #2558d8;
-  --color-accent-dim: #dce8ff;
-  --color-accent-text: #1a48c0;
-  --color-accent-hover: #1a47c0;
-
-  --color-danger: #c22020;
-  --color-danger-dim: #fde8e8;
-  --color-danger-hover: #a01818;
-
-  --shadow-1: 0 1px 2px rgba(15, 26, 51, 0.1);
-  --shadow-2: 0 4px 12px rgba(15, 26, 51, 0.14);
-  --shadow-3: 0 12px 32px rgba(15, 26, 51, 0.18);
-  --shadow-inset: inset 0 1px 2px rgba(15, 26, 51, 0.06);
-
-  --color-border-subtle: #dde3ef;
-
-  --status-queued-bg: #e8edf8;
-  --status-queued-text: #445888;
-  --status-running-bg: #dce8ff;
-  --status-running-text: #1a47c0;
-  --status-success-bg: #d6f4e0;
-  --status-success-text: #126636;
-  --status-failed-bg: #fde8e8;
-  --status-failed-text: #c22020;
-  --status-review-bg: #fff0d0;
-  --status-review-text: #8a5c08;
-  --status-stopped-bg: #fde8e8;
-  --status-stopped-text: #9a1818;
-  --status-paused-bg: #edf0f8;
-  --status-paused-text: #4a5880;
-  --status-neutral-bg: #edf0f8;
-  --status-neutral-text: #5a6880;
+  --status-queued-bg: #142033;
+  --status-queued-text: #7f97b8;
+  --status-running-bg: #08263a;
+  --status-running-text: #38bdf8;
+  --status-success-bg: #072318;
+  --status-success-text: #22c55e;
+  --status-failed-bg: #300c0c;
+  --status-failed-text: #ef4444;
+  --status-review-bg: #2a1e06;
+  --status-review-text: #eab308;
+  --status-stopped-bg: #300c0c;
+  --status-stopped-text: #b91c1c;
+  --status-paused-bg: #16233a;
+  --status-paused-text: #6b83a8;
+  --status-neutral-bg: #0f1626;
+  --status-neutral-text: #5c7196;
 
   --color-success: var(--status-success-text);
   --color-warning: var(--status-review-text);
   --color-info: var(--status-running-text);
 }
 
-/* ---- Crimson palette (dark base, red accent) ------------------
-   Same near-black instrument panel as the primary dark theme, warmed a few
-   degrees toward red so the crimson accent reads as the room's own light.
-   Accent (pink-red crimson) and danger (orange-red vermilion) sit on
-   different hue lanes so the Emergency Stop never blends into accent chrome.
-   Success stays green - meaning outranks palette. UI = Rajdhani (sharp
-   condensed), display = Oxanium. */
-[data-theme="red"] {
-  color-scheme: dark;
-
-  --font-ui: "Rajdhani", "JetBrains Mono", ui-monospace, sans-serif;
-  --font-display: "Oxanium", "Rajdhani", ui-monospace, sans-serif;
-
-  --color-bg: #0b0708;
-  --color-surface: #150a0d;
-  --color-surface-2: #1d0f13;
-  --color-surface-3: #27151a;
-  --color-surface-hover: #311a20;
-  --color-surface-sunken: #070405;
-  --color-surface-raised: #221317;
-
-  --color-border: #351b21;
-  --color-border-strong: #4c2831;
-  --color-border-subtle: #1e1014;
-
-  --color-text: #f2dde1;
-  --color-text-2: #c68f99;
-  --color-text-muted: #7e4a55;
-  --color-text-inverse: #0b0708;
-
-  --color-accent: #e0273f;
-  --color-accent-dim: #380c12;
-  --color-accent-text: #ff909c;
-  --color-accent-hover: #f43b52;
-
-  --color-danger: #ff5a34;
-  --color-danger-dim: #351305;
-  --color-danger-hover: #ff704d;
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.36);
-  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.48);
-  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.34);
-
-  --status-queued-bg: #1e1014;
-  --status-queued-text: #b08088;
-  --status-running-bg: #380c12;
-  --status-running-text: #e0273f;
-  --status-success-bg: #0b2416;
-  --status-success-text: #33c266;
-  --status-failed-bg: #351305;
-  --status-failed-text: #ff5a34;
-  --status-review-bg: #2a1a06;
-  --status-review-text: #e0a422;
-  --status-stopped-bg: #2a0c0e;
-  --status-stopped-text: #c0212f;
-  --status-paused-bg: #241016;
-  --status-paused-text: #b26a76;
-  --status-neutral-bg: #1d0f13;
-  --status-neutral-text: #9a6a74;
-
-  --color-success: var(--status-success-text);
-  --color-warning: var(--status-review-text);
-  --color-info: var(--status-running-text);
-}
-
-/* ---- Solo-Leveling palette (dark base, system-window blue/violet) ----
-   The anime "system" panels: a near-black midnight-blue field lit by glowing
-   azure edges, with violet as the secondary hum (paused/queued lanes). Accent
-   is the bright system azure; danger is rose so it stays legible against all
-   the blue. UI = Chakra Petch (readable techy sans), display = Orbitron (the
-   angular status-window wordmark face). */
-[data-theme="solo-leveling"] {
-  color-scheme: dark;
-
-  --font-ui: "Chakra Petch", "JetBrains Mono", ui-monospace, sans-serif;
-  --font-display: "Orbitron", "Chakra Petch", ui-monospace, sans-serif;
-
-  --color-bg: #05060f;
-  --color-surface: #0a0e20;
-  --color-surface-2: #0f1531;
-  --color-surface-3: #161d41;
-  --color-surface-hover: #1d2653;
-  --color-surface-sunken: #03040a;
-  --color-surface-raised: #141b3b;
-
-  --color-border: #223066;
-  --color-border-strong: #35468f;
-  --color-border-subtle: #16203f;
-
-  --color-text: #dfe6ff;
-  --color-text-2: #90a2da;
-  --color-text-muted: #4c5a92;
-  --color-text-inverse: #05060f;
-
-  --color-accent: #4d8bff;
-  --color-accent-dim: #0e1b4c;
-  --color-accent-text: #9cbcff;
-  --color-accent-hover: #6ea0ff;
-
-  --color-danger: #ff3b5c;
-  --color-danger-dim: #2e0a15;
-  --color-danger-hover: #ff5673;
-
-  /* Blue-black shadows with an azure rim so panels feel back-lit, not just dark. */
-  --shadow-1: 0 1px 2px rgba(0, 6, 24, 0.5);
-  --shadow-2: 0 4px 14px rgba(0, 6, 24, 0.55);
-  --shadow-3: 0 12px 36px rgba(2, 10, 40, 0.62);
-  --shadow-inset: inset 0 1px 2px rgba(0, 4, 20, 0.5);
-
-  --status-queued-bg: #141a38;
-  --status-queued-text: #8090c8;
-  --status-running-bg: #0e1b4c;
-  --status-running-text: #4d8bff;
-  --status-success-bg: #08221e;
-  --status-success-text: #22d3aa;
-  --status-failed-bg: #2e0a15;
-  --status-failed-text: #ff3b5c;
-  --status-review-bg: #231d08;
-  --status-review-text: #e0b23a;
-  --status-stopped-bg: #2a0a13;
-  --status-stopped-text: #d0264a;
-  --status-paused-bg: #1a1a3c;
-  --status-paused-text: #8f8fe0;
-  --status-neutral-bg: #0f1531;
-  --status-neutral-text: #6878b0;
-
-  --color-success: var(--status-success-text);
-  --color-warning: var(--status-review-text);
-  --color-info: var(--status-running-text);
+/* Libra Heart — a 7px bitmap/pixel display face (self-hosted, offline). Used for
+   the brand wordmark + display/section titles; NOT for body/UI (it's aliased and
+   cramped at reading sizes, so --font-ui/--font-mono stay on readable faces). */
+@font-face {
+  font-family: "The Libra Heart Font";
+  src: url("../assets/fonts/the-libra-heart-font.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
 /* ---- Base ----------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* Wayland/fractional-scaling can round 100vw past the client area and crop the
+     right edge — clamp horizontal overflow at the root so nothing bleeds off. */
+  max-width: 100%;
+  overflow-x: hidden;
+}
 html,
 body {
   background-color: var(--color-bg);
@@ -382,15 +228,38 @@ html.reduced-effects * {
    ================================================================ */
 .app-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
-  height: 100vh;
-  width: 100vw;
+  /* minmax(0, 1fr) — NOT plain 1fr. A `1fr` track's implicit minimum is
+     min-content, so the main column would grow to its widest child (a data
+     table, a long line) and push the whole app past the viewport, clipping the
+     right edge. minmax(0, …) lets the column shrink so the inner min-width:0 /
+     overflow rules can actually contain the content. */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   transition: grid-template-columns var(--tx-base);
 }
 
 html.sidebar-collapsed .app-shell {
-  grid-template-columns: var(--sidebar-w-collapsed) 1fr;
+  grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
+}
+
+/* Rail removed → nav is a FIXED floating hamburger (see .topnav). No reserved
+   row: when the menu is closed there's no bar at all, so the page owns the full
+   height (minimize/maximize). The bar only materializes while open. */
+.app-shell--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Open menu reserves the bar's height so the icons never sit over page content;
+   closed, there's no padding and the page is full-height. Transition = the
+   content glides down as the bar opens. */
+.app-main {
+  transition: padding-top 0.28s ease;
+}
+html.nav-open .app-main {
+  padding-top: 54px;
 }
 
 html.reduced-effects .app-shell {
@@ -1426,6 +1295,20 @@ html.reduced-effects .dot--running {
   color: var(--color-text-2);
   letter-spacing: 0.04em;
   line-height: 1.3;
+  /* Animated label: shifts to accent + eases forward while its control is focused. */
+  transition: color 0.2s ease, transform 0.2s ease, letter-spacing 0.2s ease;
+  transform-origin: left center;
+}
+.field:focus-within .field__label {
+  color: var(--color-accent-text);
+  transform: translateX(3px);
+  letter-spacing: 0.07em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .field__label,
+  .cc-field__label {
+    transition: none;
+  }
 }
 
 .field__label--required::after {
@@ -1477,6 +1360,12 @@ html.reduced-effects .dot--running {
     5px 5px;
   background-repeat: no-repeat;
   color: var(--color-text);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.field__select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 
 /* Firefox: kill the dotted focus outline inside the native <select> - our
@@ -1887,6 +1776,11 @@ html.reduced-effects .dot--running {
   border-radius: var(--radius-md);
   background: var(--color-surface);
 }
+/* `display: grid` beats the UA [hidden] rule, so hide explicitly when the
+   calibration panel takes over (keeps the list DOM mounted underneath). */
+.three-pane[hidden] {
+  display: none;
+}
 
 .three-pane__panel {
   overflow-y: auto;
@@ -1906,6 +1800,10 @@ html.reduced-effects .dot--running {
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-2);
   flex-shrink: 0;
+  /* Stay pinned while the panel body scrolls (the panel is the scroll box). */
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .panel-header__title {
@@ -1985,8 +1883,8 @@ html.reduced-effects .dot--running {
 /* ---- CV card grid --------------------------------------------- */
 .cv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-4);
 }
 
 .cv-card {
@@ -2063,12 +1961,18 @@ html.reduced-effects .dot--running {
 .score-bar-label {
   font-size: var(--text-xs);
   color: var(--color-text-2);
-  width: 100px;
-  flex-shrink: 0;
+  /* 100px basis for column alignment when there's room; shrinks with ellipsis
+     on narrow layouts so the track is never crushed off-screen. */
+  flex: 0 1 100px;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .score-bar {
   flex: 1;
+  min-width: 0;
   height: 4px;
   background: var(--color-surface-3);
   border-radius: 2px;
@@ -2849,6 +2753,20 @@ html.reduced-effects .dot--running {
   max-width: 100%;
 }
 
+/* Every flex child of a scrolling `.page` must be allowed to shrink below its
+   content's intrinsic width. Otherwise one wide child — a data table, a long
+   monospace run-meta line — forces the whole page wider than the viewport, and
+   the `overflow:hidden` outlet clips every sibling. That was the CV-analysis
+   bug: the history table stretched `.page`, so the summary card and match bar
+   above it were cut off on the right. `min-width:0` lets internal wrapping and
+   the table's own `overflow-x:auto` engage instead. */
+.page > * {
+  min-width: 0;
+}
+.table-wrapper {
+  min-width: 0;
+}
+
 /* ================================================================
    Small shared primitives - motion & focus ring.
    These are used across new form controls and reused by page lanes.
@@ -2931,4 +2849,486 @@ html.is-dragscroll,
 html.is-dragscroll * {
   cursor: grabbing !important;
   user-select: none !important;
+}
+
+/* ================================================================
+   HUD command-center shell — single theme, macOS chrome
+   Appended in the 2026 frontend rework. The old .sidebar / .cmd-masthead /
+   .event-log rules above are dead (no matching elements) and can be pruned.
+   ================================================================ */
+
+/* Workspace fills the flex column now that the event-log drawer is gone. */
+.app-main > .page-outlet {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---- Left rail ---- */
+.hud-rail {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  height: 100vh;
+  padding: var(--sp-3);
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface-sunken) 100%);
+  border-right: 1px solid var(--color-border);
+}
+.hud-rail--collapsed {
+  padding: var(--sp-3) var(--sp-2);
+}
+
+.hud-rail__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 32px;
+}
+.hud-rail--collapsed .hud-rail__head {
+  justify-content: center;
+}
+.hud-rail__brand {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--text-lg);
+  letter-spacing: var(--ls-wide);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* Hamburger — the app's ONE animated control (bars morph to an X on collapse) */
+.hud-burger {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-2);
+  cursor: pointer;
+}
+.hud-burger:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--hud-glow);
+}
+.hud-burger__bar {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-text-2);
+  transform-origin: center;
+  transition:
+    transform var(--tx-base),
+    opacity var(--tx-fast),
+    background var(--tx-fast);
+}
+.hud-burger:hover .hud-burger__bar {
+  background: var(--color-accent);
+}
+.hud-burger--open .hud-burger__bar:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+.hud-burger--open .hud-burger__bar:nth-child(2) {
+  opacity: 0;
+}
+.hud-burger--open .hud-burger__bar:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+html.reduced-effects .hud-burger__bar {
+  transition: none;
+}
+
+/* Operator identity chip */
+.hud-rail__ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-surface-2);
+}
+.hud-rail__ident-key {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wider);
+  color: var(--color-text-muted);
+}
+.hud-rail__ident-val {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Nav */
+.hud-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.hud-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hud-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.hud-nav__label {
+  padding: 0 var(--sp-2);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-widest);
+  color: var(--color-text-muted);
+}
+.hud-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--color-text-2);
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  transition:
+    background var(--tx-fast),
+    color var(--tx-fast),
+    border-color var(--tx-fast);
+}
+.hud-rail--collapsed .hud-nav__link {
+  justify-content: center;
+  padding: var(--sp-2);
+}
+.hud-nav__link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.hud-nav__link--active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent-text);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+/* Foot */
+.hud-rail__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.hud-rail--collapsed .hud-rail__foot {
+  align-items: center;
+}
+.hud-rail__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* ---- HUD corner-bracket signature — used sparingly on key panel headers ---- */
+.hud-frame {
+  position: relative;
+}
+.hud-frame::before,
+.hud-frame::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  border-color: var(--color-accent);
+  opacity: 0.7;
+}
+.hud-frame::before {
+  top: 0;
+  left: 0;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+.hud-frame::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}
+
+/* ============================================================================
+   Top navigation — a transparent bar carrying only a top-right hamburger. It
+   expands the destinations into a horizontal line of icons that fan out
+   right-to-left. First grid row → page content sits below it.
+   ========================================================================== */
+.topnav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--sp-4);
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  /* Closed = no bar: let clicks fall through to the page; only the button (and,
+     when open, the icon row) are interactive. */
+  pointer-events: none;
+  z-index: 200;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+/* The bar only materializes while the menu is open. */
+.topnav--open {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-surface-2) 94%, transparent),
+    color-mix(in srgb, var(--color-surface) 88%, transparent)
+  );
+  border-bottom-color: var(--color-border);
+  backdrop-filter: blur(8px);
+}
+/* Destinations: a horizontal line fanning right-to-left from the hamburger
+   (row-reverse → first item sits nearest the button). Collapsed = gone. */
+.topnav__list {
+  list-style: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  margin: 0;
+  padding: 0 56px 0 0; /* keep the centered row clear of the right-pinned button */
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: auto;
+  transition: max-width 0.3s ease, opacity 0.2s ease;
+}
+.topnav__list--open {
+  max-width: 100%;
+  opacity: 1;
+}
+.topnav__list li {
+  list-style: none;
+}
+.topnav__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  border: 1px solid transparent;
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+.topnav__link:hover {
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  transform: translateY(-1px);
+}
+.topnav__link--active {
+  color: var(--color-accent-text);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  border-color: var(--color-accent);
+}
+/* Hamburger — pinned top-right, always interactive (even when the bar is
+   otherwise click-through), always visible so the menu can be re-opened. */
+.topnav__burger {
+  position: absolute;
+  right: var(--sp-4);
+  top: 6px;
+  pointer-events: auto;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  /* #6 morph: the whole button pivots 45° last, after the bars have folded. */
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.3s ease-in-out;
+}
+.topnav__burger:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.topnav__burger-bar {
+  width: 20px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-text);
+  transition: transform 0.3s ease-in-out, width 0.3s ease-in-out, opacity 0.22s ease;
+}
+/* Hamburger animation #6 (from LO's 12-pack): middle bar shrinks to nothing,
+   top & bottom fold to center — one rotating 90° — then the button pivots 45°
+   on a stagger, so it resolves into a tidy cross. */
+.topnav__burger--open {
+  transition-delay: 0.6s;
+  transform: rotate(45deg);
+}
+.topnav__burger--open .topnav__burger-bar:nth-child(2) {
+  width: 0;
+}
+.topnav__burger--open .topnav__burger-bar:nth-child(1),
+.topnav__burger--open .topnav__burger-bar:nth-child(3) {
+  transition-delay: 0.3s;
+}
+.topnav__burger--open .topnav__burger-bar:nth-child(1) {
+  transform: translateY(7px);
+}
+.topnav__burger--open .topnav__burger-bar:nth-child(3) {
+  transform: translateY(-7px) rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .topnav__list,
+  .topnav__link,
+  .topnav__burger,
+  .topnav__burger-bar {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+   Themed dropdown (Dropdown component) — trigger + styled option popover.
+   Replaces native <select> so the option list matches the theme (no black OS list).
+   ========================================================================== */
+.dd {
+  position: relative;
+  display: inline-block;
+}
+.dd__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.dd__trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+}
+.dd__trigger.is-open,
+.dd__trigger:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.dd__trigger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.dd__value {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd__value--placeholder {
+  color: var(--color-text-muted);
+}
+.dd__caret {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 0.16s ease;
+}
+.dd__trigger.is-open .dd__caret {
+  transform: rotate(180deg);
+}
+.dd__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  min-width: max-content;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.4);
+  animation: dd-pop 0.14s ease;
+}
+@keyframes dd-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.dd__pop-title {
+  font-family: var(--font-title);
+  font-size: var(--text-sm);
+  padding: 2px var(--sp-2) var(--sp-1);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 2px;
+}
+.dd__action {
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.dd__action:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.dd__action.is-active {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd__pop,
+  .dd__caret {
+    animation: none;
+    transition: none;
+  }
 }

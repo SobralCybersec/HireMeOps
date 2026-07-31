@@ -1,10 +1,8 @@
 //! Heuristic section-heading detection over extracted CV text.
-//!
-//! Deliberately dependency-free and deterministic so it is trivially unit
-//! tested: a line is a heading when it is short, mostly alphabetic, and either
-//! ALL-CAPS or matches a canonical CV section name.
+//! Key: `detect_sections` — line-by-line scan, dedup + Title-Case output.
+//! Key: `CANONICAL` — recognised CV section names (matched even when not ALL-CAPS).
+//! Key: `is_heading_shaped` / `is_all_caps` — the two heuristics gating a heading match.
 
-/// Canonical CV section names recognised even when not ALL-CAPS.
 const CANONICAL: &[&str] = &[
     "summary",
     "profile",
@@ -30,11 +28,9 @@ const CANONICAL: &[&str] = &[
     "contact",
 ];
 
-/// Detect section headings in document order (deduped, Title-Cased).
 pub fn detect_sections(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in text.lines() {
-        // Headings often end with a colon ("Skills:"); strip it before testing.
         let line = raw.trim().trim_end_matches(':').trim();
         if line.is_empty() || line.chars().count() > 40 {
             continue;
@@ -54,7 +50,6 @@ pub fn detect_sections(text: &str) -> Vec<String> {
     out
 }
 
-/// Mostly-alphabetic and free of sentence punctuation (which would signal prose).
 fn is_heading_shaped(line: &str) -> bool {
     let letters = line.chars().filter(|c| c.is_alphabetic()).count();
     let non_space = line.chars().filter(|c| !c.is_whitespace()).count();
@@ -64,7 +59,6 @@ fn is_heading_shaped(line: &str) -> bool {
     !line.contains(['.', ',', ';', '!', '?'])
 }
 
-/// True when the line has at least one letter and no lowercase letters.
 fn is_all_caps(line: &str) -> bool {
     let mut has_alpha = false;
     for c in line.chars() {
@@ -78,7 +72,6 @@ fn is_all_caps(line: &str) -> bool {
     has_alpha
 }
 
-/// Title-case each whitespace-separated word.
 fn title_case(line: &str) -> String {
     line.split_whitespace()
         .map(|w| {
@@ -136,21 +129,18 @@ Contact
 
     #[test]
     fn colon_stripped_before_canonical_check() {
-        // "Skills:" → strip colon → "Skills" → canonical → detected.
         let text = "Skills:\nRust, Python\n";
         assert_eq!(detect_sections(text), vec!["Skills"]);
     }
 
     #[test]
     fn non_canonical_all_caps_is_detected() {
-        // "PORTFOLIO" is not in CANONICAL but is ALL_CAPS → should appear.
         let text = "PORTFOLIO\nsome detail\n";
         assert_eq!(detect_sections(text), vec!["Portfolio"]);
     }
 
     #[test]
     fn line_over_40_chars_is_ignored() {
-        // 41 characters: well past the heading length gate.
         let long = "A".repeat(41);
         let text = format!("{long}\nSummary\n");
         let got = detect_sections(&text);
@@ -159,14 +149,12 @@ Contact
 
     #[test]
     fn sentence_punctuation_rejects_heading_candidate() {
-        // A period marks prose — even a short, canonical-looking line must be rejected.
         let text = "Hello, world.\nExperience\n";
         assert_eq!(detect_sections(text), vec!["Experience"]);
     }
 
     #[test]
     fn title_case_applied_to_all_caps_heading() {
-        // ALL-CAPS headings are title-cased in the output.
         let text = "WORK EXPERIENCE\n";
         let got = detect_sections(text);
         assert_eq!(got, vec!["Work Experience"]);

@@ -1,20 +1,17 @@
-//! Application event bus.
-//!
-//! Backend features push [`AppEvent`]s to the frontend over a single Tauri
-//! channel ([`EVENT_CHANNEL`]). The frontend's event store subscribes once and
-//! fans out — no polling. The wire shape is deliberately transport-agnostic so
-//! an SSE/WebSocket adapter can replace the Tauri channel later.
+//! Application event bus: backend features push `AppEvent`s to the frontend
+//! over a single Tauri channel (`EVENT_CHANNEL`); the frontend's event store
+//! subscribes once and fans out, no polling.
+//! Key: `AppEvent` / `AppEventType` — the event envelope and its wire-contract discriminant.
+//! Key: `EventEmitter::emit_app_event()` — `AppHandle` extension used by every emitter call site.
+//! Key: `EVENT_CHANNEL` — the single Tauri channel name shared with the frontend.
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::util::{new_id, now_iso};
 
-/// The single Tauri event name every [`AppEvent`] is emitted on.
 pub const EVENT_CHANNEL: &str = "hiremeops://event";
 
-/// Discriminant for every kind of event the backend can raise. The string
-/// forms are the contract shared verbatim with the frontend's `AppEventType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AppEventType {
     #[serde(rename = "cv.import.started")]
@@ -43,17 +40,12 @@ pub enum AppEventType {
     AutomationEvidenceSaved,
     #[serde(rename = "automation.stopped")]
     AutomationStopped,
-    /// Authoritative automation lifecycle state for the cockpit, driven by the
-    /// backend engine (never guessed optimistically by the frontend). Payload:
-    /// `{ state: "<AutomationState>", taskId?: string, detail?: string }`.
     #[serde(rename = "automation.state")]
     AutomationStateChanged,
     #[serde(rename = "log")]
     Log,
 }
 
-/// A single event delivered to the UI. Field names serialize to camelCase to
-/// match the TypeScript `AppEvent` interface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppEvent {
@@ -93,7 +85,6 @@ impl AppEvent {
     }
 }
 
-/// Emit an [`AppEvent`] from any Tauri handle.
 pub trait EventEmitter {
     fn emit_app_event(&self, event: AppEvent);
 }

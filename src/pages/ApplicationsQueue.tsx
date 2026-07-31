@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import type { ApplicationStatus, JobStatus } from "../types/domain";
+import type { ApplicationStatus, AutomationState, JobStatus } from "../types/domain";
 import {
   Badge,
   Button,
@@ -13,13 +12,31 @@ import {
   ToolbarSep,
   ToolbarSpacer,
   applicationStatusVariant,
+  automationVariant,
   humanizeStatus,
 } from "../components/ui";
 import type { Column } from "../components/ui";
 import { useJobStore } from "../stores/useJobStore";
 import { useProfileStore } from "../stores/useProfileStore";
+import { useAutomationStore } from "../stores/useAutomationStore";
 import { useAnime } from "../lib/useAnime";
 import { animate, stagger } from "animejs";
+
+/* Automation lifecycle states that mean "not actively running" — Start is
+   available and Stop is not. Mirrors the engine's terminal/idle set. */
+const IDLE_STATES: AutomationState[] = [
+  "Queued",
+  "Stopped",
+  "Failed",
+  "Completed",
+  "PausedByUser",
+  "RetryScheduled",
+  "SkippedDuplicateUrl",
+];
+
+function humanState(state: AutomationState): string {
+  return state.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -132,9 +149,30 @@ function buildColumns(onReview: () => void): Column<ApplicationRow>[] {
 
 export function ApplicationsQueue() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
-  const navigate = useNavigate();
 
   const activeProfileId = useProfileStore((s) => s.activeProfileId);
+
+  // Automation engine — the LinkedIn Easy Apply run is human-in-the-loop: Start
+  // drains queued apply_job tasks, the engine fills each form and PARKS at the
+  // Submit button (state → "NeedsReview"), and the operator confirms or discards
+  // it here. (The old Automation Cockpit page that owned these controls was
+  // removed, orphaning the flow — this restores it.)
+  const autoState = useAutomationStore((s) => s.state);
+  const autoDetail = useAutomationStore((s) => s.detail);
+  const autoError = useAutomationStore((s) => s.error);
+  const start = useAutomationStore((s) => s.start);
+  const pause = useAutomationStore((s) => s.pause);
+  const resume = useAutomationStore((s) => s.resume);
+  const stop = useAutomationStore((s) => s.stop);
+  const confirmSubmit = useAutomationStore((s) => s.confirmSubmit);
+  const rejectSubmit = useAutomationStore((s) => s.rejectSubmit);
+  const clearError = useAutomationStore((s) => s.clearError);
+
+  const isIdle = IDLE_STATES.includes(autoState);
+  const isPaused = autoState === "PausedByUser";
+  const isRunning = !isIdle && !isPaused;
+  const needsReview = autoState === "NeedsReview";
+  const automationRef = useRef<HTMLDivElement>(null);
   // Narrow selectors (not a whole-store destructure) so this page only
   // re-renders when a field it actually reads changes - `error` lives in
   // this store too but only JobSearch's banner needs it.
@@ -201,9 +239,25 @@ export function ApplicationsQueue() {
     [allRows],
   );
 
-  // The automation browser remains open on a human-handoff outcome. Take the
-  // operator to the cockpit instead of generating a second draft.
-  const handleReview = useCallback(() => navigate("/automation"), [navigate]);
+  // A needs-review row points the operator at the parked-submit controls below;
+  // the real form review happens in the live browser window.
+  const handleReview = useCallback(() => {
+    automationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const refreshRows = useCallback(() => {
+    if (activeProfileId) void loadJobs(activeProfileId);
+  }, [activeProfileId, loadJobs]);
+
+  const handleConfirm = useCallback(async () => {
+    await confirmSubmit();
+    refreshRows();
+  }, [confirmSubmit, refreshRows]);
+
+  const handleDiscard = useCallback(async () => {
+    await rejectSubmit();
+    refreshRows();
+  }, [rejectSubmit, refreshRows]);
 
   // buildColumns is pure over the two callbacks - memoize so DataTable gets a
   // stable columns array instead of a brand-new one (and new render closures
@@ -235,6 +289,107 @@ export function ApplicationsQueue() {
         <h1 className="page-title">Applications Queue</h1>
         <span className="page-subtitle">{subtitle}</span>
       </div>
+
+      {/* Automation engine controls + parked-submit review (LinkedIn Easy Apply). */}
+      <section
+        ref={automationRef}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--sp-3)",
+          padding: "var(--sp-4)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-md)",
+          background: "var(--color-surface)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <StatusDot variant={automationVariant(autoState)} />
+            <strong>{humanState(autoState)}</strong>
+          </span>
+          {autoDetail && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+              {autoDetail}
+            </span>
+          )}
+          <ToolbarSpacer />
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void start()}
+            disabled={isRunning || isPaused}
+            title="Drain queued applications through the browser engine"
+          >
+            Start run
+          </Button>
+          <Button size="sm" onClick={() => void pause()} disabled={!isRunning}>
+            Pause
+          </Button>
+          <Button size="sm" onClick={() => void resume()} disabled={!isPaused}>
+            Resume
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void stop()}
+            disabled={autoState === "Stopped" || (isIdle && autoState !== "RetryScheduled")}
+          >
+            Stop
+          </Button>
+        </div>
+
+        {needsReview && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "var(--sp-3)",
+              padding: "var(--sp-3)",
+              border: "1px solid var(--color-warning, #b7791f)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--color-surface-2)",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: "16rem" }}>
+              <strong style={{ fontSize: "var(--text-sm)" }}>Filled — parked at Submit.</strong>
+              <p style={{ margin: "var(--sp-1) 0 0", fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                Review the form in the browser window. Nothing is submitted automatically — confirm to
+                send it, or discard to skip this application.
+              </p>
+            </div>
+            <Button variant="primary" size="sm" onClick={() => void handleConfirm()}>
+              Confirm &amp; Submit
+            </Button>
+            <Button size="sm" onClick={() => void handleDiscard()}>
+              Discard
+            </Button>
+          </div>
+        )}
+
+        {autoError && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--sp-2)",
+              fontSize: "var(--text-xs)",
+              color: "var(--color-danger, #c0392b)",
+            }}
+          >
+            {autoError}
+            <button
+              type="button"
+              onClick={clearError}
+              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+            >
+              dismiss
+            </button>
+          </div>
+        )}
+      </section>
 
       <Toolbar>
         <div
