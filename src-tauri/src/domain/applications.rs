@@ -368,14 +368,12 @@ impl ApplicationService for ApplicationServiceImpl {
         }
 
         let cv_path: Option<String> = match &cv_document_id {
-            Some(id) => {
-                sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .ok()
-                    .flatten()
-            }
+            Some(id) => sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .ok()
+                .flatten(),
             None => None,
         };
 
@@ -427,16 +425,15 @@ async fn contact_fact_answers(
     profile_id: &str,
     role_variant_id: Option<&str>,
 ) -> DomainResult<Vec<serde_json::Value>> {
-    let facts: std::collections::HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>(
-            "SELECT fact_key, fact_value FROM profile_facts WHERE profile_id = ?1",
-        )
-        .bind(profile_id)
-        .fetch_all(&mut **tx)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+    let facts: std::collections::HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT fact_key, fact_value FROM profile_facts WHERE profile_id = ?1",
+    )
+    .bind(profile_id)
+    .fetch_all(&mut **tx)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
 
     let contact = match role_variant_id {
         Some(vid) => sqlx::query_scalar::<_, Option<String>>(
@@ -479,10 +476,17 @@ async fn contact_fact_answers(
         ),
         (&["linkedin"], fact("linkedin")),
         (&["github"], fact("github")),
-        (&["portfolio", "website", "personal website", "site"], website),
+        (
+            &["portfolio", "website", "personal website", "site"],
+            website,
+        ),
         (&["email address", "e-mail"], email),
         (
-            &["work authorization", "autorização de trabalho", "elegível para trabalhar"],
+            &[
+                "work authorization",
+                "autorização de trabalho",
+                "elegível para trabalhar",
+            ],
             fact("brazilWorkAuth"),
         ),
         (

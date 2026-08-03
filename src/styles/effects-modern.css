@@ -1,0 +1,327 @@
+/* Modern CSS effects (re-authored from efeitos-css-modernos as pure-CSS, token-wired classes).
+ * Dependency-free; every looping effect is GPU-composited (transform/opacity/background-position/
+ * registered <angle> only) and guarded for reduced motion. Two effects (.fx-spotlight, .fx-tilt)
+ * need a tiny pointer handler in JS — see the components that use them.
+ */
+
+/* Blanket reduced-motion fallback — every animated class degrades even without a per-effect guard. */
+@media (prefers-reduced-motion: reduce) {
+  .fx-aurora *,
+  .fx-orbs *,
+  [class*="fx-"],
+  [class*="fx-"]::before,
+  [class*="fx-"]::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 1. Glassmorphism surface */
+.fx-glass {
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 8px 40px rgb(0 0 0 / 0.4),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 22%, transparent);
+}
+
+/* 2. Aurora mesh-gradient background */
+.fx-aurora {
+  position: relative;
+  isolation: isolate;
+}
+.fx-aurora::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  background:
+    radial-gradient(35% 45% at 20% 30%, color-mix(in srgb, var(--color-accent) 45%, transparent), transparent 70%),
+    radial-gradient(40% 40% at 80% 25%, color-mix(in srgb, var(--color-accent) 30%, transparent), transparent 70%),
+    radial-gradient(45% 45% at 50% 85%, color-mix(in srgb, var(--color-surface-2) 90%, transparent), transparent 70%);
+  background-size: 200% 200%;
+  filter: blur(48px) saturate(1.3);
+  opacity: 0.6;
+  animation: fx-aurora-pan 18s ease-in-out infinite;
+}
+@keyframes fx-aurora-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* 3. Ambient glow orbs background */
+.fx-orbs {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.fx-orbs::before,
+.fx-orbs::after {
+  content: "";
+  position: absolute;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.4;
+  z-index: -1;
+  will-change: transform;
+}
+.fx-orbs::before {
+  top: -6rem;
+  left: -4rem;
+  background: var(--color-accent);
+  animation: fx-orb-a 14s ease-in-out infinite alternate;
+}
+.fx-orbs::after {
+  bottom: -8rem;
+  right: -5rem;
+  background: color-mix(in srgb, var(--color-accent) 60%, var(--color-surface-2));
+  animation: fx-orb-b 18s ease-in-out infinite alternate;
+}
+@keyframes fx-orb-a { to { transform: translate(40px, 30px) scale(1.2); } }
+@keyframes fx-orb-b { to { transform: translate(-50px, -30px) scale(1.15); } }
+
+/* 4. Noise / grain overlay */
+.fx-grain {
+  position: relative;
+  isolation: isolate;
+}
+.fx-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 5. Gradient shimmer text */
+.fx-shimmer-text {
+  background-image: linear-gradient(110deg, var(--color-text-muted) 35%, var(--color-accent) 50%, var(--color-text-muted) 65%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fx-shimmer-text 2.6s linear infinite;
+}
+@keyframes fx-shimmer-text {
+  from { background-position: 150% 0; }
+  to { background-position: -150% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-shimmer-text { animation: none; background-position: 50% 0; }
+}
+
+/* 6. Shine sweep on hover */
+.fx-shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.fx-shine::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transform: translateX(-150%) skewX(-20deg);
+  background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--color-text) 35%, transparent) 50%, transparent 70%);
+}
+.fx-shine:hover::before {
+  transition: transform 0.9s ease;
+  transform: translateX(150%) skewX(-20deg);
+}
+
+/* 7. Animated gradient border (rotating conic) */
+@property --fx-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.fx-border-rotate {
+  position: relative;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  z-index: 0;
+}
+.fx-border-rotate::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(from var(--fx-angle), transparent 0deg, var(--color-accent) 90deg, color-mix(in srgb, var(--color-accent) 40%, transparent) 180deg, transparent 300deg);
+  animation: fx-border-spin 4s linear infinite;
+}
+@keyframes fx-border-spin { to { --fx-angle: 360deg; } }
+
+/* 8. Border beam (traveling bead) */
+.fx-beam {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.fx-beam::after {
+  content: "";
+  position: absolute;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-accent), transparent 70%);
+  offset-path: border-box;
+  offset-distance: 0%;
+  animation: fx-beam-run 3s linear infinite;
+}
+@keyframes fx-beam-run { to { offset-distance: 100%; } }
+@media (prefers-reduced-motion: reduce) { .fx-beam::after { display: none; } }
+
+/* 9. Hover-lift card */
+.fx-lift {
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+  will-change: transform;
+}
+.fx-lift:hover {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  box-shadow:
+    0 12px 32px rgb(0 0 0 / 0.35),
+    0 0 24px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+@media (prefers-reduced-motion: reduce) { .fx-lift:hover { transform: none; } }
+
+/* 10. Skeleton shimmer */
+.fx-skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--color-surface-2) 25%, color-mix(in srgb, var(--color-text) 12%, var(--color-surface-2)) 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: fx-skeleton 1.4s linear infinite;
+}
+@keyframes fx-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 11. Focus / neon glow ring */
+.fx-focus-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.fx-focus-glow:focus-visible,
+.fx-focus-glow:focus-within {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow:
+    0 0 0 1px var(--color-accent),
+    0 0 18px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+/* 12. Animated underline (hover grow) */
+.fx-underline {
+  position: relative;
+}
+.fx-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  height: 2px;
+  width: 100%;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fx-underline:hover::after,
+.fx-underline[aria-current="page"]::after { transform: scaleX(1); }
+
+/* 13. Pulse radar status dot */
+.fx-ping {
+  position: relative;
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.fx-ping::before,
+.fx-ping::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-accent);
+  animation: fx-ping 2s ease-out infinite;
+}
+.fx-ping::after { animation-delay: 1s; }
+@keyframes fx-ping {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(4); opacity: 0; }
+}
+
+/* 14. Spotlight follow (needs pointer handler writing --fx-mx/--fx-my) */
+.fx-spotlight {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.fx-spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(18rem 18rem at var(--fx-mx, 50%) var(--fx-my, 50%), color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 60%);
+}
+.fx-spotlight:hover::before { opacity: 1; }
+
+/* B1. 3D tilt (needs pointer handler writing --fx-rx/--fx-ry) */
+.fx-tilt {
+  transform: perspective(700px) rotateX(var(--fx-rx, 0deg)) rotateY(var(--fx-ry, 0deg));
+  transform-style: preserve-3d;
+  transition: transform 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) { .fx-tilt { transform: none; transition: none; } }
+
+/* B2. HUD scanline overlay */
+.fx-scanlines {
+  position: relative;
+  isolation: isolate;
+}
+.fx-scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(transparent 0 2px, color-mix(in srgb, var(--color-text) 8%, transparent) 2px 4px);
+}
+.fx-scanlines::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2.5rem;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent);
+  animation: fx-scan 5s linear infinite;
+}
+@keyframes fx-scan {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(1000%); }
+}
+@media (prefers-reduced-motion: reduce) { .fx-scanlines::after { display: none; } }

@@ -8,13 +8,13 @@ edition = "2021"
 [lib]
 # The `_lib` suffix keeps the lib name unique from the bin name (Windows, cargo#8519).
 name = "hiremeops_lib"
-crate-type = ["rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,18 +22,17 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", 
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 anyhow = "1"
 thiserror = "2"
-uuid = { version = "1", features = ["v4", "serde"] }
-time = { version = "0.3", features = ["formatting", "parsing"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-directories = "6"
-pdf-extract = "0.12.0"
-lopdf = "0.43.0"
-sha2 = "0.11.0"
-tauri-plugin-dialog = "2.7.1"
-zip = "8.6.0"
-quick-xml = "0.41.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] } # entity ids (v4) + serde
+time = { version = "0.3", features = ["formatting", "parsing"] } # timestamps (std-friendly, not chrono)
+tracing = "0.1" # structured logging + spans
+tracing-subscriber = { version = "0.3", features = ["env-filter"] } # RUST_LOG filtering
+pdf-extract = "0.12.0" # read text from uploaded CV PDFs
+lopdf = "0.43.0" # write/generate CV PDFs + metadata + page count
+sha2 = "0.11.0" # content hashing (CV / AI-cache / credential fingerprints)
+tauri-plugin-dialog = "2.7.1" # native file-open dialogs
+zip = "8.6.0" # DOCX is a zip container (CV parsing)
+quick-xml = "0.41.0" # DOCX XML body parsing (CV parsing)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] } # HTTP to AI APIs
 # Cross-platform self-RSS reader for the HIREMEOPS_PERF memory logger (reads
 # /proc/self/smaps on Linux, task_info on macOS, PSAPI on Windows).
 memory-stats = "1"
@@ -51,11 +50,11 @@ chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-
 futures = { version = "0.3", optional = true }
 
 [features]
-# security crates (argon2/aes-gcm/keyring/sha2) are introduced in Phase 2
-# `real-browser` is on by default so the automation cockpit drives a real
-# Chromium/CDP session out of the box. Build with `--no-default-features` for
-# the lean build that skips chromiumoxide.
-default = ["real-browser"]
+# Lean by default: chromiumoxide (the ~70%-of-compile-time elephant) is OFF unless
+# `real-browser` is requested. Frontend/domain work builds fast with no flag; the
+# full automation cockpit is an explicit opt-in (`-f real-browser` / `--features
+# real-browser`) wired into every app run/build path (package.json, scripts/, CI).
+default = []
 # Pull in a real Chromium/CDP driver.
 real-browser = ["dep:chromiumoxide", "dep:futures"]
 

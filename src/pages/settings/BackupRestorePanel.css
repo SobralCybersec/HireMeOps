@@ -1,0 +1,13 @@
+/* Co-located responsive styles for BackupRestorePanel.
+   Toolbar wraps instead of overflowing when the settings content pane
+   narrows (`.settings-layout` keeps a fixed 172px tab rail at every size,
+   see DataCleanupPanel.css). The backup history table already scrolls
+   horizontally via `.table-wrapper` (theme.css) so it needs no extra rule
+   here. */
+
+.backup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}

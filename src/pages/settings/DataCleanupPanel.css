@@ -1,0 +1,59 @@
+/* Co-located responsive styles for DataCleanupPanel.
+   `.settings-layout` (theme.css) keeps a fixed 172px tab rail at every
+   viewport size, so the content pane is narrower than the viewport alone
+   suggests. Rows and danger-zone actions stack/wrap on their own rather
+   than relying on the shell to reflow. */
+
+.cleanup-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.cleanup-row__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cleanup-row__action {
+  flex-shrink: 0;
+}
+
+.cleanup-row__confirm {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.danger-zone__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .cleanup-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-2);
+  }
+
+  .cleanup-row__action {
+    align-self: flex-end;
+  }
+
+  .cleanup-row__confirm {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .cleanup-row {
+    padding: var(--sp-3);
+  }
+}

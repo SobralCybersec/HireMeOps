@@ -116,6 +116,7 @@ export function Profiles() {
           background: "var(--color-surface)",
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
           gap: "var(--sp-3)",
           flexShrink: 0,
         }}
@@ -130,7 +131,7 @@ export function Profiles() {
             title="Profiles"
             value={selected?.id ?? ""}
             onChange={(id) => setSelectedId(id)}
-            style={{ minWidth: "16rem" }}
+            style={{ flex: "1 1 12rem", minWidth: 0 }}
             options={profiles.map((p) => ({
               value: p.id,
               label: p.id === activeProfileId ? `${p.name} (active)` : p.name,

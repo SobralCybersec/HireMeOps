@@ -1,0 +1,42 @@
+/* Co-located styles for ApplicationDraftModal.
+ *
+ * theme.css cannot be edited by this lane, and it has no rules targeting
+ * `.application-draft-modal` - sizing/color/spacing stay inline (tokenised
+ * via var(--...), see the component's ponytail comment). The one thing inline
+ * styles can't express is keyframe animation + ::backdrop, so that lives
+ * here.
+ *
+ * Reduced motion: no local media query needed. theme.css's global guard
+ * (`html.reduced-effects * { animation-duration: 0.001ms !important }`)
+ * already neutralises these keyframes when reduced-effects is on (manual
+ * toggle or OS `prefers-reduced-motion`, per useThemeStore).
+ */
+
+.application-draft-modal {
+  animation: adm-pop-in var(--tx-base, 200ms) var(--ease-standard, ease-out);
+}
+
+.application-draft-modal::backdrop {
+  background: rgb(0 0 0 / 0.55);
+  animation: adm-backdrop-in var(--tx-base, 200ms) var(--ease-standard, ease-out);
+}
+
+@keyframes adm-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes adm-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

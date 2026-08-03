@@ -100,11 +100,12 @@ Prerequisites: Rust toolchain, Node + `pnpm`, and the Tauri 2 system dependencie
 ```bash
 pnpm install            # install frontend deps
 
-pnpm tauri dev          # run the full desktop app (Vite + Rust)
+pnpm app                # run the FULL desktop app incl. browser automation (tauri dev -f real-browser)
+pnpm tauri dev          # run the lean app (fast build, no Chromium automation)
 pnpm dev                # frontend-only preview; backend actions are unavailable
 VITE_ENABLE_MOCKS=true pnpm dev  # screenshot/demo data only
 pnpm build              # tsc && vite build (frontend production build)
-pnpm tauri build        # bundle the desktop app
+pnpm app:build          # bundle the FULL desktop app (tauri build -f real-browser)
 
 pnpm typecheck          # tsc --noEmit
 pnpm lint               # eslint .

@@ -1,0 +1,23 @@
+/* Tailwind v4 — utilities WITHOUT preflight.
+ *
+ * We intentionally skip `tailwindcss/preflight` (the global CSS reset). This app already has a full
+ * hand-rolled design system in theme.css/effects.css; importing preflight would reset every existing
+ * component. Utilities-only lets new UI (the Browser page) use Tailwind while leaving the rest intact.
+ *
+ * Custom color tokens alias our design system so `bg-surf` / `text-fg-muted` / `border-bd` match the
+ * app palette (and stay theme-aware in light/dark, since they resolve our runtime CSS variables).
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  --color-bd: var(--color-border);
+  --color-bd-subtle: var(--color-border-subtle);
+  --color-surf: var(--color-surface);
+  --color-surf-2: var(--color-surface-2);
+  --color-sunken: var(--color-surface-sunken);
+  --color-hover: var(--color-surface-hover);
+  --color-fg: var(--color-text);
+  --color-fg-muted: var(--color-text-muted);
+  --color-brand: var(--color-accent);
+}

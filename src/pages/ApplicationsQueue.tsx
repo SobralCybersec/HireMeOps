@@ -16,6 +16,7 @@ import {
   humanizeStatus,
 } from "../components/ui";
 import type { Column } from "../components/ui";
+import PreviewViewer from "../components/PreviewViewer";
 import { useJobStore } from "../stores/useJobStore";
 import { useProfileStore } from "../stores/useProfileStore";
 import { useAutomationStore } from "../stores/useAutomationStore";
@@ -337,6 +338,9 @@ export function ApplicationsQueue() {
             Stop
           </Button>
         </div>
+
+        {/* Preview viewer: Live Automation (CDP screencast) + an interactive Browser tab. */}
+        <PreviewViewer automationActive={isRunning || isPaused} className="evidence-viewer" />
 
         {needsReview && (
           <div

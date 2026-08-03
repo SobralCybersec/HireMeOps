@@ -8,9 +8,11 @@ pub mod applications;
 pub mod automation;
 pub mod cv;
 pub mod exports;
+pub mod ids;
 pub mod jobs;
 pub mod profile_sync;
 pub mod profile_variants;
+pub mod rate;
 
 use thiserror::Error;
 
@@ -22,6 +24,8 @@ pub enum DomainError {
     InvalidInput(String),
     #[error(transparent)]
     Storage(#[from] sqlx::Error),
+    #[error("{0}")]
+    Message(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

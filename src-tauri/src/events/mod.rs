@@ -26,6 +26,8 @@ pub enum AppEventType {
     JobSearchItemFound,
     #[serde(rename = "job.match.done")]
     JobMatchDone,
+    #[serde(rename = "ai.progress")]
+    AiProgress,
     #[serde(rename = "application.started")]
     ApplicationStarted,
     #[serde(rename = "application.needs_review")]

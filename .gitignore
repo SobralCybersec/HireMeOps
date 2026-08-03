@@ -34,3 +34,7 @@ HireMeOps_PROJECT_INDEX.md
 *.sln
 *.sw?
 .frontend-slides/
+
+# Timestamped source backups — never track or index
+src.backup-*/
+src.zip

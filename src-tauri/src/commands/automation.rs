@@ -6,6 +6,7 @@
 //! Key: automation_pause / automation_resume / automation_stop / automation_emergency_stop — latch control
 
 use std::sync::atomic::Ordering;
+#[cfg(feature = "real-browser")]
 use std::sync::Arc;
 
 use tauri::{AppHandle, State};
@@ -44,6 +45,7 @@ pub fn automation_start(app: AppHandle, state: State<'_, AppState>) -> Result<()
     emit_state(&app, "PreparingBrowser", None, None, None);
 
     let db = state.db.clone();
+    #[cfg(feature = "real-browser")]
     let stop = state.emergency_stop.clone();
     let app_for_engine = app.clone();
 
@@ -202,7 +204,7 @@ pub async fn automation_confirm_submit(
             emit_state(&app, "Completed", None, Some("Application submitted"), None);
         }
 
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -230,7 +232,7 @@ pub async fn automation_reject_submit(
             Some("Application dismissed by user"),
             None,
         );
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -351,7 +353,13 @@ pub async fn automation_start_indeed(
                 Some("Drafting answers for screening questions…"),
                 Some(&job_url),
             );
-            match crate::domain::automation::generate_form_answers(&state.db, &profile_id, &unanswered).await {
+            match crate::domain::automation::generate_form_answers(
+                &state.db,
+                &profile_id,
+                &unanswered,
+            )
+            .await
+            {
                 Ok((question_map, human)) => {
                     needs_human += human;
                     if !question_map.is_empty() {
@@ -383,7 +391,7 @@ pub async fn automation_start_indeed(
             "Review the SmartApply form, then confirm or reject.".to_string()
         };
         emit_state(&app, "PausedForReview", None, Some(&detail), Some(&job_url));
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -540,7 +548,7 @@ pub async fn automation_confirm_indeed_submit(
             Some("Indeed application submitted"),
             None,
         );
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -568,7 +576,7 @@ pub async fn automation_reject_indeed_submit(
             Some("Indeed application dismissed"),
             None,
         );
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
     {

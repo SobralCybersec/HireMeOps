@@ -1,12 +1,13 @@
 //! Job search + matching service: scores job posts against profile preferences and routes their lifecycle status.
 //! Key: JobSearchService — trait: run_search, score_match
 //! Key: JobSearchServiceImpl::score_match_with_preference — scores a job post against a preference, persists job_matches, routes job_posts.status
-//! Key: JobSearchServiceImpl::delete_old_scans — deletes unacted job_posts, sparing drafts/runs (age-based) or only runs (clear-all)
+//! Key: JobSearchServiceImpl::delete_old_scans — deletes scans, sparing drafts/runs (age-based) or only applied jobs (clear-all)
 //! Key: parse_json_array — tolerant JSON string-array column parser
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+use super::ids::{JobId, ProfileId};
 use super::{DomainError, DomainResult};
 use crate::matching::{
     build_explanation, score_job, select_best_cv, MatchInput, Recommendation, VariantCandidate,
@@ -17,7 +18,11 @@ use crate::util::now_iso;
 #[allow(async_fn_in_trait)]
 pub trait JobSearchService: Send + Sync {
     async fn run_search(&self, search_query_id: &str) -> DomainResult<u32>;
-    async fn score_match(&self, job_post_id: &str, profile_id: &str) -> DomainResult<String>;
+    async fn score_match(
+        &self,
+        job_post_id: &JobId,
+        profile_id: &ProfileId,
+    ) -> DomainResult<String>;
 }
 
 #[derive(sqlx::FromRow)]
@@ -63,6 +68,16 @@ fn parse_json_array(raw: &Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/* Turn free user text into a safe FTS5 MATCH expression: each whitespace token
+becomes a quoted prefix term joined by implicit AND. Quoting neutralizes FTS5
+operators so stray punctuation can never raise a query syntax error. */
+fn fts_query(term: &str) -> String {
+    term.split_whitespace()
+        .map(|t| format!("\"{}\"*", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub struct JobSearchServiceImpl {
     db: SqlitePool,
 }
@@ -72,12 +87,43 @@ impl JobSearchServiceImpl {
         Self { db }
     }
 
+    /* Full-text search over job_posts via the FTS5 index, ranked by bm25 relevance
+    (title weighted highest). Returns matching job-post ids in best-first order. */
+    pub async fn search_job_posts(
+        &self,
+        profile_id: &ProfileId, /* restrict hits to this profile's posts */
+        term: &str,             /* raw user text, sanitized into an FTS5 match expression */
+        limit: i64,             /* hard cap on returned hits */
+    ) -> DomainResult<Vec<String>> {
+        let profile_id = profile_id.as_str();
+        let match_expr = fts_query(term);
+        if match_expr.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT jp.id
+             FROM job_posts_fts
+             JOIN job_posts jp ON jp.rowid = job_posts_fts.rowid
+             WHERE job_posts_fts MATCH ?1 AND jp.profile_id = ?2
+             ORDER BY bm25(job_posts_fts, 10.0, 5.0, 2.0, 1.5, 1.0) ASC
+             LIMIT ?3",
+        )
+        .bind(match_expr) /* ?1 sanitized FTS query (title company location description summary weights) */
+        .bind(profile_id) /* ?2 owning profile */
+        .bind(limit.clamp(1, 500)) /* ?3 capped hit count */
+        .fetch_all(&self.db)
+        .await?;
+        Ok(ids)
+    }
+
     pub async fn score_match_with_preference(
         &self,
-        job_post_id: &str,
-        profile_id: &str,
+        job_post_id: &JobId,
+        profile_id: &ProfileId,
         preference_id: Option<&str>,
     ) -> DomainResult<String> {
+        let job_post_id = job_post_id.as_str();
+        let profile_id = profile_id.as_str();
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
 
@@ -236,10 +282,15 @@ impl JobSearchServiceImpl {
 
     pub async fn delete_old_scans(&self, profile_id: &str, days_old: i64) -> DomainResult<u32> {
         let result = if days_old <= 0 {
+            // Clear-all = "delete every scan not yet applied to" (the confirm dialog's words).
+            // We spare ONLY genuinely-applied jobs (job_posts.status = 'applied', set when a run
+            // submits). The old `id NOT IN application_runs` guard wrongly spared *queued* jobs too:
+            // enqueuing (submit) inserts an application_run, so queued scans carried a run row and
+            // survived. Keying on the applied status deletes queued AND ignored as LO expects.
             sqlx::query(
                 "DELETE FROM job_posts
                  WHERE profile_id = ?1
-                   AND id NOT IN (SELECT job_id FROM application_runs WHERE job_id IS NOT NULL)",
+                   AND status <> 'applied'",
             )
             .bind(profile_id)
             .execute(&self.db)
@@ -288,7 +339,11 @@ impl JobSearchService for JobSearchServiceImpl {
 
         let mut scored = 0u32;
         for job_id in &job_ids {
-            self.score_match(job_id, &profile_id).await?;
+            self.score_match(
+                &JobId::from(job_id.as_str()),
+                &ProfileId::from(profile_id.as_str()),
+            )
+            .await?;
             scored += 1;
         }
 
@@ -301,7 +356,11 @@ impl JobSearchService for JobSearchServiceImpl {
         Ok(scored)
     }
 
-    async fn score_match(&self, job_post_id: &str, profile_id: &str) -> DomainResult<String> {
+    async fn score_match(
+        &self,
+        job_post_id: &JobId,
+        profile_id: &ProfileId,
+    ) -> DomainResult<String> {
         self.score_match_with_preference(job_post_id, profile_id, None)
             .await
     }
@@ -393,7 +452,10 @@ mod tests {
         seed(&pool).await;
         let svc = JobSearchServiceImpl::new(pool.clone());
 
-        let match_id = svc.score_match("j1", "p1").await.unwrap();
+        let match_id = svc
+            .score_match(&JobId::from("j1"), &ProfileId::from("p1"))
+            .await
+            .unwrap();
 
         let (score, rec): (i64, String) =
             sqlx::query_as("SELECT score, recommendation FROM job_matches WHERE id = ?1")
@@ -435,7 +497,10 @@ mod tests {
     async fn score_match_missing_job_is_invalid_input() {
         let pool = mem_pool().await;
         let svc = JobSearchServiceImpl::new(pool);
-        let err = svc.score_match("nope", "p1").await.unwrap_err();
+        let err = svc
+            .score_match(&JobId::from("nope"), &ProfileId::from("p1"))
+            .await
+            .unwrap_err();
         assert!(matches!(err, DomainError::InvalidInput(_)));
     }
 
@@ -454,7 +519,7 @@ mod tests {
         let svc = JobSearchServiceImpl::new(pool.clone());
 
         let match_id = svc
-            .score_match_with_preference("j1", "p1", Some("pref1"))
+            .score_match_with_preference(&JobId::from("j1"), &ProfileId::from("p1"), Some("pref1"))
             .await
             .unwrap();
 
@@ -498,7 +563,10 @@ mod tests {
         .unwrap();
 
         let svc = JobSearchServiceImpl::new(pool.clone());
-        let match_id = svc.score_match("j2", "p2").await.unwrap();
+        let match_id = svc
+            .score_match(&JobId::from("j2"), &ProfileId::from("p2"))
+            .await
+            .unwrap();
 
         let (score, pref_id): (i64, Option<String>) =
             sqlx::query_as("SELECT score, preference_id FROM job_matches WHERE id = ?1")
@@ -522,7 +590,9 @@ mod tests {
             .unwrap();
 
         let svc = JobSearchServiceImpl::new(pool.clone());
-        svc.score_match("j1", "p1").await.unwrap();
+        svc.score_match(&JobId::from("j1"), &ProfileId::from("p1"))
+            .await
+            .unwrap();
 
         let status: String = sqlx::query_scalar("SELECT status FROM job_posts WHERE id = 'j1'")
             .fetch_one(&pool)
@@ -687,11 +757,13 @@ mod tests {
         .await
         .unwrap();
 
+        // Actually-applied job: status is set to 'applied' when its run submits. This is the ONLY
+        // thing clear-all spares.
         sqlx::query(
             "INSERT INTO job_posts
-               (id, profile_id, platform, url, title, company, description, discovered_at)
+               (id, profile_id, platform, url, title, company, description, status, discovered_at)
              VALUES ('j_applied', 'p_zero', 'linkedin', 'https://x/ap',
-                     'Applied Job', 'ACME', 'desc', ?1)",
+                     'Applied Job', 'ACME', 'desc', 'applied', ?1)",
         )
         .bind(&now)
         .execute(&pool)
@@ -717,15 +789,111 @@ mod tests {
         .await
         .unwrap();
 
+        // Queued job: enqueuing inserts an application_run and sets status='queued'. The OLD guard
+        // (id NOT IN application_runs) wrongly spared this; it must now be deleted.
+        sqlx::query(
+            "INSERT INTO job_posts
+               (id, profile_id, platform, url, title, company, description, status, discovered_at)
+             VALUES ('j_queued', 'p_zero', 'linkedin', 'https://x/q',
+                     'Queued Job', 'ACME', 'desc', 'queued', ?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO application_drafts
+               (id, job_id, profile_id, cover_letter, form_answers_json, status, created_at, updated_at)
+             VALUES ('d_queued', 'j_queued', 'p_zero', 'cover', '[]', 'draft', ?1, ?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO application_runs
+               (id, draft_id, job_id, profile_id, platform, mode, status, started_at)
+             VALUES ('r_queued', 'd_queued', 'j_queued', 'p_zero', 'linkedin',
+                     'manual_assist', 'started', ?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Ignored job: status only, no run — the other status LO wants gone.
+        sqlx::query(
+            "INSERT INTO job_posts
+               (id, profile_id, platform, url, title, company, description, status, discovered_at)
+             VALUES ('j_ignored', 'p_zero', 'linkedin', 'https://x/ig',
+                     'Ignored Job', 'ACME', 'desc', 'ignored', ?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let svc = JobSearchServiceImpl::new(pool.clone());
         let deleted = svc.delete_old_scans("p_zero", 0).await.unwrap();
-        assert_eq!(deleted, 2, "clear-all deletes the unacted job AND the draft-only job");
+        assert_eq!(
+            deleted, 4,
+            "clear-all deletes unacted + draft-only + queued + ignored"
+        );
 
         let remaining: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM job_posts WHERE profile_id = 'p_zero'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(remaining, 1, "the applied job must survive");
+        assert_eq!(remaining, 1, "only the applied job must survive");
+    }
+
+    #[test]
+    fn fts_query_quotes_escapes_and_prefixes() {
+        assert_eq!(fts_query("rust backend"), "\"rust\"* \"backend\"*");
+        assert_eq!(fts_query("  spaced   out "), "\"spaced\"* \"out\"*");
+        assert_eq!(fts_query("a\"b"), "\"a\"\"b\"*");
+        assert_eq!(fts_query(""), "");
+    }
+
+    #[tokio::test]
+    async fn fts_search_ranks_title_match_first() {
+        let pool = mem_pool().await;
+        let now = now_iso();
+        sqlx::query(
+            "INSERT INTO profiles (id, display_name, created_at, updated_at, is_active)
+             VALUES ('p1','T',?1,?1,1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO job_posts (id, profile_id, platform, url, title, company, description, discovered_at)
+             VALUES ('j1','p1','linkedin','https://x/1','Rust Engineer','Acme','we build web things',?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO job_posts (id, profile_id, platform, url, title, company, description, discovered_at)
+             VALUES ('j2','p1','linkedin','https://x/2','Backend Engineer','Beta','some rust only in the body',?1)",
+        )
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ids = JobSearchServiceImpl::new(pool)
+            .search_job_posts(&ProfileId::from("p1"), "rust", 10)
+            .await
+            .unwrap();
+        assert_eq!(ids.len(), 2, "both posts mention rust");
+        assert_eq!(
+            ids.first().map(String::as_str),
+            Some("j1"),
+            "title hit outranks body-only hit"
+        );
     }
 }

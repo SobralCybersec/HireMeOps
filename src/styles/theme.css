@@ -1883,7 +1883,7 @@ html.reduced-effects .dot--running {
 /* ---- CV card grid --------------------------------------------- */
 .cv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--sp-4);
 }
 
@@ -2746,7 +2746,7 @@ html.reduced-effects .dot--running {
    inline styles used by legacy pages still needs a min-width:0 escape
    valve so long text (URLs, provider names, filenames) never blows the
    layout. Applying globally to descendants of `.app-main` is safe. */
-.app-main :is(.field, .card, .stat-tile, .panel, .three-panel__panel) {
+.app-main :is(.field, .card, .stat-tile, .panel, .three-pane__panel) {
   min-width: 0;
 }
 .app-main :is(input, select, textarea) {

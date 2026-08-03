@@ -36,7 +36,10 @@ pub async fn list_profiles(state: State<'_, AppState>) -> Result<Vec<ProfileDto>
 }
 
 #[tauri::command]
-pub async fn create_profile(state: State<'_, AppState>, name: String) -> Result<ProfileDto, String> {
+pub async fn create_profile(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<ProfileDto, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("Profile name is required".to_string());

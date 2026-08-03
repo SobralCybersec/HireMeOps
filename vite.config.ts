@@ -1,12 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
   // NOTE on bundle splitting: routes are already lazy-loaded via React.lazy in
   // the router, so each page (CvLibrary, JobSearch, AutomationCockpit, …) is
@@ -33,8 +34,12 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and the Node automation dir. The worker writes
+      //    DOM/PNG capture files under `automation/captures/` at runtime; Vite was doing a full page
+      //    RELOAD on every capture, which (with the persisted auto-connect toggle) restarted the run
+      //    on top of the still-open browser → reclaim killed it → "Target page closed" crash loop.
+      //    None of `automation/**` is imported by the frontend, so ignoring it is safe.
+      ignored: ["**/src-tauri/**", "**/automation/**"],
     },
   },
 }));

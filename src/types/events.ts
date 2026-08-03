@@ -9,6 +9,7 @@ export type AppEventType =
   | "job.search.started"
   | "job.search.item_found"
   | "job.match.done"
+  | "ai.progress"
   | "job.duplicate_skipped"
   | "application.started"
   | "application.needs_review"

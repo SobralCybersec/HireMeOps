@@ -1,0 +1,8 @@
+{
+  "name": "hiremeops-playwright-bridge",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "patchright": "1.61.1"
+  }
+}

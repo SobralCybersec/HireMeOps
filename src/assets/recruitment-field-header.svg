@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 420" role="img" aria-labelledby="title desc">
+  <title id="title">HireMeOps recruitment operations artwork</title>
+  <desc id="desc">An original manga-inspired composition of application dossiers, route lines, city silhouettes, and directional speed strokes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#11100f"/>
+      <stop offset="0.52" stop-color="#211a16"/>
+      <stop offset="1" stop-color="#080807"/>
+    </linearGradient>
+    <linearGradient id="slash" x1="0" x2="1">
+      <stop offset="0" stop-color="#f34b2f" stop-opacity="0"/>
+      <stop offset="0.38" stop-color="#f34b2f" stop-opacity=".88"/>
+      <stop offset="1" stop-color="#ffb56b" stop-opacity=".04"/>
+    </linearGradient>
+    <pattern id="dots" width="11" height="11" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#f3eadb" opacity=".18"/>
+    </pattern>
+    <filter id="rough" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.018 0.18" numOctaves="2" seed="17" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="9" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="paperShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000" flood-opacity=".55"/>
+    </filter>
+    <clipPath id="heroClip">
+      <path d="M0 0H1600V420H0z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#heroClip)">
+    <rect width="1600" height="420" fill="url(#bg)"/>
+    <rect width="1600" height="420" fill="url(#dots)" opacity=".7"/>
+
+    <!-- distant city / hiring market silhouette -->
+    <g fill="#070706" opacity=".88">
+      <path d="M0 329h106v-66h44v66h70v-122h84v122h72v-85h48v85h85v-154h82v154h55v-103h44v103h76v-181h95v181h58v-118h52v118h64v-151h86v151h92v-78h58v78h94v91H0z"/>
+      <path d="M912 163l28-28 28 28v166h-56z" opacity=".7"/>
+    </g>
+
+    <!-- perspective route lines -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M-80 405C360 330 530 262 820 110" stroke="#f34b2f" stroke-width="8" opacity=".82"/>
+      <path d="M-20 438C380 349 560 286 850 120" stroke="#f3eadb" stroke-width="2" opacity=".3"/>
+      <path d="M1520 416C1268 340 1090 240 852 110" stroke="#f34b2f" stroke-width="3" opacity=".5" stroke-dasharray="13 16"/>
+      <path d="M1600 390C1320 320 1110 212 860 100" stroke="#f3eadb" stroke-width="1" opacity=".18"/>
+    </g>
+
+    <!-- speed-line wedges -->
+    <g fill="#f3eadb" opacity=".36">
+      <path d="M0 28L620 88 0 53z"/>
+      <path d="M0 77L510 112 0 94z" opacity=".55"/>
+      <path d="M0 328L505 285 0 352z" opacity=".25"/>
+      <path d="M1600 45L1065 96 1600 67z"/>
+      <path d="M1600 95L1170 124 1600 112z" opacity=".5"/>
+      <path d="M1600 300L1090 250 1600 327z" opacity=".25"/>
+    </g>
+
+    <!-- primary orange brush slash -->
+    <path d="M-30 240C330 188 680 145 1615 12L1605 72C910 172 470 232-20 297z" fill="url(#slash)" filter="url(#rough)" opacity=".88"/>
+    <path d="M-15 276C355 222 810 161 1610 45" stroke="#ff744d" stroke-width="4" opacity=".45"/>
+
+    <!-- candidate dossier cards -->
+    <g transform="translate(1030 50) rotate(4)" filter="url(#paperShadow)">
+      <path d="M0 18L350 0l21 284-350 20z" fill="#eadfcd"/>
+      <path d="M18 42h224v12H18zm0 25h294v7H18zm0 18h270v7H18z" fill="#171412" opacity=".78"/>
+      <rect x="22" y="118" width="96" height="116" fill="#171412"/>
+      <circle cx="70" cy="158" r="28" fill="#eadfcd" opacity=".92"/>
+      <path d="M35 224c5-35 22-52 35-52s32 16 36 52" fill="#eadfcd" opacity=".92"/>
+      <path d="M142 126h170v9H142zm0 25h143v7H142zm0 20h161v7H142zm0 42h116v7H142z" fill="#171412" opacity=".72"/>
+      <g transform="translate(238 212) rotate(-8)">
+        <rect width="91" height="46" fill="none" stroke="#d63b29" stroke-width="6"/>
+        <text x="45.5" y="31" text-anchor="middle" font-family="Arial Black, sans-serif" font-size="20" fill="#d63b29">MATCH</text>
+      </g>
+      <path d="M338 0h12l21 284-13 1z" fill="#b92f20" opacity=".65"/>
+    </g>
+
+    <!-- route markers / objective points -->
+    <g font-family="Arial, sans-serif" font-weight="700" text-anchor="middle">
+      <g transform="translate(730 143)">
+        <circle r="24" fill="#11100f" stroke="#f3eadb" stroke-width="2"/>
+        <circle r="12" fill="#f34b2f"/>
+        <text y="54" font-size="14" fill="#f3eadb">SOURCE</text>
+      </g>
+      <g transform="translate(586 226)">
+        <circle r="20" fill="#11100f" stroke="#f3eadb" stroke-width="2"/>
+        <circle r="9" fill="#f34b2f"/>
+        <text y="46" font-size="13" fill="#f3eadb">SCORE</text>
+      </g>
+      <g transform="translate(422 305)">
+        <circle r="18" fill="#11100f" stroke="#f3eadb" stroke-width="2"/>
+        <circle r="7" fill="#f34b2f"/>
+        <text y="42" font-size="12" fill="#f3eadb">APPLY</text>
+      </g>
+    </g>
+
+    <!-- original operator silhouette -->
+    <g transform="translate(790 65)" opacity=".88">
+      <path d="M104 22c37 0 68 30 68 68 0 18-7 34-18 46 34 18 61 64 68 121H-13c8-58 34-104 69-122-12-12-19-28-19-46 0-37 30-67 67-67z" fill="#050505"/>
+      <path d="M75 80c20-15 42-16 62-2-8 7-18 11-30 11-12 0-23-3-32-9z" fill="#f34b2f" opacity=".9"/>
+      <path d="M52 44c23-23 69-35 96-5-25-8-48 8-72 22-16 9-28 2-24-17z" fill="#f3eadb" opacity=".15"/>
+      <path d="M20 188l70-23 32 91H-13z" fill="#0d0d0c"/>
+      <path d="M117 166l54 12 51 79h-96z" fill="#0a0a09"/>
+      <path d="M89 166l17 25 16-25" fill="none" stroke="#f34b2f" stroke-width="5"/>
+    </g>
+
+    <!-- foreground ink shards -->
+    <g fill="#f3eadb" opacity=".76" filter="url(#rough)">
+      <path d="M210 0l42 0-76 162z"/>
+      <path d="M284 0h18l-38 104z" opacity=".55"/>
+      <path d="M1478 420h-49l83-154z"/>
+      <path d="M1398 420h-21l41-94z" opacity=".55"/>
+    </g>
+
+    <rect x="0" y="390" width="1600" height="30" fill="#050505" opacity=".88"/>
+    <path d="M0 388h1600" stroke="#f34b2f" stroke-width="3" opacity=".85"/>
+  </g>
+</svg>

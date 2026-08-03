@@ -169,7 +169,8 @@ impl CvService for CvServiceImpl {
     }
 
     async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>> {
-        let rows: Vec<(
+        /* (id, file_name, file_type, file_hash, size_bytes, page_count, created_at) */
+        type CvDocRow = (
             String,
             String,
             String,
@@ -177,7 +178,8 @@ impl CvService for CvServiceImpl {
             Option<i64>,
             Option<i64>,
             String,
-        )> = sqlx::query_as(
+        );
+        let rows: Vec<CvDocRow> = sqlx::query_as(
             "SELECT id, file_name, file_type, file_hash, size_bytes, page_count, created_at
                  FROM cv_documents WHERE profile_id = ?1 ORDER BY created_at DESC",
         )
@@ -360,12 +362,11 @@ impl CvService for CvServiceImpl {
         );
 
         let profile_dir = self.cv_files_dir.join(profile_id);
-        std::fs::create_dir_all(&profile_dir).map_err(|e| {
-            DomainError::Other(anyhow::anyhow!("create {}: {e}", profile_dir.display()))
-        })?;
+        std::fs::create_dir_all(&profile_dir)
+            .map_err(|e| DomainError::Message(format!("create {}: {e}", profile_dir.display())))?;
         let stored = profile_dir.join(format!("{file_hash}.{file_type}"));
         std::fs::write(&stored, &bytes)
-            .map_err(|e| DomainError::Other(anyhow::anyhow!("write {}: {e}", stored.display())))?;
+            .map_err(|e| DomainError::Message(format!("write {}: {e}", stored.display())))?;
         let stored_path = stored.to_string_lossy().into_owned();
 
         let id = Uuid::new_v4().to_string();
@@ -633,14 +634,12 @@ impl CvService for CvServiceImpl {
             sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
                 .bind(id)
                 .fetch_optional(&self.db)
-                .await
-                .map_err(|e| DomainError::Other(anyhow::anyhow!(e)))?;
+                .await?;
 
         sqlx::query("DELETE FROM cv_documents WHERE id = ?1")
             .bind(id)
             .execute(&self.db)
-            .await
-            .map_err(|e| DomainError::Other(anyhow::anyhow!(e)))?;
+            .await?;
 
         if let Some(path) = stored_path {
             std::fs::remove_file(&path).ok();

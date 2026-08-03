@@ -1,0 +1,218 @@
+/* First-run onboarding slideshow — atmospheric, animated, Calistoga display. */
+.onb {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  overflow: hidden;
+}
+.onb__bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1200px 700px at 80% -10%, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 55%),
+    linear-gradient(180deg, #0a0d14, #05070c);
+  backdrop-filter: blur(2px);
+}
+.onb__skip {
+  position: absolute;
+  top: var(--sp-5);
+  right: var(--sp-5);
+  z-index: 2;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+.onb__skip:hover {
+  color: var(--color-text);
+}
+
+.onb__stage {
+  position: relative;
+  z-index: 1;
+  width: min(760px, 92vw);
+}
+.onb__card {
+  text-align: center;
+  padding: var(--sp-6) var(--sp-5);
+  animation: onb-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes onb-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+}
+.onb__eyebrow {
+  display: inline-block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  color: var(--color-accent-text);
+  opacity: 0;
+  animation: onb-rise 0.5s ease forwards 0.06s;
+}
+.onb__title {
+  margin: var(--sp-3) 0 var(--sp-3);
+  font-family: var(--font-title);
+  font-weight: 400;
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
+  line-height: 1.02;
+  color: #fff;
+  letter-spacing: 0.5px;
+  opacity: 0;
+  animation: onb-rise 0.55s ease forwards 0.14s;
+}
+.onb__body {
+  max-width: 56ch;
+  margin: 0 auto;
+  font-size: var(--text-lg);
+  line-height: 1.65;
+  color: #c7cdd8;
+  opacity: 0;
+  animation: onb-rise 0.6s ease forwards 0.24s;
+}
+@keyframes onb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.onb__icons {
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+.onb__icons img {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+  object-fit: contain;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transform: translateY(10px) scale(0.9);
+  animation: onb-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes onb-pop {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.onb__install {
+  margin-top: var(--sp-5);
+}
+.onb__installmsg {
+  margin-top: var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.onb__installmsg--warn {
+  color: color-mix(in srgb, #e7a33e 85%, var(--color-text-muted));
+}
+.onb__btn--latex {
+  margin-top: var(--sp-4);
+  font-size: var(--text-sm);
+  opacity: 0.9;
+}
+
+.onb__btn {
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: 999px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #06090f;
+  font-family: var(--font-title);
+  font-size: var(--text-md);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.onb__btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.onb__btn--ghost {
+  background: transparent;
+  color: var(--color-accent-text);
+}
+.onb__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+.onb__nav {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+.onb__arrow {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  color: var(--color-text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.14s ease, transform 0.14s ease, border-color 0.14s ease;
+}
+.onb__arrow:hover:not(:disabled) {
+  background: var(--color-surface);
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
+.onb__arrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.onb__dots {
+  display: flex;
+  gap: var(--sp-2);
+}
+.onb__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: none;
+  background: color-mix(in srgb, var(--color-text) 30%, transparent);
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.16s ease;
+}
+.onb__dot.is-active {
+  background: var(--color-accent);
+  transform: scale(1.35);
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb__card,
+  .onb__eyebrow,
+  .onb__title,
+  .onb__body,
+  .onb__icons img {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -1,8 +1,10 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEventStore } from "../stores/useEventStore";
 import { useAutomationStore } from "../stores/useAutomationStore";
+import { useJobStore } from "../stores/useJobStore";
+import { useAiStatusStore, type AiPhase } from "../stores/useAiStatusStore";
 import type { AppEvent } from "../types/events";
-import type { AutomationState } from "../types/domain";
+import type { AutomationState, JobPostDto } from "../types/domain";
 
 const EVENT_CHANNEL = "hiremeops://event";
 
@@ -67,6 +69,32 @@ function dispatchAutomationState(event: AppEvent): void {
     );
 }
 
+/**
+ * Route a `job.search.item_found` event into `useJobStore` so the Vagas list
+ * grows live as a scrape runs, instead of only when the search finishes. The
+ * payload is the ingested `JobPostDto`; ignore anything without a string id.
+ */
+function dispatchJobFound(event: AppEvent): void {
+  const data = event.payload;
+  if (typeof data !== "object" || data === null) return;
+  const job = data as JobPostDto;
+  if (typeof job.id !== "string") return;
+  useJobStore.getState().upsertJob(job);
+}
+
+/**
+ * Route an `ai.progress` event into `useAiStatusStore` so the UI can show a live
+ * "generating…" indicator. Payload: `{ phase, scope }`. Ignores unknown phases.
+ */
+function dispatchAiProgress(event: AppEvent): void {
+  const data = event.payload;
+  if (typeof data !== "object" || data === null) return;
+  const phase = (data as { phase?: unknown }).phase;
+  const scope = (data as { scope?: unknown }).scope;
+  if (phase !== "generating" && phase !== "ready" && phase !== "failed") return;
+  useAiStatusStore.getState().set(phase as AiPhase, typeof scope === "string" ? scope : null);
+}
+
 // Backoff schedule (ms) for re-subscribe attempts if `listen` rejects - e.g. a
 // transient failure during app startup before the Tauri event system is ready.
 const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
@@ -100,6 +128,10 @@ async function subscribe(attempt: number, expectedGeneration: number): Promise<v
         useEventStore.getState().addEvent(payload);
         if (payload.type === "automation.state") {
           dispatchAutomationState(payload);
+        } else if (payload.type === "job.search.item_found") {
+          dispatchJobFound(payload);
+        } else if (payload.type === "ai.progress") {
+          dispatchAiProgress(payload);
         }
         return;
       }

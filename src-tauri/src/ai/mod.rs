@@ -32,7 +32,6 @@ pub fn input_hash(parts: &[&str]) -> String {
     sha256_hex(&parts.join("\u{1f}"))
 }
 
-
 #[derive(Debug, Clone)]
 pub enum Provider {
     Browser { site: String, model: String },
@@ -158,7 +157,6 @@ pub fn api_key_from_env() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-
 const API_KEY_SERVICE: &str = "com.hiremeops.apikey";
 
 fn api_key_entry(kind: &str) -> DomainResult<keyring::Entry> {
@@ -222,7 +220,6 @@ pub async fn resolve_api_key(s: &AiProviderSettings) -> Option<String> {
             .or_else(api_key_from_env)
     }
 }
-
 
 pub async fn complete_cached<P: AiProvider>(
     pool: &SqlitePool,
@@ -299,7 +296,6 @@ pub async fn complete_cached<P: AiProvider>(
         cached: false,
     })
 }
-
 
 fn validated_text(provider: &str, text: String) -> DomainResult<String> {
     if text.trim().is_empty() {

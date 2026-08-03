@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 import { TopNav } from "./TopNav";
 import { OnboardingOverlay } from "./OnboardingOverlay";
+import { GlobalLivePreview } from "./GlobalLivePreview";
 
 export function AppLayout() {
   const isDesktopRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -15,6 +16,16 @@ export function AppLayout() {
       </a>
 
       <TopNav />
+
+      {/* WayneTech HUD status chip — bottom-left, echoing the mockup's "SYSTEM STATUS · ONLINE". */}
+      <div className="hud-status" aria-hidden="true">
+        <span className="hud-status__dot" />
+        <span className="hud-status__label">System Status</span>
+        <span className="hud-status__on">Online</span>
+      </div>
+
+      {/* One shared live-automation preview, watchable from any page. */}
+      <GlobalLivePreview />
 
       <div className="app-main">
         {!isDesktopRuntime && (

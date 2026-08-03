@@ -56,7 +56,6 @@ fn clip(text: &str) -> String {
     format!("{}\n…[truncated]", &text[..end])
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CvAnalysis {
     pub score: Option<i64>,
@@ -140,7 +139,6 @@ pub fn parse_cv_analysis(raw: &str) -> CvAnalysis {
         ..Default::default()
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct DraftInput<'a> {
@@ -288,7 +286,6 @@ pub fn parse_draft(raw: &str) -> DraftContent {
     }
 }
 
-
 fn extract_json_object(raw: &str) -> Option<&str> {
     let start = raw.find('{')?;
     let mut depth: i32 = 0;
@@ -377,7 +374,6 @@ where
         _ => None,
     })
 }
-
 
 pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v7";
 
@@ -751,7 +747,9 @@ fn strip_href(s: &str) -> String {
                 }
             }
         }
-        let ch = s[i..].chars().next().unwrap();
+        let Some(ch) = s[i..].chars().next() else {
+            break;
+        };
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -780,7 +778,9 @@ fn strip_cmd_braces(s: &str) -> String {
             out.push('\\');
             i += 1;
         } else {
-            let ch = s[i..].chars().next().unwrap();
+            let Some(ch) = s[i..].chars().next() else {
+                break;
+            };
             out.push(ch);
             i += ch.len_utf8();
         }

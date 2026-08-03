@@ -304,18 +304,38 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
 pub fn classify_work_model(text: &str) -> Option<&'static str> {
     let l = text.to_lowercase();
     let any = |ks: &[&str]| ks.iter().any(|k| l.contains(k));
-    if any(&["híbrido", "hibrido", "hybrid", "semipresencial", "semi-presencial"]) {
+    if any(&[
+        "híbrido",
+        "hibrido",
+        "hybrid",
+        "semipresencial",
+        "semi-presencial",
+    ]) {
         return Some("hybrid");
     }
     if any(&[
-        "presencial", "presential", "on-site", "on site", "onsite", "in office",
-        "in-office", "no escritório", "no escritorio", "totalmente presencial",
+        "presencial",
+        "presential",
+        "on-site",
+        "on site",
+        "onsite",
+        "in office",
+        "in-office",
+        "no escritório",
+        "no escritorio",
+        "totalmente presencial",
     ]) {
         return Some("onsite");
     }
     if any(&[
-        "remote", "remoto", "home office", "home-office", "teletrabalho",
-        "trabalho remoto", "anywhere", "totalmente remoto",
+        "remote",
+        "remoto",
+        "home office",
+        "home-office",
+        "teletrabalho",
+        "trabalho remoto",
+        "anywhere",
+        "totalmente remoto",
     ]) {
         return Some("remote");
     }
@@ -326,21 +346,45 @@ pub fn classify_seniority(text: &str) -> Option<&'static str> {
     let l = format!(" {} ", text.to_lowercase());
     let any = |ks: &[&str]| ks.iter().any(|k| l.contains(k));
     if any(&[
-        " principal", " staff", " lead ", " tech lead", "líder", " head ", " gerente",
-        " manager", " diretor", " director",
+        " principal",
+        " staff",
+        " lead ",
+        " tech lead",
+        "líder",
+        " head ",
+        " gerente",
+        " manager",
+        " diretor",
+        " director",
     ]) {
         return Some("lead");
     }
-    if any(&[" senior", " sênior", " sr ", " sr.", "(sr)", " especialista", " specialist"]) {
+    if any(&[
+        " senior",
+        " sênior",
+        " sr ",
+        " sr.",
+        "(sr)",
+        " especialista",
+        " specialist",
+    ]) {
         return Some("senior");
     }
     if any(&[
-        " pleno", " mid ", " mid-", "mid-level", "mid level", " intermediár", " intermediate",
+        " pleno",
+        " mid ",
+        " mid-",
+        "mid-level",
+        "mid level",
+        " intermediár",
+        " intermediate",
         "(pl)",
     ]) {
         return Some("mid");
     }
-    if any(&[" junior", " júnior", " jr ", " jr.", "(jr)", " entry", " trainee"]) {
+    if any(&[
+        " junior", " júnior", " jr ", " jr.", "(jr)", " entry", " trainee",
+    ]) {
         return Some("junior");
     }
     if any(&[" intern", " estág", " estagi", " aprendiz"]) {
@@ -366,15 +410,24 @@ fn canon_level(s: &str) -> Option<&'static str> {
         || l.contains("head")
     {
         Some("lead")
-    } else if l.contains("senior") || l.contains("sênior") || l == "sr" || l.contains("especialista")
+    } else if l.contains("senior")
+        || l.contains("sênior")
+        || l == "sr"
+        || l.contains("especialista")
         || l.contains("specialist")
     {
         Some("senior")
-    } else if l.contains("pleno") || l.contains("mid") || l.contains("intermediá")
-        || l.contains("intermediar") || l == "pl"
+    } else if l.contains("pleno")
+        || l.contains("mid")
+        || l.contains("intermediá")
+        || l.contains("intermediar")
+        || l == "pl"
     {
         Some("mid")
-    } else if l.contains("junior") || l.contains("júnior") || l == "jr" || l.contains("entry")
+    } else if l.contains("junior")
+        || l.contains("júnior")
+        || l == "jr"
+        || l.contains("entry")
         || l.contains("trainee")
     {
         Some("junior")
@@ -395,7 +448,10 @@ fn compute_location(input: &MatchInput) -> u8 {
         input.job_title,
         input.job_text
     ));
-    let struct_model = input.job_remote_mode.as_deref().and_then(classify_work_model);
+    let struct_model = input
+        .job_remote_mode
+        .as_deref()
+        .and_then(classify_work_model);
     let job_model = match text_model {
         Some("onsite") | Some("hybrid") => text_model,
         Some(_) => text_model.or(struct_model),
@@ -410,7 +466,13 @@ fn compute_location(input: &MatchInput) -> u8 {
     };
     let prefers_remote = prefers(&["remote", "remoto", "home", "teletrab", "anywhere", "flex"]);
     let prefers_onsite = prefers(&[
-        "onsite", "on-site", "on site", "presencial", "presential", "escritório", "escritorio",
+        "onsite",
+        "on-site",
+        "on site",
+        "presencial",
+        "presential",
+        "escritório",
+        "escritorio",
     ]);
     let prefers_hybrid = prefers(&["hybrid", "híbrido", "hibrido", "semipres"]);
     let only_remote = prefers_remote && !prefers_onsite && !prefers_hybrid;

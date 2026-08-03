@@ -88,46 +88,84 @@ pub fn build_linkedin_query(input: &SearchQueryInput) -> BuiltQuery {
     }
 }
 
-pub fn build_google_dork(input: &SearchQueryInput) -> BuiltQuery {
-    let sites = "(site:inhire.app inurl:vagas OR site:linkedin.com/jobs OR site:br.indeed.com OR site:indeed.com OR site:catho.com.br OR site:vagas.com.br OR site:gupy.io OR site:glassdoor.com.br OR site:infojobs.com.br OR site:greenhouse.io OR site:boards.greenhouse.io OR site:jobs.lever.co OR site:jobs.ashbyhq.com OR site:programathor.com.br/jobs OR site:coodesh.com OR site:trampos.co OR site:remotar.com.br OR site:weworkremotely.com/remote-jobs OR site:remotive.com/remote-jobs)";
-    let mut parts = vec![sites.to_owned()];
-
-    if let Some(title) = input.titles.first() {
-        parts.push(format!("intitle:\"{}\"", title));
-    }
-
-    for skill in input.required_skills.iter().take(3) {
-        parts.push(skill.clone());
-    }
-
-    if input
-        .remote_mode
-        .as_deref()
-        .map(|r| r == "remote")
-        .unwrap_or(false)
-    {
-        parts.push("remote".into());
-    }
-
-    if let Some(loc) = &input.location {
-        if !loc.is_empty() {
-            parts.push(format!("\"{}\"", loc));
-        }
-    }
+/// Google job-discovery dorks — ONE site per query (site-per-site), each emitted at increasing
+/// keyword depth: 1, then 2, then 3 skills ANDed with the title. The shallow 1-keyword query casts
+/// WIDE (more results); the 2- and 3-keyword queries TIGHTEN for the best-matched postings. Every
+/// query stays short (1 `site:` + `intitle` + ≤3 quoted skills), which Google 2026 honours (a single
+/// giant OR of ~18 sites gets rejected/emptied); `num=` is dead, so the worker paginates with
+/// `&start=`.
+pub fn build_google_dork(input: &SearchQueryInput) -> Vec<BuiltQuery> {
+    const BOARDS: &[&str] = &[
+        "site:linkedin.com/jobs",
+        "site:br.indeed.com",
+        "site:gupy.io",
+        "site:catho.com.br",
+        "site:vagas.com.br",
+        "site:glassdoor.com.br",
+        "site:infojobs.com.br",
+        "site:inhire.app inurl:vagas",
+        "site:programathor.com.br/jobs",
+        "site:coodesh.com",
+        "site:trampos.co",
+        "site:remotar.com.br",
+        "site:boards.greenhouse.io",
+        "site:jobs.lever.co",
+        "site:jobs.ashbyhq.com",
+        "site:weworkremotely.com/remote-jobs",
+        "site:remotive.com/remote-jobs",
+    ];
 
     let cutoff = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).date();
-    parts.push(format!(
+    let after = format!(
         "after:{:04}-{:02}-{:02}",
         cutoff.year(),
         u8::from(cutoff.month()),
         cutoff.day()
-    ));
+    );
 
-    BuiltQuery {
-        platform: "google".into(),
-        query_type: "google_dork".into(),
-        query_string: parts.join(" "),
+    let title_clause = input.titles.first().map(|t| format!("intitle:\"{}\"", t));
+    let skills: Vec<String> = input
+        .required_skills
+        .iter()
+        .take(3)
+        .map(|s| format!("\"{}\"", s))
+        .collect();
+    let remote = input
+        .remote_mode
+        .as_deref()
+        .map(|r| r == "remote")
+        .unwrap_or(false);
+
+    // Keyword depths per board: 1..=N cumulative skills (space-separated = implicit AND). With no
+    // skills, a single title-only query per board.
+    let depths: Vec<usize> = if skills.is_empty() {
+        vec![0]
+    } else {
+        (1..=skills.len()).collect()
+    };
+
+    let mut out = Vec::with_capacity(BOARDS.len() * depths.len());
+    for board in BOARDS {
+        for &depth in &depths {
+            let mut parts = vec![(*board).to_string()];
+            if let Some(t) = &title_clause {
+                parts.push(t.clone());
+            }
+            for s in skills.iter().take(depth) {
+                parts.push(s.clone());
+            }
+            if remote {
+                parts.push("remote".into());
+            }
+            parts.push(after.clone());
+            out.push(BuiltQuery {
+                platform: "google".into(),
+                query_type: "google_dork".into(),
+                query_string: parts.join(" "),
+            });
+        }
     }
+    out
 }
 
 pub fn build_hiring_posts_query(input: &SearchQueryInput) -> BuiltQuery {
@@ -146,11 +184,10 @@ pub fn build_hiring_posts_query(input: &SearchQueryInput) -> BuiltQuery {
 }
 
 pub fn build_queries(input: &SearchQueryInput) -> Vec<BuiltQuery> {
-    vec![
-        build_linkedin_query(input),
-        build_google_dork(input),
-        build_hiring_posts_query(input),
-    ]
+    let mut out = vec![build_linkedin_query(input)];
+    out.extend(build_google_dork(input)); // several short per-board-group google dorks
+    out.push(build_hiring_posts_query(input));
+    out
 }
 
 #[cfg(test)]
@@ -207,35 +244,91 @@ mod tests {
 
     #[test]
     fn google_dork_site_clause() {
-        let q = build_google_dork(&sample());
+        let qs = build_google_dork(&sample());
         assert!(
-            q.query_string.contains("site:linkedin.com/jobs"),
-            "{}",
-            q.query_string
+            qs.iter()
+                .any(|q| q.query_string.contains("site:linkedin.com/jobs")),
+            "{qs:?}"
         );
-        assert!(q.query_string.contains("intitle:"), "{}", q.query_string);
+        assert!(
+            qs.iter().any(|q| q.query_string.contains("intitle:")),
+            "{qs:?}"
+        );
     }
 
     #[test]
     fn google_dork_query_type() {
-        assert_eq!(build_google_dork(&sample()).query_type, "google_dork");
+        assert!(build_google_dork(&sample())
+            .iter()
+            .all(|q| q.query_type == "google_dork"));
     }
 
     #[test]
-    fn google_dork_includes_inhire_and_recent_filter() {
-        let q = build_google_dork(&sample()).query_string;
-        assert!(q.contains("site:inhire.app inurl:vagas"), "{q}");
-        assert!(q.contains("site:programathor.com.br/jobs"), "{q}");
-        assert!(q.contains("site:weworkremotely.com/remote-jobs"), "{q}");
-        assert!(q.contains("after:"), "{q}");
-        let after = q.split("after:").nth(1).unwrap().split_whitespace().next().unwrap();
-        assert_eq!(after.len(), 10, "after date should be YYYY-MM-DD: {after}");
-        assert_eq!(after.matches('-').count(), 2, "{after}");
+    fn google_dork_short_queries_cover_boards_with_recent_filter() {
+        let qs = build_google_dork(&sample());
+        // Site-per-site: EXACTLY one `site:` operator per query (short → Google 2026 honours it),
+        // each carrying the after: filter.
+        for q in &qs {
+            let sites = q.query_string.matches("site:").count();
+            assert_eq!(
+                sites, 1,
+                "site-per-site expected exactly one site:: {}",
+                q.query_string
+            );
+            assert!(q.query_string.contains("after:"), "{}", q.query_string);
+            let after = q
+                .query_string
+                .split("after:")
+                .nth(1)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap();
+            assert_eq!(after.len(), 10, "after date should be YYYY-MM-DD: {after}");
+            assert_eq!(after.matches('-').count(), 2, "{after}");
+        }
+        // Coverage: the key boards each still appear.
+        let joined = qs
+            .iter()
+            .map(|q| q.query_string.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(joined.contains("site:inhire.app inurl:vagas"), "{joined}");
+        assert!(joined.contains("site:programathor.com.br/jobs"), "{joined}");
+        assert!(
+            joined.contains("site:weworkremotely.com/remote-jobs"),
+            "{joined}"
+        );
     }
 
     #[test]
-    fn build_queries_returns_three() {
-        assert_eq!(build_queries(&sample()).len(), 3);
+    fn google_dork_emits_one_two_three_keyword_depths_per_site() {
+        // sample() has 3 required skills → each board gets 3 queries: 1, 2, then 3 skills deep.
+        let qs = build_google_dork(&sample());
+        let for_linkedin: Vec<_> = qs
+            .iter()
+            .filter(|q| q.query_string.contains("site:linkedin.com/jobs"))
+            .collect();
+        assert_eq!(
+            for_linkedin.len(),
+            3,
+            "expected 1/2/3-keyword variants per site"
+        );
+        // Depth = number of quoted skills; the three variants must be 1, 2 and 3.
+        let mut depths: Vec<usize> = for_linkedin
+            .iter()
+            .map(|q| q.query_string.matches('"').count() / 2 - 1) // minus the intitle:"..." pair
+            .collect();
+        depths.sort_unstable();
+        assert_eq!(depths, vec![1, 2, 3], "{for_linkedin:?}");
+    }
+
+    #[test]
+    fn build_queries_fans_out() {
+        let qs = build_queries(&sample());
+        // linkedin + several short google dorks + hiring posts.
+        assert!(qs.len() > 3, "expected fan-out, got {}", qs.len());
+        assert!(qs.iter().filter(|q| q.query_type == "google_dork").count() >= 5);
     }
 
     #[test]

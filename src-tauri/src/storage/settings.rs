@@ -218,6 +218,7 @@ pub async fn save(pool: &SqlitePool, s: &AppSettings) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(not(feature = "real-browser"), allow(dead_code))]
 pub async fn read_automation_headless(pool: &SqlitePool) -> bool {
     sqlx::query_scalar::<_, String>(
         "SELECT value FROM app_settings WHERE key = 'automation_headless'",
@@ -257,10 +258,12 @@ pub async fn read_ai_auto_init(pool: &SqlitePool) -> bool {
 
 #[allow(dead_code)]
 pub async fn read_active_profile_id(pool: &SqlitePool) -> Option<String> {
-    sqlx::query_scalar::<_, String>("SELECT value FROM app_settings WHERE key = 'active_profile_id'")
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .filter(|s| !s.trim().is_empty())
+    sqlx::query_scalar::<_, String>(
+        "SELECT value FROM app_settings WHERE key = 'active_profile_id'",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .filter(|s| !s.trim().is_empty())
 }

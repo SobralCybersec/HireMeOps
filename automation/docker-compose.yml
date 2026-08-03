@@ -1,0 +1,26 @@
+# Standalone worker container for reproducible/CI automation runs. Build+run from the repo root:
+#   docker compose -f automation/docker-compose.yml build
+#   docker compose -f automation/docker-compose.yml run --rm worker   # pipe JSON commands on stdin
+#
+# The per-profile Chromium cookie jar is a named volume so logins persist across runs (one jar per
+# profile — see the shared-browser-jar contract). The Rust app integration (spawn `docker run` in a
+# docker profile instead of local `node`) is the follow-up; this compose runs the worker on its own.
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true # -i: the worker reads newline-JSON commands on stdin
+    tty: false
+    environment:
+      # Keep every automation env explicit; override at run time as needed.
+      HIREMEOPS_AUTO_CAPTCHA: "1"
+      HIREMEOPS_TYPE_WPM: "240"
+      # Per-board rate caps (defaults live in the Rust governor; mirror here if the worker needs them).
+    volumes:
+      - hiremeops_profile:/root/.local/share/hiremeops
+    # Extra headroom for Chromium's /dev/shm usage.
+    shm_size: "1gb"
+
+volumes:
+  hiremeops_profile:

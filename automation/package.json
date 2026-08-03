@@ -1,0 +1,13 @@
+{
+  "name": "hiremeops-automation-worker",
+  "version": "1.0.0",
+  "description": "Patchright JSON-lines IPC worker for HireMeOps",
+  "main": "worker.js",
+  "type": "module",
+  "scripts": {
+    "install-browsers": "npx patchright install chromium"
+  },
+  "dependencies": {
+    "patchright": "1.61.1"
+  }
+}

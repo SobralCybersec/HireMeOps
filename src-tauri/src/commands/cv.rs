@@ -195,7 +195,10 @@ async fn render_rewrite_pdf(
     if let Some(dir) = cvtex_dir {
         match export::build_pdf_tex(&rewrite, &metadata, dir) {
             Ok(bytes) => return Ok(bytes),
-            Err(e) => eprintln!("cv export: xelatex render failed, using lopdf fallback: {e}"),
+            Err(e) => tracing::warn!(
+                target: "hiremeops::cv",
+                "xelatex render failed, using lopdf fallback: {e}"
+            ),
         }
     }
 
