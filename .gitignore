@@ -20,6 +20,9 @@ HireMeOps_FRONTEND_SPEC.md
 HireMeOps_IMPLEMENTATION_SPEC.md
 HireMeOps_PROJECT_INDEX.md
 
+# Docs
+docs
+
 # TypeScript / build artifacts
 *.tsbuildinfo
 
@@ -27,6 +30,8 @@ HireMeOps_PROJECT_INDEX.md
 .vscode/*
 !.vscode/extensions.json
 .idea
+.claude
+.gemini
 .DS_Store
 *.suo
 *.ntvs*
