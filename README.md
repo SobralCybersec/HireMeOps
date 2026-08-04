@@ -6,7 +6,7 @@
 
 A local-first job-search automation cockpit. One desktop app scrapes nine Brazilian + global job boards, scores every posting against your CV, drives real logged-in browser sessions to apply, and rewrites your résumé with a browser-driven LLM — no API keys, no cloud, your cookies never leave the machine. Built on Tauri v2 (Rust) + React 19.
 
-**English**
+**English** · [Português (BR)](README.pt-BR.md)
 
 </div>
 
