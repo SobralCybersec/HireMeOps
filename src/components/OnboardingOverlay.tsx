@@ -5,11 +5,27 @@ import cathoIcon from "../assets/platform-icons/catho.png";
 import infojobsIcon from "../assets/platform-icons/infojobs.png";
 import indeedIcon from "../assets/platform-icons/indeed.png";
 import gupyIcon from "../assets/platform-icons/gupy.png";
+import upworkIcon from "../assets/platform-icons/upwork.svg";
+import freelas99Icon from "../assets/platform-icons/freelas99.svg";
+import googleIcon from "../assets/platform-icons/google.svg";
+import inhireIcon from "../assets/platform-icons/inhire.svg";
 import gptIcon from "../assets/platform-icons/gpt.png";
 import "./OnboardingOverlay.css";
 
 const SEEN_KEY = "hiremeops-onboarded";
-const ICONS = [linkedinIcon, indeedIcon, cathoIcon, gupyIcon, infojobsIcon, gptIcon];
+// Full site roster shown in the intro marquee (order = visual variety, not priority).
+const ICONS = [
+  linkedinIcon,
+  indeedIcon,
+  cathoIcon,
+  gupyIcon,
+  infojobsIcon,
+  upworkIcon,
+  freelas99Icon,
+  googleIcon,
+  inhireIcon,
+  gptIcon,
+];
 
 interface Slide {
   eyebrow: string;
@@ -67,7 +83,10 @@ export function OnboardingOverlay() {
     setOpen(false);
   }, []);
 
-  const go = useCallback((n: number) => setI((c) => Math.max(0, Math.min(SLIDES.length - 1, c + n))), []);
+  const go = useCallback(
+    (n: number) => setI((c) => Math.max(0, Math.min(SLIDES.length - 1, c + n))),
+    [],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -97,7 +116,9 @@ export function OnboardingOverlay() {
   const installLatex = useCallback(async () => {
     if (latexInstalling) return;
     setLatexInstalling(true);
-    setLatexMsg("Installing LaTeX for CV PDF export… this is a larger download and can take a few minutes.");
+    setLatexMsg(
+      "Installing LaTeX for CV PDF export… this is a larger download and can take a few minutes.",
+    );
     try {
       const out = await invokeStrict<string>("install_latex");
       setLatexMsg(out.split("\n").slice(-1)[0] || "LaTeX installed.");
@@ -135,7 +156,12 @@ export function OnboardingOverlay() {
 
           {slide.install && (
             <div className="onb__install">
-              <button type="button" className="onb__btn onb__btn--ghost" onClick={() => void install()} disabled={installing}>
+              <button
+                type="button"
+                className="onb__btn onb__btn--ghost"
+                onClick={() => void install()}
+                disabled={installing}
+              >
                 {installing ? "Installing…" : "Install dependencies"}
               </button>
               {installMsg && <p className="onb__installmsg">{installMsg}</p>}
@@ -150,7 +176,8 @@ export function OnboardingOverlay() {
                 {latexInstalling ? "Installing LaTeX…" : "Install LaTeX (CV PDFs)"}
               </button>
               <p className="onb__installmsg onb__installmsg--warn">
-                ⚠ Larger download (a few hundred MB) — only needed to export CVs as PDF. Skip it otherwise.
+                ⚠ Larger download (a few hundred MB) — only needed to export CVs as PDF. Skip it
+                otherwise.
               </p>
               {latexMsg && <p className="onb__installmsg">{latexMsg}</p>}
             </div>
@@ -159,7 +186,13 @@ export function OnboardingOverlay() {
       </div>
 
       <div className="onb__nav">
-        <button type="button" className="onb__arrow" onClick={() => go(-1)} disabled={i === 0} aria-label="Previous">
+        <button
+          type="button"
+          className="onb__arrow"
+          onClick={() => go(-1)}
+          disabled={i === 0}
+          aria-label="Previous"
+        >
           ‹
         </button>
         <div className="onb__dots">

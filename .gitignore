@@ -12,13 +12,7 @@ dist
 dist-ssr
 *.local
 CLAUDE.md
-CONTEXT.md
-DESIGN_SYSTEM.md
-HireMeOps_AGENTS.md
-HireMeOps_DATABASE_SCHEMA.md
-HireMeOps_FRONTEND_SPEC.md
-HireMeOps_IMPLEMENTATION_SPEC.md
-HireMeOps_PROJECT_INDEX.md
+
 
 # Docs
 docs

@@ -5,7 +5,6 @@ import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 interface AutomationStoreState {
   state: AutomationState;
   currentTaskId: string | null;
-  isEmergencyStopped: boolean;
   /**
    * URL the automation is currently on, for the live browser preview in the
    * cockpit. Null until the automation engine actually drives a real browser
@@ -25,7 +24,6 @@ interface AutomationStoreState {
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   stop: () => Promise<void>;
-  emergencyStop: () => Promise<void>;
   clearError: () => void;
   /**
    * Apply an authoritative `automation.state` event from the backend engine.
@@ -33,7 +31,12 @@ interface AutomationStoreState {
    * "PreparingBrowser" ack - the backend drives the real lifecycle so the UI
    * can never lie about (or hang on) a state the engine isn't actually in.
    */
-  applyServerState: (state: AutomationState, taskId: string | null, detail: string | null, watchUrl?: string | null) => void;
+  applyServerState: (
+    state: AutomationState,
+    taskId: string | null,
+    detail: string | null,
+    watchUrl?: string | null,
+  ) => void;
   /** Confirm a parked form submission (human-in-the-loop review). */
   confirmSubmit: () => Promise<void>;
   /** Reject and skip the parked form submission. */
@@ -43,7 +46,6 @@ interface AutomationStoreState {
 export const useAutomationStore = create<AutomationStoreState>((set) => ({
   state: "Queued",
   currentTaskId: null,
-  isEmergencyStopped: false,
   watchUrl: null,
   error: null,
   detail: null,
@@ -64,7 +66,6 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
     // null detail forever. Setting it first lets every backend event win.
     set({
       state: "PreparingBrowser",
-      isEmergencyStopped: false,
       error: null,
       detail: null,
     });
@@ -102,35 +103,10 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
     }
   },
 
-  // Always wins over any other in-flight transition. Bound to
-  // EmergencyStopButton's click handler AND its global hotkey.
-  //
-  // SAFETY-CRITICAL: we must NOT paint the UI "Stopped" unless the backend
-  // confirms the stop. A failed emergency stop that showed "Stopped" would be
-  // a dangerous lie (automation still running). On failure we keep the prior
-  // state and raise a loud error so the operator knows to intervene.
-  emergencyStop: async () => {
-    try {
-      await invokeStrict<void>("automation_emergency_stop");
-      set({
-        state: "Stopped",
-        isEmergencyStopped: true,
-        currentTaskId: null,
-        error: null,
-        detail: null,
-      });
-    } catch (e) {
-      set({
-        error: `EMERGENCY STOP FAILED - automation may still be running. ${errMessage(e)}`,
-      });
-    }
-  },
-
   // Authoritative lifecycle transition, driven by the backend engine's
   // `automation.state` events. Unlike the command handlers this NEVER guesses -
   // it reflects exactly what the engine reports. A terminal state
-  // (Completed/Failed/Stopped) clears the task binding; an emergency-stopped
-  // run is left latched so the cockpit stays disabled until the operator acts.
+  // (Completed/Failed/Stopped) clears the task binding.
   applyServerState: (state, taskId, detail, watchUrl) =>
     set((prev) => {
       const isTerminal = state === "Completed" || state === "Failed" || state === "Stopped";
@@ -138,7 +114,6 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
         state,
         detail,
         currentTaskId: taskId ?? (isTerminal ? null : prev.currentTaskId),
-        isEmergencyStopped: state === "Stopped" ? false : prev.isEmergencyStopped,
         // Keep the last live URL so the Cockpit shows where the run ended.
         watchUrl: watchUrl !== undefined ? watchUrl : prev.watchUrl,
       };

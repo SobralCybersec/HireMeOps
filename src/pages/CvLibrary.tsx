@@ -286,7 +286,12 @@ export function CvLibrary() {
             <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
               {isAnalyzing ? "Analysing..." : "Re-analyse"}
             </Button>
-            <Button size="sm" variant="danger" disabled={isDeleting} onClick={() => void handleDelete()}>
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={isDeleting}
+              onClick={() => void handleDelete()}
+            >
               {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           </>
@@ -543,13 +548,7 @@ export function CvLibrary() {
 // read (`sourceText`); right = the structured content it produced. Shows people
 // exactly what the rewrite changed.
 // ---------------------------------------------------------------------------
-function CvCompareModal({
-  report,
-  onClose,
-}: {
-  report: CvRewriteReport;
-  onClose: () => void;
-}) {
+function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose: () => void }) {
   const r = report.rewrite;
   return (
     <div className="cvx-compare" role="dialog" aria-modal="true" aria-label="CV before and after">
@@ -566,7 +565,9 @@ function CvCompareModal({
             <Badge variant="neutral">Before</Badge>
             <span>Original CV text</span>
           </header>
-          <pre className="cvx-compare__source">{report.sourceText || "No original text stored."}</pre>
+          <pre className="cvx-compare__source">
+            {report.sourceText || "No original text stored."}
+          </pre>
         </section>
 
         {/* After */}

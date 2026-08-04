@@ -42,14 +42,23 @@ export function Workspace() {
             {t.label}
           </button>
         ))}
-        <span className="ws-tabs__ink" style={{ transform: `translateX(${ink.left}px)`, width: ink.width }} />
+        <span
+          className="ws-tabs__ink"
+          style={{ transform: `translateX(${ink.left}px)`, width: ink.width }}
+        />
       </div>
 
       <div className="ws-stage">
-        <div className={tab === "profiles" ? "ws-panel is-active" : "ws-panel"} aria-hidden={tab !== "profiles"}>
+        <div
+          className={tab === "profiles" ? "ws-panel is-active" : "ws-panel"}
+          aria-hidden={tab !== "profiles"}
+        >
           <Profiles />
         </div>
-        <div className={tab === "variants" ? "ws-panel is-active" : "ws-panel"} aria-hidden={tab !== "variants"}>
+        <div
+          className={tab === "variants" ? "ws-panel is-active" : "ws-panel"}
+          aria-hidden={tab !== "variants"}
+        >
           <ProfileVariants />
         </div>
       </div>

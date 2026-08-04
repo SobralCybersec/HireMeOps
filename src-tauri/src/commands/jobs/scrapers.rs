@@ -40,6 +40,31 @@ async fn emit_job_found(app: &AppHandle, db: &sqlx::SqlitePool, profile_id: &str
     }
 }
 
+/// The one canonical job-post INSERT, shared by every scraper. The 24 columns
+/// bind positionally (`?1`..`?23`), and `?19` is reused for both `discovered_at`
+/// and `last_seen_at` (a fresh row's last-seen IS its discovery). Each scraper
+/// keeps its own `.bind(..)` chain — the values legitimately differ per platform
+/// (real vs None salary/contact_email/etc.) — but the schema-coupled SQL lives
+/// here ONCE so a column change is a single edit, not nine.
+#[cfg(feature = "real-browser")]
+const INSERT_JOB_POST_SQL: &str = "INSERT INTO job_posts (
+    id, profile_id, platform, external_id,
+    url, canonical_url, title, company,
+    location, remote_mode, description, summary,
+    salary_min, salary_max, currency,
+    seniority, employment_type, posted_at,
+    discovered_at, last_seen_at, discovery_source,
+    search_query_id, status, contact_email
+) VALUES (
+    ?1,  ?2,  ?3,  ?4,
+    ?5,  ?6,  ?7,  ?8,
+    ?9,  ?10, ?11, ?12,
+    ?13, ?14, ?15,
+    ?16, ?17, ?18,
+    ?19, ?19, ?20,
+    ?21, ?22, ?23
+)";
+
 #[allow(clippy::too_many_arguments)] // IPC arg list is the frontend contract
 #[tauri::command]
 pub async fn run_indeed_search(
@@ -149,51 +174,33 @@ pub async fn run_indeed_search(
 
                     let id = Uuid::new_v4().to_string();
                     let now = now_iso();
-                    sqlx::query(
-                        "INSERT INTO job_posts (
-                            id, profile_id, platform, external_id,
-                            url, canonical_url, title, company,
-                            location, remote_mode, description, summary,
-                            salary_min, salary_max, currency,
-                            seniority, employment_type, posted_at,
-                            discovered_at, last_seen_at, discovery_source,
-                            search_query_id, status, contact_email
-                        ) VALUES (
-                            ?1,  ?2,  ?3,  ?4,
-                            ?5,  ?6,  ?7,  ?8,
-                            ?9,  ?10, ?11, ?12,
-                            ?13, ?14, ?15,
-                            ?16, ?17, ?18,
-                            ?19, ?19, ?20,
-                            ?21, ?22, ?23
-                        )",
-                    )
-                    .bind(&id)
-                    .bind(&profile_id)
-                    .bind("indeed")
-                    .bind(&card.job_id)
-                    .bind(&url)
-                    .bind(&canonical)
-                    .bind(card.title.as_deref().unwrap_or(""))
-                    .bind(card.company.as_deref().unwrap_or(""))
-                    .bind(&card.location)
-                    .bind(remote_mode)
-                    .bind(card.description.as_deref().unwrap_or(""))
-                    .bind::<Option<String>>(None)
-                    .bind::<Option<i64>>(None)
-                    .bind::<Option<i64>>(None)
-                    .bind::<Option<String>>(None)
-                    .bind::<Option<String>>(None)
-                    .bind::<Option<String>>(None)
-                    .bind::<Option<String>>(None)
-                    .bind(&now)
-                    .bind("indeed_search")
-                    .bind(&search_query_id)
-                    .bind(status)
-                    .bind::<Option<String>>(None)
-                    .execute(&state.db)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                    sqlx::query(INSERT_JOB_POST_SQL)
+                        .bind(&id)
+                        .bind(&profile_id)
+                        .bind("indeed")
+                        .bind(&card.job_id)
+                        .bind(&url)
+                        .bind(&canonical)
+                        .bind(card.title.as_deref().unwrap_or(""))
+                        .bind(card.company.as_deref().unwrap_or(""))
+                        .bind(&card.location)
+                        .bind(remote_mode)
+                        .bind(card.description.as_deref().unwrap_or(""))
+                        .bind::<Option<String>>(None)
+                        .bind::<Option<i64>>(None)
+                        .bind::<Option<i64>>(None)
+                        .bind::<Option<String>>(None)
+                        .bind::<Option<String>>(None)
+                        .bind::<Option<String>>(None)
+                        .bind::<Option<String>>(None)
+                        .bind(&now)
+                        .bind("indeed_search")
+                        .bind(&search_query_id)
+                        .bind(status)
+                        .bind::<Option<String>>(None)
+                        .execute(&state.db)
+                        .await
+                        .map_err(|e| e.to_string())?;
 
                     if is_dup {
                         skipped_duplicates += 1;
@@ -330,51 +337,33 @@ pub async fn run_catho_search(
             .to_lowercase();
             let remote_mode = crate::matching::scorer::classify_work_model(&hay);
 
-            sqlx::query(
-                "INSERT INTO job_posts (
-                    id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    salary_min, salary_max, currency,
-                    seniority, employment_type, posted_at,
-                    discovered_at, last_seen_at, discovery_source,
-                    search_query_id, status, contact_email
-                ) VALUES (
-                    ?1,  ?2,  ?3,  ?4,
-                    ?5,  ?6,  ?7,  ?8,
-                    ?9,  ?10, ?11, ?12,
-                    ?13, ?14, ?15,
-                    ?16, ?17, ?18,
-                    ?19, ?19, ?20,
-                    ?21, ?22, ?23
-                )",
-            )
-            .bind(&id)
-            .bind(&profile_id)
-            .bind("catho")
-            .bind(&card.job_id)
-            .bind(&url)
-            .bind(&canonical)
-            .bind(card.title.as_deref().unwrap_or(""))
-            .bind(card.company.as_deref().unwrap_or(""))
-            .bind(&card.location)
-            .bind(remote_mode)
-            .bind(card.description.as_deref().unwrap_or(""))
-            .bind::<Option<String>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind(&now)
-            .bind("catho_search")
-            .bind(&search_query_id)
-            .bind(status)
-            .bind::<Option<String>>(None)
-            .execute(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("catho")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("catho_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
 
             if is_dup {
                 skipped_duplicates += 1;
@@ -497,51 +486,33 @@ pub async fn run_upwork_search(
             .to_lowercase();
             let remote_mode = crate::matching::scorer::classify_work_model(&hay).or(Some("remote"));
 
-            sqlx::query(
-                "INSERT INTO job_posts (
-                    id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    salary_min, salary_max, currency,
-                    seniority, employment_type, posted_at,
-                    discovered_at, last_seen_at, discovery_source,
-                    search_query_id, status, contact_email
-                ) VALUES (
-                    ?1,  ?2,  ?3,  ?4,
-                    ?5,  ?6,  ?7,  ?8,
-                    ?9,  ?10, ?11, ?12,
-                    ?13, ?14, ?15,
-                    ?16, ?17, ?18,
-                    ?19, ?19, ?20,
-                    ?21, ?22, ?23
-                )",
-            )
-            .bind(&id)
-            .bind(&profile_id)
-            .bind("upwork")
-            .bind(&card.job_id)
-            .bind(&url)
-            .bind(&canonical)
-            .bind(card.title.as_deref().unwrap_or(""))
-            .bind(card.company.as_deref().unwrap_or(""))
-            .bind(&card.location)
-            .bind(remote_mode)
-            .bind(card.description.as_deref().unwrap_or(""))
-            .bind::<Option<String>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind(&now)
-            .bind("upwork_search")
-            .bind(&search_query_id)
-            .bind(status)
-            .bind::<Option<String>>(None)
-            .execute(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("upwork")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("upwork_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
 
             if is_dup {
                 skipped_duplicates += 1;
@@ -655,51 +626,33 @@ pub async fn run_freelas99_search(
             .to_lowercase();
             let remote_mode = crate::matching::scorer::classify_work_model(&hay);
 
-            sqlx::query(
-                "INSERT INTO job_posts (
-                    id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    salary_min, salary_max, currency,
-                    seniority, employment_type, posted_at,
-                    discovered_at, last_seen_at, discovery_source,
-                    search_query_id, status, contact_email
-                ) VALUES (
-                    ?1,  ?2,  ?3,  ?4,
-                    ?5,  ?6,  ?7,  ?8,
-                    ?9,  ?10, ?11, ?12,
-                    ?13, ?14, ?15,
-                    ?16, ?17, ?18,
-                    ?19, ?19, ?20,
-                    ?21, ?22, ?23
-                )",
-            )
-            .bind(&id)
-            .bind(&profile_id)
-            .bind("99freelas")
-            .bind(&card.job_id)
-            .bind(&url)
-            .bind(&canonical)
-            .bind(card.title.as_deref().unwrap_or(""))
-            .bind(card.company.as_deref().unwrap_or(""))
-            .bind(&card.location)
-            .bind(remote_mode)
-            .bind(card.description.as_deref().unwrap_or(""))
-            .bind::<Option<String>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind(&now)
-            .bind("freelas99_search")
-            .bind(&search_query_id)
-            .bind(status)
-            .bind::<Option<String>>(None)
-            .execute(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("99freelas")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("freelas99_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
 
             if is_dup {
                 skipped_duplicates += 1;
@@ -817,51 +770,33 @@ pub async fn run_infojobs_search(
             .to_lowercase();
             let remote_mode = crate::matching::scorer::classify_work_model(&hay);
 
-            sqlx::query(
-                "INSERT INTO job_posts (
-                    id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    salary_min, salary_max, currency,
-                    seniority, employment_type, posted_at,
-                    discovered_at, last_seen_at, discovery_source,
-                    search_query_id, status, contact_email
-                ) VALUES (
-                    ?1,  ?2,  ?3,  ?4,
-                    ?5,  ?6,  ?7,  ?8,
-                    ?9,  ?10, ?11, ?12,
-                    ?13, ?14, ?15,
-                    ?16, ?17, ?18,
-                    ?19, ?19, ?20,
-                    ?21, ?22, ?23
-                )",
-            )
-            .bind(&id)
-            .bind(&profile_id)
-            .bind("infojobs")
-            .bind(&card.job_id)
-            .bind(&url)
-            .bind(&canonical)
-            .bind(card.title.as_deref().unwrap_or(""))
-            .bind(card.company.as_deref().unwrap_or(""))
-            .bind(&card.location)
-            .bind(remote_mode)
-            .bind(card.description.as_deref().unwrap_or(""))
-            .bind::<Option<String>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind(&now)
-            .bind("infojobs_search")
-            .bind(&search_query_id)
-            .bind(status)
-            .bind::<Option<String>>(None)
-            .execute(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("infojobs")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("infojobs_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
 
             if is_dup {
                 skipped_duplicates += 1;
@@ -984,51 +919,33 @@ pub async fn run_gupy_search(
             .to_lowercase();
             let remote_mode = crate::matching::scorer::classify_work_model(&hay);
 
-            sqlx::query(
-                "INSERT INTO job_posts (
-                    id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    salary_min, salary_max, currency,
-                    seniority, employment_type, posted_at,
-                    discovered_at, last_seen_at, discovery_source,
-                    search_query_id, status, contact_email
-                ) VALUES (
-                    ?1,  ?2,  ?3,  ?4,
-                    ?5,  ?6,  ?7,  ?8,
-                    ?9,  ?10, ?11, ?12,
-                    ?13, ?14, ?15,
-                    ?16, ?17, ?18,
-                    ?19, ?19, ?20,
-                    ?21, ?22, ?23
-                )",
-            )
-            .bind(&id)
-            .bind(&profile_id)
-            .bind("gupy")
-            .bind(&card.job_id)
-            .bind(&url)
-            .bind(&canonical)
-            .bind(card.title.as_deref().unwrap_or(""))
-            .bind(card.company.as_deref().unwrap_or(""))
-            .bind(&card.location)
-            .bind(remote_mode)
-            .bind(card.description.as_deref().unwrap_or(""))
-            .bind::<Option<String>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<i64>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind::<Option<String>>(None)
-            .bind(&now)
-            .bind("gupy_search")
-            .bind(&search_query_id)
-            .bind(status)
-            .bind::<Option<String>>(None)
-            .execute(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("gupy")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("gupy_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
 
             if is_dup {
                 skipped_duplicates += 1;
@@ -1307,59 +1224,41 @@ pub async fn run_linkedin_search(
                         let id = Uuid::new_v4().to_string();
                         let now = now_iso();
 
-                        sqlx::query(
-                            "INSERT INTO job_posts (
-                            id, profile_id, platform, external_id,
-                            url, canonical_url, title, company,
-                            location, remote_mode, description, summary,
-                            salary_min, salary_max, currency,
-                            seniority, employment_type, posted_at,
-                            discovered_at, last_seen_at, discovery_source,
-                            search_query_id, status, contact_email
-                        ) VALUES (
-                            ?1,  ?2,  ?3,  ?4,
-                            ?5,  ?6,  ?7,  ?8,
-                            ?9,  ?10, ?11, ?12,
-                            ?13, ?14, ?15,
-                            ?16, ?17, ?18,
-                            ?19, ?19, ?20,
-                            ?21, ?22, ?23
-                        )",
-                        )
-                        .bind(&id)
-                        .bind(&profile_id)
-                        .bind("linkedin")
-                        .bind(&card.job_id)
-                        .bind(&url)
-                        .bind(&canonical)
-                        .bind(card.title.as_deref().unwrap_or(""))
-                        .bind(card.company.as_deref().unwrap_or(""))
-                        .bind(&card.location)
-                        .bind(
-                            crate::matching::scorer::classify_work_model(&format!(
-                                "{} {} {}",
-                                card.title.as_deref().unwrap_or(""),
-                                card.location.as_deref().unwrap_or(""),
-                                card.description.as_deref().unwrap_or("")
-                            ))
-                            .map(str::to_string),
-                        )
-                        .bind(card.description.as_deref().unwrap_or(""))
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<i64>>(None)
-                        .bind::<Option<i64>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind(&now)
-                        .bind("linkedin_search")
-                        .bind(&search_query_id)
-                        .bind(status)
-                        .bind(extract_email(card.description.as_deref().unwrap_or("")))
-                        .execute(&state.db)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                        sqlx::query(INSERT_JOB_POST_SQL)
+                            .bind(&id)
+                            .bind(&profile_id)
+                            .bind("linkedin")
+                            .bind(&card.job_id)
+                            .bind(&url)
+                            .bind(&canonical)
+                            .bind(card.title.as_deref().unwrap_or(""))
+                            .bind(card.company.as_deref().unwrap_or(""))
+                            .bind(&card.location)
+                            .bind(
+                                crate::matching::scorer::classify_work_model(&format!(
+                                    "{} {} {}",
+                                    card.title.as_deref().unwrap_or(""),
+                                    card.location.as_deref().unwrap_or(""),
+                                    card.description.as_deref().unwrap_or("")
+                                ))
+                                .map(str::to_string),
+                            )
+                            .bind(card.description.as_deref().unwrap_or(""))
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<i64>>(None)
+                            .bind::<Option<i64>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind(&now)
+                            .bind("linkedin_search")
+                            .bind(&search_query_id)
+                            .bind(status)
+                            .bind(extract_email(card.description.as_deref().unwrap_or("")))
+                            .execute(&state.db)
+                            .await
+                            .map_err(|e| e.to_string())?;
 
                         if is_dup {
                             skipped_duplicates += 1;
@@ -1529,23 +1428,7 @@ pub async fn run_google_search(
                         .or_else(|| extract_email(&result.snippet));
 
                     sqlx::query(
-                        "INSERT INTO job_posts (
-                            id, profile_id, platform, external_id,
-                            url, canonical_url, title, company,
-                            location, remote_mode, description, summary,
-                            salary_min, salary_max, currency,
-                            seniority, employment_type, posted_at,
-                            discovered_at, last_seen_at, discovery_source,
-                            search_query_id, status, contact_email
-                        ) VALUES (
-                            ?1,  ?2,  ?3,  ?4,
-                            ?5,  ?6,  ?7,  ?8,
-                            ?9,  ?10, ?11, ?12,
-                            ?13, ?14, ?15,
-                            ?16, ?17, ?18,
-                            ?19, ?19, ?20,
-                            ?21, ?22, ?23
-                        )",
+                        INSERT_JOB_POST_SQL,
                     )
                     .bind(&id)
                     .bind(&profile_id)
@@ -1780,51 +1663,33 @@ pub async fn run_linkedin_posts_search(
                         let contact_email =
                             post.email.clone().or_else(|| extract_email(&post.text));
 
-                        sqlx::query(
-                            "INSERT INTO job_posts (
-                            id, profile_id, platform, external_id,
-                            url, canonical_url, title, company,
-                            location, remote_mode, description, summary,
-                            salary_min, salary_max, currency,
-                            seniority, employment_type, posted_at,
-                            discovered_at, last_seen_at, discovery_source,
-                            search_query_id, status, contact_email
-                        ) VALUES (
-                            ?1,  ?2,  ?3,  ?4,
-                            ?5,  ?6,  ?7,  ?8,
-                            ?9,  ?10, ?11, ?12,
-                            ?13, ?14, ?15,
-                            ?16, ?17, ?18,
-                            ?19, ?19, ?20,
-                            ?21, ?22, ?23
-                        )",
-                        )
-                        .bind(&id)
-                        .bind(&profile_id)
-                        .bind("linkedin_post")
-                        .bind::<Option<String>>(None)
-                        .bind(&url)
-                        .bind(&canonical)
-                        .bind(&title)
-                        .bind(&company)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind(&post.text)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<i64>>(None)
-                        .bind::<Option<i64>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind::<Option<String>>(None)
-                        .bind(&now)
-                        .bind("linkedin_feed")
-                        .bind(&search_query_id)
-                        .bind(status)
-                        .bind(&contact_email)
-                        .execute(&state.db)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                        sqlx::query(INSERT_JOB_POST_SQL)
+                            .bind(&id)
+                            .bind(&profile_id)
+                            .bind("linkedin_post")
+                            .bind::<Option<String>>(None)
+                            .bind(&url)
+                            .bind(&canonical)
+                            .bind(&title)
+                            .bind(&company)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind(&post.text)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<i64>>(None)
+                            .bind::<Option<i64>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind::<Option<String>>(None)
+                            .bind(&now)
+                            .bind("linkedin_feed")
+                            .bind(&search_query_id)
+                            .bind(status)
+                            .bind(&contact_email)
+                            .execute(&state.db)
+                            .await
+                            .map_err(|e| e.to_string())?;
 
                         if is_dup {
                             skipped_duplicates += 1;

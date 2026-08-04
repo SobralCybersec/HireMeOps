@@ -304,7 +304,9 @@ export function ApplicationsQueue() {
           background: "var(--color-surface)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-3)" }}
+        >
           <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-2)" }}>
             <StatusDot variant={automationVariant(autoState)} />
             <strong>{humanState(autoState)}</strong>
@@ -358,9 +360,15 @@ export function ApplicationsQueue() {
           >
             <div style={{ flex: 1, minWidth: "16rem" }}>
               <strong style={{ fontSize: "var(--text-sm)" }}>Filled — parked at Submit.</strong>
-              <p style={{ margin: "var(--sp-1) 0 0", fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
-                Review the form in the browser window. Nothing is submitted automatically — confirm to
-                send it, or discard to skip this application.
+              <p
+                style={{
+                  margin: "var(--sp-1) 0 0",
+                  fontSize: "var(--text-xs)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                Review the form in the browser window. Nothing is submitted automatically — confirm
+                to send it, or discard to skip this application.
               </p>
             </div>
             <Button variant="primary" size="sm" onClick={() => void handleConfirm()}>
@@ -387,7 +395,13 @@ export function ApplicationsQueue() {
             <button
               type="button"
               onClick={clearError}
-              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", textDecoration: "underline" }}
+              style={{
+                background: "none",
+                border: "none",
+                color: "inherit",
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
             >
               dismiss
             </button>

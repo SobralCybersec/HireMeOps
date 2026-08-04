@@ -16,7 +16,6 @@ function resetStore() {
   useAutomationStore.setState({
     state: "Queued",
     currentTaskId: null,
-    isEmergencyStopped: false,
     watchUrl: null,
     error: null,
     detail: null,
@@ -31,17 +30,16 @@ describe("useAutomationStore", () => {
 
   // ── start ─────────────────────────────────────────────────────────────────
   describe("start", () => {
-    it("paints the optimistic PreparingBrowser ack and clears error + latch", async () => {
+    it("paints the optimistic PreparingBrowser ack and clears error", async () => {
       mockInvokeStrict.mockResolvedValueOnce(undefined);
       // Pre-dirty the store so we can prove start() clears these.
-      useAutomationStore.setState({ error: "old", isEmergencyStopped: true });
+      useAutomationStore.setState({ error: "old" });
 
       await useAutomationStore.getState().start();
 
       expect(mockInvokeStrict).toHaveBeenCalledWith("automation_start");
       const s = useAutomationStore.getState();
       expect(s.state).toBe("PreparingBrowser");
-      expect(s.isEmergencyStopped).toBe(false);
       expect(s.error).toBeNull();
       expect(s.detail).toBeNull();
     });
@@ -116,38 +114,6 @@ describe("useAutomationStore", () => {
     });
   });
 
-  // ── emergencyStop (SAFETY-CRITICAL) ─────────────────────────────────────────
-  describe("emergencyStop", () => {
-    it("latches Stopped + clears task binding on backend confirmation", async () => {
-      mockInvokeStrict.mockResolvedValueOnce(undefined);
-      useAutomationStore.setState({ currentTaskId: "task-1", state: "Searching" });
-
-      await useAutomationStore.getState().emergencyStop();
-
-      expect(mockInvokeStrict).toHaveBeenCalledWith("automation_emergency_stop");
-      const s = useAutomationStore.getState();
-      expect(s.state).toBe("Stopped");
-      expect(s.isEmergencyStopped).toBe(true);
-      expect(s.currentTaskId).toBeNull();
-      expect(s.error).toBeNull();
-      expect(s.detail).toBeNull();
-    });
-
-    it("MUST NOT paint Stopped when the backend stop fails (no dangerous lie)", async () => {
-      mockInvokeStrict.mockRejectedValueOnce("channel dead");
-      useAutomationStore.setState({ state: "Searching", currentTaskId: "task-9" });
-
-      await useAutomationStore.getState().emergencyStop();
-
-      const s = useAutomationStore.getState();
-      // The prior running state is preserved - we never claim Stopped unconfirmed.
-      expect(s.state).toBe("Searching");
-      expect(s.currentTaskId).toBe("task-9");
-      expect(s.isEmergencyStopped).toBe(false);
-      expect(s.error).toMatch("EMERGENCY STOP FAILED");
-    });
-  });
-
   // ── applyServerState (authoritative lifecycle) ──────────────────────────────
   describe("applyServerState", () => {
     it("adopts a backend-provided taskId", () => {
@@ -168,18 +134,6 @@ describe("useAutomationStore", () => {
       useAutomationStore.setState({ currentTaskId: "task-done" });
       useAutomationStore.getState().applyServerState("Completed", null, null);
       expect(useAutomationStore.getState().currentTaskId).toBeNull();
-    });
-
-    it("a backend-confirmed Stopped clears the local emergency latch", () => {
-      useAutomationStore.setState({ isEmergencyStopped: true });
-      useAutomationStore.getState().applyServerState("Stopped", null, null);
-      expect(useAutomationStore.getState().isEmergencyStopped).toBe(false);
-    });
-
-    it("a non-Stopped state leaves the emergency latch exactly as it was", () => {
-      useAutomationStore.setState({ isEmergencyStopped: true });
-      useAutomationStore.getState().applyServerState("Failed", null, "crashed");
-      expect(useAutomationStore.getState().isEmergencyStopped).toBe(true);
     });
   });
 

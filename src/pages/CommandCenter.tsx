@@ -172,7 +172,9 @@ export function CommandCenter() {
 
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [cvs, setCvs] = useState<CvDocument[]>([]);
-  const [selectedCvId, setSelectedCvId] = useState<string>(() => localStorage.getItem(CV_KEY) ?? "");
+  const [selectedCvId, setSelectedCvId] = useState<string>(
+    () => localStorage.getItem(CV_KEY) ?? "",
+  );
   const [opening, setOpening] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -181,9 +183,7 @@ export function CommandCenter() {
   // Persisted to localStorage so leaving Command Center and coming back doesn't reset it to off
   // (it's component state — navigating away unmounts it); the run resumes on return.
   const AC_KEY = "hiremeops-autoconnect";
-  const [autoConnect, setAutoConnectState] = useState(
-    () => localStorage.getItem(AC_KEY) === "1",
-  );
+  const [autoConnect, setAutoConnectState] = useState(() => localStorage.getItem(AC_KEY) === "1");
   const setAutoConnect = useCallback((v: boolean) => {
     setAutoConnectState(v);
     localStorage.setItem(AC_KEY, v ? "1" : "0");
@@ -198,8 +198,8 @@ export function CommandCenter() {
     if (!activeProfileId) return;
     void loadJobs(activeProfileId);
     void loadVariants(activeProfileId);
-    void safeInvoke<CvDocument[]>("list_cv_documents", { profileId: activeProfileId }).then((list) =>
-      setCvs(list ?? []),
+    void safeInvoke<CvDocument[]>("list_cv_documents", { profileId: activeProfileId }).then(
+      (list) => setCvs(list ?? []),
     );
   }, [activeProfileId, loadJobs, loadVariants]);
 
@@ -216,58 +216,58 @@ export function CommandCenter() {
     autoConnectRunActive = true;
     let cancelled = false;
     (async () => {
-     try {
-      let total = 0;
-      setAcStatus("Connecting…");
-      while (!cancelled) {
-        try {
-          // SSE-style live counter: the backend streams one tick per confirmed invite (and one on
-          // limit) over this channel, so "Sent N" climbs in real time instead of jumping only when
-          // the (up-to-200) call returns. `base` = invites confirmed in PRIOR calls this run.
-          const base = total;
-          const channel = new Channel<{ sent: number; status: "ok" | "limit" }>();
-          channel.onmessage = (p) => {
-            if (cancelled) return;
-            setAcStatus(
-              p.status === "limit"
-                ? `⚠ Weekly connection limit reached — sent ${base + p.sent}.`
-                : `Sent ${base + p.sent}…`,
+      try {
+        let total = 0;
+        setAcStatus("Connecting…");
+        while (!cancelled) {
+          try {
+            // SSE-style live counter: the backend streams one tick per confirmed invite (and one on
+            // limit) over this channel, so "Sent N" climbs in real time instead of jumping only when
+            // the (up-to-200) call returns. `base` = invites confirmed in PRIOR calls this run.
+            const base = total;
+            const channel = new Channel<{ sent: number; status: "ok" | "limit" }>();
+            channel.onmessage = (p) => {
+              if (cancelled) return;
+              setAcStatus(
+                p.status === "limit"
+                  ? `⚠ Weekly connection limit reached — sent ${base + p.sent}.`
+                  : `Sent ${base + p.sent}…`,
+              );
+            };
+            const r = await invokeStrict<{ sent: number; status: "ok" | "limit" }>(
+              "auto_connect_linkedin",
+              // High per-call ceiling so one session drives all the way to LinkedIn's weekly limit
+              // (the real stop) instead of quitting at an arbitrary 20; the worker keeps scrolling +
+              // refreshing for fresh "Sugestões para você" cards until `limit` or truly dry.
+              { maxCount: 200, channel },
             );
-          };
-          const r = await invokeStrict<{ sent: number; status: "ok" | "limit" }>(
-            "auto_connect_linkedin",
-            // High per-call ceiling so one session drives all the way to LinkedIn's weekly limit
-            // (the real stop) instead of quitting at an arbitrary 20; the worker keeps scrolling +
-            // refreshing for fresh "Sugestões para você" cards until `limit` or truly dry.
-            { maxCount: 200, channel },
-          );
-          total += r.sent;
-          setAcStatus(`Sent ${total}…`);
-          if (r.status === "limit") {
-            setAcStatus(`Weekly limit reached — sent ${total}.`);
+            total += r.sent;
+            setAcStatus(`Sent ${total}…`);
+            if (r.status === "limit") {
+              setAcStatus(`Weekly limit reached — sent ${total}.`);
+              setAutoConnect(false);
+              break;
+            }
+            if (r.sent === 0) {
+              setAcStatus(`Done — sent ${total}.`);
+              setAutoConnect(false);
+              break;
+            }
+          } catch (e) {
+            setAcStatus(e instanceof Error ? e.message : String(e));
             setAutoConnect(false);
             break;
           }
-          if (r.sent === 0) {
-            setAcStatus(`Done — sent ${total}.`);
-            setAutoConnect(false);
-            break;
-          }
-        } catch (e) {
-          setAcStatus(e instanceof Error ? e.message : String(e));
-          setAutoConnect(false);
-          break;
+          await new Promise((res) => setTimeout(res, 1500));
         }
-        await new Promise((res) => setTimeout(res, 1500));
+      } finally {
+        autoConnectRunActive = false;
       }
-     } finally {
-       autoConnectRunActive = false;
-     }
     })();
     return () => {
       cancelled = true;
     };
-  }, [autoConnect, activeProfileId]);
+  }, [autoConnect, activeProfileId, setAutoConnect]);
 
   const selectedVariant = variants.find((v) => v.id === selectedVariantId) ?? null;
 
@@ -345,7 +345,8 @@ export function CommandCenter() {
             <h2>Feed Email</h2>
           </header>
           <p className="cc-zone__muted">
-            Open your inbox in the shared browser, and pick the CV that goes out with email applications.
+            Open your inbox in the shared browser, and pick the CV that goes out with email
+            applications.
           </p>
           <label className="cc-field">
             <span className="cc-field__label">CV for emails</span>
@@ -380,8 +381,8 @@ export function CommandCenter() {
             <h2>Login Universal</h2>
           </header>
           <p className="cc-zone__muted">
-            One window — every job site <em>and ChatGPT</em>. Sign into each tab once; cookies persist for
-            every fill, search, and AI rewrite.
+            One window — every job site <em>and ChatGPT</em>. Sign into each tab once; cookies
+            persist for every fill, search, and AI rewrite.
           </p>
           <Button
             variant="primary"
@@ -392,11 +393,7 @@ export function CommandCenter() {
             {opening ? "Opening…" : "Open all logins"}
           </Button>
 
-          <Switch
-            checked={autoConnect}
-            onChange={setAutoConnect}
-            disabled={!activeProfileId}
-          >
+          <Switch checked={autoConnect} onChange={setAutoConnect} disabled={!activeProfileId}>
             Auto-connect on LinkedIn (until weekly limit)
           </Switch>
           {acStatus && <p className="cc-zone__muted">{acStatus}</p>}

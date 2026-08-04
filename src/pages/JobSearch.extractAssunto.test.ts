@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractAssunto } from "./JobSearch";
+import { extractAssunto } from "./JobSearch.helpers";
 
 describe("extractAssunto", () => {
   it("returns null for empty / null input", () => {

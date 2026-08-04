@@ -61,7 +61,9 @@ function EntryCard({
           {title || "—"}
         </span>
         {sub && (
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>{sub}</span>
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+            {sub}
+          </span>
         )}
       </div>
       {bullets.length > 0 && (
@@ -75,7 +77,10 @@ function EntryCard({
           }}
         >
           {bullets.map((b, j) => (
-            <li key={j} style={{ fontSize: "var(--text-xs)", color: "var(--color-text)", lineHeight: 1.5 }}>
+            <li
+              key={j}
+              style={{ fontSize: "var(--text-xs)", color: "var(--color-text)", lineHeight: 1.5 }}
+            >
               {renderInlineBold(b)}
             </li>
           ))}
@@ -128,10 +133,22 @@ function SectionCard({
           borderBottom: "1px solid var(--color-border)",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-1)", flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: "var(--text-sm)", fontWeight: "var(--fw-semibold)" }}>{title}</span>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--sp-1)",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          <span style={{ fontSize: "var(--text-sm)", fontWeight: "var(--fw-semibold)" }}>
+            {title}
+          </span>
           {hint && (
-            <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>{hint}</span>
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+              {hint}
+            </span>
           )}
         </div>
         {action}
@@ -153,7 +170,8 @@ function EditToggle({ editing, onToggle }: { editing: boolean; onToggle: () => v
 /** Read-view paragraph for a text section (preserves line breaks; "—" if empty). */
 function ReadText({ value, mono }: { value: string; mono?: boolean }) {
   const v = value.trim();
-  if (!v) return <span style={{ color: "var(--color-text-muted)", fontSize: "var(--text-sm)" }}>—</span>;
+  if (!v)
+    return <span style={{ color: "var(--color-text-muted)", fontSize: "var(--text-sm)" }}>—</span>;
   return (
     <p
       style={{
@@ -170,7 +188,15 @@ function ReadText({ value, mono }: { value: string; mono?: boolean }) {
   );
 }
 
-const TABS = ["Headline", "Summary", "About", "Keywords", "Skills", "Experience", "Education"] as const;
+const TABS = [
+  "Headline",
+  "Summary",
+  "About",
+  "Keywords",
+  "Skills",
+  "Experience",
+  "Education",
+] as const;
 type Tab = (typeof TABS)[number];
 
 function toVariantView(dto: ProfileVariantDto): Variant {
@@ -282,7 +308,9 @@ export function ProfileVariants() {
       );
       if (firstWithRewrite) {
         setPickedDocId(firstWithRewrite.id);
-        const first = rewriteList.find((r) => r.cvDocumentId === firstWithRewrite.id && rewriteInLang(r));
+        const first = rewriteList.find(
+          (r) => r.cvDocumentId === firstWithRewrite.id && rewriteInLang(r),
+        );
         if (first) setPickedRewriteId(first.id);
       } else if (docList[0]) {
         setPickedDocId(docList[0].id);
@@ -439,7 +467,9 @@ export function ProfileVariants() {
             style={{ minWidth: "16rem" }}
             options={variants.map((v) => ({
               value: v.id,
-              label: v.keywords.length ? `${v.name} — ${v.keywords.slice(0, 3).join(", ")}` : v.name,
+              label: v.keywords.length
+                ? `${v.name} — ${v.keywords.slice(0, 3).join(", ")}`
+                : v.name,
             }))}
           />
         )}
@@ -488,19 +518,48 @@ export function ProfileVariants() {
               value={pickedDocId}
               onChange={(e) => handleDocChange(e.target.value)}
               disabled={formLoading || submitting}
-              placeholder={formLoading ? "Loading…" : docs.length === 0 ? "No files uploaded" : undefined}
+              placeholder={
+                formLoading ? "Loading…" : docs.length === 0 ? "No files uploaded" : undefined
+              }
               options={docs.map((d) => ({ value: d.id, label: d.fileName }))}
             />
           </Field>
 
           {/* Language toggle — output language for a fresh build; also filters the optional rewrite shortcut. */}
-          <div style={{ display: "flex", gap: "var(--sp-1)", alignSelf: "flex-end", paddingBottom: "1px" }}>
-            <Button size="sm" variant={language === "pt" ? "primary" : "ghost"} disabled={submitting} onClick={() => handleLanguageChange("pt")} title="Portuguese">PT</Button>
-            <Button size="sm" variant={language === "en" ? "primary" : "ghost"} disabled={submitting} onClick={() => handleLanguageChange("en")} title="English">EN</Button>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--sp-1)",
+              alignSelf: "flex-end",
+              paddingBottom: "1px",
+            }}
+          >
+            <Button
+              size="sm"
+              variant={language === "pt" ? "primary" : "ghost"}
+              disabled={submitting}
+              onClick={() => handleLanguageChange("pt")}
+              title="Portuguese"
+            >
+              PT
+            </Button>
+            <Button
+              size="sm"
+              variant={language === "en" ? "primary" : "ghost"}
+              disabled={submitting}
+              onClick={() => handleLanguageChange("en")}
+              title="English"
+            >
+              EN
+            </Button>
           </div>
 
           {/* Optional name */}
-          <Field label="Variant name (optional)" htmlFor="var-name-input" style={{ flex: "1 1 160px", margin: 0 }}>
+          <Field
+            label="Variant name (optional)"
+            htmlFor="var-name-input"
+            style={{ flex: "1 1 160px", margin: 0 }}
+          >
             <Input
               id="var-name-input"
               type="text"
@@ -525,7 +584,14 @@ export function ProfileVariants() {
 
           {/* Optional shortcut — reuse an existing GPT rewrite instead of re-running it. */}
           {docRewrites.length > 0 && (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--sp-2)", flex: "1 1 260px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                gap: "var(--sp-2)",
+                flex: "1 1 260px",
+              }}
+            >
               <Field
                 label="Reuse existing rewrite (optional)"
                 htmlFor="rewrite-pick"
@@ -553,7 +619,14 @@ export function ProfileVariants() {
           )}
 
           {(storeError || (!submitting && submitStatus)) && (
-            <p style={{ width: "100%", margin: 0, fontSize: "var(--text-xs)", color: "var(--color-error)" }}>
+            <p
+              style={{
+                width: "100%",
+                margin: 0,
+                fontSize: "var(--text-xs)",
+                color: "var(--color-error)",
+              }}
+            >
               {storeError || submitStatus}
             </p>
           )}
@@ -570,7 +643,9 @@ export function ProfileVariants() {
           borderTop: "1px solid var(--color-border)",
         }}
       >
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: 0 }}>
+        <div
+          style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: 0 }}
+        >
           {selected === null ? (
             <div className="empty-state">
               <p className="empty-state__title">
@@ -634,7 +709,9 @@ export function ProfileVariants() {
                   <SectionCard
                     title="Headline"
                     hint={editMode ? `${draft.headline.length} / 220 chars` : undefined}
-                    action={<EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />}
+                    action={
+                      <EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />
+                    }
                   >
                     {editMode ? (
                       <Input
@@ -655,7 +732,9 @@ export function ProfileVariants() {
                   <SectionCard
                     title="Professional Summary"
                     hint="3-5 sentence summary tailored to this variant's target role."
-                    action={<EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />}
+                    action={
+                      <EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />
+                    }
                   >
                     {editMode ? (
                       <Textarea
@@ -680,7 +759,9 @@ export function ProfileVariants() {
                         ? `${draft.aboutText.length} / 2600 chars · synced to LinkedIn About section`
                         : "Synced to your LinkedIn About section."
                     }
-                    action={<EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />}
+                    action={
+                      <EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />
+                    }
                   >
                     {editMode ? (
                       <Textarea
@@ -701,7 +782,9 @@ export function ProfileVariants() {
                   <SectionCard
                     title="ATS Keywords"
                     hint="Matched against job descriptions for relevance scoring."
-                    action={<EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />}
+                    action={
+                      <EditToggle editing={editMode} onToggle={() => setEditMode((v) => !v)} />
+                    }
                   >
                     {editMode && (
                       <Textarea
@@ -742,7 +825,13 @@ export function ProfileVariants() {
                     hint="Listed top-to-bottom in priority order for this variant."
                   >
                     {selected.skills.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "var(--text-xs)",
+                          color: "var(--color-text-muted)",
+                        }}
+                      >
                         No skills in this variant.
                       </p>
                     ) : (
@@ -781,7 +870,9 @@ export function ProfileVariants() {
                             >
                               {i + 1}
                             </span>
-                            <span style={{ fontSize: "var(--text-sm)", color: "var(--color-text)" }}>
+                            <span
+                              style={{ fontSize: "var(--text-sm)", color: "var(--color-text)" }}
+                            >
                               {skill}
                             </span>
                           </li>
@@ -794,12 +885,24 @@ export function ProfileVariants() {
                 {/* ── Experience (structured) ── */}
                 {activeTab === "Experience" && selectedDto && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
-                    <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
                       Structured experience for this variant — role, employer, location, dates, and
                       achievement bullets.
                     </p>
                     {selectedDto.experience.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "var(--text-xs)",
+                          color: "var(--color-text-muted)",
+                        }}
+                      >
                         No experience entries in this variant.
                       </p>
                     ) : (
@@ -818,11 +921,23 @@ export function ProfileVariants() {
                 {/* ── Education (structured) ── */}
                 {activeTab === "Education" && selectedDto && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
-                    <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
                       Degrees and certifications — institution, location, dates, and coursework.
                     </p>
                     {selectedDto.education.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "var(--text-xs)",
+                          color: "var(--color-text-muted)",
+                        }}
+                      >
                         No education entries in this variant.
                       </p>
                     ) : (
@@ -851,12 +966,23 @@ export function ProfileVariants() {
                   }}
                 >
                   {saveError && (
-                    <span style={{ fontSize: "var(--text-xs)", color: "var(--color-danger, #c0392b)", flex: 1 }}>
+                    <span
+                      style={{
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-danger, #c0392b)",
+                        flex: 1,
+                      }}
+                    >
                       {saveError}
                     </span>
                   )}
                   <div style={{ flex: 1 }} />
-                  <Button variant="primary" size="sm" disabled={isSaving} onClick={() => void saveVariant()}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={isSaving}
+                    onClick={() => void saveVariant()}
+                  >
                     {isSaving ? "Saving…" : "Save changes"}
                   </Button>
                 </div>

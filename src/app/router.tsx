@@ -1,3 +1,7 @@
+// This module's job is to export the router config, not components. The lazy()
+// page consts are route targets, not shared UI — fast-refresh's "only export
+// components" rule doesn't apply to a router definition.
+/* eslint-disable react-refresh/only-export-components */
 import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";

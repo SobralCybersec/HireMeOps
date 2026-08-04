@@ -71,8 +71,8 @@ describe("AiProviderForm", () => {
     expect(isProviderConfigured(makeProvider({ defaultModel: "   " }))).toBe(false);
     expect(isProviderConfigured(makeProvider({ defaultModel: "chatgpt/gpt-5" }))).toBe(true);
     // Endpoint/key are irrelevant to browser configuration.
-    expect(
-      isProviderConfigured(makeProvider({ endpointUrl: "x", apiKeyStored: true })),
-    ).toBe(false);
+    expect(isProviderConfigured(makeProvider({ endpointUrl: "x", apiKeyStored: true }))).toBe(
+      false,
+    );
   });
 });

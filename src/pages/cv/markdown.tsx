@@ -8,7 +8,9 @@ import type { ReactNode } from "react";
  * captures at the odd indices.
  */
 export function renderInlineBold(text: string): ReactNode[] {
-  return text.split(/\*\*(.+?)\*\*/g).map((part, i) =>
-    i % 2 === 1 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>,
-  );
+  return text
+    .split(/\*\*(.+?)\*\*/g)
+    .map((part, i) =>
+      i % 2 === 1 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>,
+    );
 }

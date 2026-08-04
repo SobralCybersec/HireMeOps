@@ -14,8 +14,16 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(1200px 700px at 80% -10%, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 60%),
-    radial-gradient(900px 600px at -10% 110%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 55%),
+    radial-gradient(
+      1200px 700px at 80% -10%,
+      color-mix(in srgb, var(--color-accent) 22%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 600px at -10% 110%,
+      color-mix(in srgb, var(--color-accent) 16%, transparent),
+      transparent 55%
+    ),
     linear-gradient(180deg, #0a0d14, #05070c);
   backdrop-filter: blur(2px);
 }
@@ -142,7 +150,9 @@
   font-family: var(--font-title);
   font-size: var(--text-md);
   cursor: pointer;
-  transition: transform 0.14s ease, box-shadow 0.14s ease;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
 }
 .onb__btn:hover {
   transform: translateY(-2px);
@@ -177,7 +187,10 @@
   font-size: 22px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.14s ease, transform 0.14s ease, border-color 0.14s ease;
+  transition:
+    background 0.14s ease,
+    transform 0.14s ease,
+    border-color 0.14s ease;
 }
 .onb__arrow:hover:not(:disabled) {
   background: var(--color-surface);
@@ -199,7 +212,9 @@
   border: none;
   background: color-mix(in srgb, var(--color-text) 30%, transparent);
   cursor: pointer;
-  transition: background 0.16s ease, transform 0.16s ease;
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease;
 }
 .onb__dot.is-active {
   background: var(--color-accent);

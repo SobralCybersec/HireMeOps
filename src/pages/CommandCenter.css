@@ -304,7 +304,9 @@
   border-radius: var(--radius-md);
   background: var(--color-surface);
   border-top: 3px solid var(--brand);
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
 }
 .cc-platform:hover {
   transform: translateY(-2px);
@@ -362,7 +364,10 @@
   background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface));
   min-height: 9rem;
   box-shadow: 0 12px 34px rgb(0 0 0 / 0.22);
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
 }
 .cc-zone:hover {
   transform: translateY(-2px);
@@ -456,7 +461,9 @@
 .cc-dlg__body {
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.34s ease, transform 0.34s ease;
+  transition:
+    opacity 0.34s ease,
+    transform 0.34s ease;
 }
 .cc-dlg__body:not(.is-shown) {
   opacity: 0;
@@ -494,7 +501,9 @@
   font-style: italic;
   letter-spacing: 0.5px;
   color: #aeb6c2;
-  transition: color 0.16s ease, transform 0.16s ease;
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease;
 }
 .cc-dlg__next:hover {
   color: #fff;
@@ -642,7 +651,10 @@
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   cursor: pointer;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    border-color 0.14s ease;
 }
 .cc-hub__icon img {
   width: 100%;
@@ -701,7 +713,9 @@
   color: var(--color-text);
   font-size: var(--text-sm);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 .cc-hub__action:hover:not(:disabled) {
   background: var(--color-surface);
@@ -753,9 +767,13 @@
   background-position:
     calc(100% - var(--sp-3) - 4px) center,
     calc(100% - var(--sp-3)) center;
-  background-size: 5px 5px, 5px 5px;
+  background-size:
+    5px 5px,
+    5px 5px;
   background-repeat: no-repeat;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 .cc-select:focus {
   outline: none;
@@ -767,7 +785,9 @@
   transform: translateX(3px);
 }
 .cc-field__label {
-  transition: color 0.2s ease, transform 0.2s ease;
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 .cc-toggle {
   display: flex;

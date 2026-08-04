@@ -3,6 +3,7 @@ import { invokeStrict, safeInvoke, errMessage } from "../lib/tauriInvoke";
 import { Cancel01Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JobStatus, SearchQueryInput } from "../types/domain";
+import { workModelsFrom, extractAssunto, extractPhone } from "./JobSearch.helpers";
 import {
   useJobStore,
   runGoogleSearch,
@@ -65,24 +66,14 @@ type FilterStatus = "all" | JobStatus;
 
 // Lowercase + strip accents so "híbrido" matches "hibrido".
 const normalizeText = (s: string): string =>
-  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
 // Work-mode synonyms (EN + PT) — typing "remote" should catch PT postings that
 // say "remoto" / "home office", "hybrid" → "híbrido", etc. Keys and values are
 // pre-normalized (accent-free). A query not in this map matches itself.
-// Derive the selected work models from the calibration `remoteModes` preference.
-// Was inlined per-platform and only ever emitted remote+hybrid — on-site jobs
-// were never queried. Order is stable so per-model passes are deterministic.
-export function workModelsFrom(remoteModes: string[]): string[] {
-  const has = (...kws: string[]) =>
-    remoteModes.some((m) => kws.some((k) => m.toLowerCase().includes(k)));
-  const out: string[] = [];
-  if (has("remote", "remoto", "home")) out.push("remote");
-  if (has("hybrid", "hibrid", "híbr")) out.push("hybrid");
-  if (has("onsite", "on-site", "presen", "local")) out.push("onsite");
-  return out;
-}
-
 const WORK_MODE_SYNONYMS: Record<string, string[]> = {
   remote: ["remote", "remoto", "home office", "home-office", "teletrabalho", "a distancia"],
   remoto: ["remote", "remoto", "home office", "home-office", "teletrabalho", "a distancia"],
@@ -123,7 +114,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   inhire: "inhire",
 };
 
-
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
   { value: "discovered", label: "Discovered" },
@@ -135,28 +125,6 @@ const STATUS_OPTIONS = [
 ];
 
 /* ── Helpers ────────────────────────────────────────────────────── */
-
-// Scans a job description for a recruiter-specified subject line.
-// Matches Portuguese "Assunto: ..." or English "Subject: ..." (case-insensitive).
-const ASSUNTO_RE = /(?:assunto|subject)\s*[:\-]\s*(.+)/i;
-
-export function extractAssunto(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const m = ASSUNTO_RE.exec(text);
-  if (!m) return null;
-  return m[1].trim().slice(0, 120);
-}
-
-// Detect a contact phone in post text. Matches Brazilian forms: "(11) 91234-5678",
-// "(11)1234-5678", and the bare dashed "91234-5678" / "1234-5678". The dash is the
-// anchor for the bare form so plain digit runs (dates, ids) don't false-match.
-const PHONE_RE = /\(\d{2}\)\s?9?\d{4}-?\d{4}|\b9?\d{4}-\d{4}\b/;
-
-export function extractPhone(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const m = PHONE_RE.exec(text);
-  return m ? m[0].trim() : null;
-}
 
 type ContactFilter = "all" | "email" | "phone" | "any";
 
@@ -310,7 +278,10 @@ export function JobSearch() {
       // backend dedupes by canonical URL, so overlap between roles is free.
       // Group the ingested posts under the linkedin query so run_search() scores.
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -353,7 +324,10 @@ export function JobSearch() {
       // the real total). Location is skipped — InfoJobs filters by a numeric
       // `poblacion` id we can't resolve from a city name, so it's nationwide.
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -398,7 +372,10 @@ export function JobSearch() {
       // target role (up to 3) and union — same reasoning as Catho/InfoJobs.
       // `remoteOnly` maps to the workplaceTypes[]=remote filter.
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -408,7 +385,13 @@ export function JobSearch() {
       for (const role of roles) {
         setSearchMsg(`Searching Gupy for "${role}"…`);
         try {
-          const scraped = await runGupySearch(activeProfileId, target?.id ?? null, role, remoteOnly, 8);
+          const scraped = await runGupySearch(
+            activeProfileId,
+            target?.id ?? null,
+            role,
+            remoteOnly,
+            8,
+          );
           totalIngested += scraped.ingested;
         } catch (e) {
           setSearchMsg(errMessage(e));
@@ -430,7 +413,10 @@ export function JobSearch() {
       // sorted newest-first. Freelance work is remote by nature, so work-mode
       // filters don't apply here.
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -439,7 +425,13 @@ export function JobSearch() {
       for (const role of roles) {
         setSearchMsg(`Searching Upwork for "${role}"…`);
         try {
-          const scraped = await runUpworkSearch(activeProfileId, target?.id ?? null, role, "recency", 3);
+          const scraped = await runUpworkSearch(
+            activeProfileId,
+            target?.id ?? null,
+            role,
+            "recency",
+            3,
+          );
           totalIngested += scraped.ingested;
         } catch (e) {
           setSearchMsg(errMessage(e));
@@ -460,7 +452,10 @@ export function JobSearch() {
       // scrape per target role (up to 3), union. View-only. Server-rendered, so
       // no anti-bot dance — just a fast scrape.
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -492,7 +487,10 @@ export function JobSearch() {
       // Hiring-posts / Catho / InfoJobs / Gupy flows. When remote is preferred,
       // the worker itself unions two remote passes (sc attr + l=Remoto).
       const target = available.find((q) => q.platform === "linkedin" && q.enabled);
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       if (roles.length === 0) {
         setSearchMsg("Set a target role in Job Preferences first.");
         return;
@@ -568,7 +566,10 @@ export function JobSearch() {
       const countries: (string | null)[] =
         filters.locations.length > 0 ? filters.locations : [null];
       const remote = filters.remoteModes.some((m) => m.toLowerCase().includes("remote"));
-      const roles = filters.targetRoles.map((r) => r.trim()).filter(Boolean).slice(0, 3);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
       const skills = (selectedSkills.length > 0 ? selectedSkills : filters.requiredSkills)
         .map((s) => s.trim())
         .filter(Boolean)
@@ -587,14 +588,12 @@ export function JobSearch() {
       }
       const capped = pairQueries.slice(0, 8);
       let totalIngested = 0;
-      let totalPages = 0;
       for (const country of countries) {
         for (const q of capped) {
           setSearchMsg(`Searching LinkedIn: ${q}${country ? ` · ${country}` : ""}…`);
           const scraped = await runLinkedInSearch(activeProfileId, target.id, q, country, remote);
           if (scraped === null) return;
           totalIngested += scraped.ingested;
-          totalPages += scraped.pagesScraped;
         }
       }
       const count = await runSearch(target.id);
@@ -625,7 +624,6 @@ export function JobSearch() {
     await loadJobs(activeProfileId);
     await loadMatches(activeProfileId);
   };
-
 
   // All-in-one: run every platform search in turn, aggregating into one message.
   const handleRunAll = async () => {
@@ -1233,10 +1231,7 @@ export function JobSearch() {
               />
             </Field>
 
-            <Field
-              label="Location"
-              helper="City, region, or 'remote'/'hybrid'. Blank shows all."
-            >
+            <Field label="Location" helper="City, region, or 'remote'/'hybrid'. Blank shows all.">
               <Input
                 value={locationFilter}
                 onChange={(e) => setLocationFilter(e.target.value)}
@@ -1733,7 +1728,11 @@ export function JobSearch() {
                     title="Submits your CV to this Catho offer in a visible window"
                     onClick={() => {
                       if (activeProfileId === null) return;
-                      if (!window.confirm(`Apply to "${selected.title}" on Catho? This sends your CV.`))
+                      if (
+                        !window.confirm(
+                          `Apply to "${selected.title}" on Catho? This sends your CV.`,
+                        )
+                      )
                         return;
                       void (async () => {
                         setIsApplying(true);
@@ -1774,7 +1773,11 @@ export function JobSearch() {
                       void (async () => {
                         setIsApplying(true);
                         try {
-                          const res = await infojobsApply(activeProfileId, selected.id, selected.url);
+                          const res = await infojobsApply(
+                            activeProfileId,
+                            selected.id,
+                            selected.url,
+                          );
                           setSearchMsg(
                             res.status === "applied"
                               ? `Applied to "${selected.title}" on InfoJobs.`
@@ -1804,14 +1807,20 @@ export function JobSearch() {
                         disabled={isApplying}
                         title="Submits the reviewed SmartApply form to Indeed"
                         onClick={() => {
-                          if (!window.confirm(`Submit your application to "${selected.title}" on Indeed?`))
+                          if (
+                            !window.confirm(
+                              `Submit your application to "${selected.title}" on Indeed?`,
+                            )
+                          )
                             return;
                           void (async () => {
                             setIsApplying(true);
                             try {
                               await confirmIndeedSubmit();
                               setIndeedParked(false);
-                              setSearchMsg(`Submitted application to "${selected.title}" on Indeed.`);
+                              setSearchMsg(
+                                `Submitted application to "${selected.title}" on Indeed.`,
+                              );
                             } catch (e) {
                               setSearchMsg(errMessage(e));
                             } finally {
@@ -1890,7 +1899,9 @@ export function JobSearch() {
                             try {
                               await useAutomationStore.getState().confirmSubmit();
                               setLinkedinParked(false);
-                              setSearchMsg(`Submitted application to "${selected.title}" on LinkedIn.`);
+                              setSearchMsg(
+                                `Submitted application to "${selected.title}" on LinkedIn.`,
+                              );
                               await loadJobs(activeProfileId as string);
                             } catch (e) {
                               setSearchMsg(errMessage(e));

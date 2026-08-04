@@ -63,10 +63,7 @@ export type CvExportMode = "new" | "modify";
  * `Vec<u8>` - Tauri hands that to JS as a `number[]`, so we normalise it to a
  * `Uint8Array` here for the caller.
  */
-export async function exportCvRewrite(
-  rewriteId: string,
-  mode: CvExportMode,
-): Promise<Uint8Array> {
+export async function exportCvRewrite(rewriteId: string, mode: CvExportMode): Promise<Uint8Array> {
   const bytes = await invokeStrict<number[]>("export_cv_rewrite", { rewriteId, mode });
   return Uint8Array.from(bytes);
 }

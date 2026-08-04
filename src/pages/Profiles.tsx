@@ -139,12 +139,7 @@ export function Profiles() {
           />
         )}
         <div className="toolbar-spacer" />
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => void handleCreate()}
-          disabled={creating}
-        >
+        <Button variant="primary" size="sm" onClick={() => void handleCreate()} disabled={creating}>
           {creating ? "Creating…" : "+ New Profile"}
         </Button>
       </div>

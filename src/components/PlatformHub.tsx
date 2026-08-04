@@ -10,6 +10,7 @@ import gupyIcon from "../assets/platform-icons/gupy.png";
 import upworkIcon from "../assets/platform-icons/upwork.svg";
 import freelas99Icon from "../assets/platform-icons/freelas99.svg";
 import inhireIcon from "../assets/platform-icons/inhire.svg";
+import googleIcon from "../assets/platform-icons/google.svg";
 
 /** One action a platform icon offers. `fill`/`sync` invoke a push command against
  *  the selected variant; `link` navigates. Login is intentionally absent — the
@@ -41,7 +42,9 @@ const PLATFORMS: Plat[] = [
     key: "catho",
     label: "Catho",
     icon: cathoIcon,
-    actions: [{ label: "Fill Catho resume", command: "push_variant_to_catho", args: { sectionIds: null } }],
+    actions: [
+      { label: "Fill Catho resume", command: "push_variant_to_catho", args: { sectionIds: null } },
+    ],
   },
   {
     key: "gupy",
@@ -72,6 +75,14 @@ const PLATFORMS: Plat[] = [
     label: "99freelas",
     icon: freelas99Icon,
     actions: [{ label: "Search 99freelas", to: "/job-search" }],
+  },
+  {
+    // Google Dork is the broad board-discovery search — one query fans out across
+    // job boards via `site:` operators (see build_google_dork). No login/fill.
+    key: "google",
+    label: "Google (Dork)",
+    icon: googleIcon,
+    actions: [{ label: "Google Dork search", to: "/job-search" }],
   },
   {
     // inhire has no direct scraper — its `*.inhire.app/vagas` postings surface
@@ -129,7 +140,11 @@ export function PlatformHub({ variant }: { variant: ProfileVariantDto | null }) 
       });
       const ok = res.filter((r) => r.status === "ok").length;
       const bad = res.filter((r) => r.status === "error").length;
-      setResult({ key: platKey, text: `${ok} filled${bad ? `, ${bad} failed` : ""}`, ok: bad === 0 });
+      setResult({
+        key: platKey,
+        text: `${ok} filled${bad ? `, ${bad} failed` : ""}`,
+        ok: bad === 0,
+      });
     } catch (e) {
       setResult({ key: platKey, text: e instanceof Error ? e.message : String(e), ok: false });
     } finally {

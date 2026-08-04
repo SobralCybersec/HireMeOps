@@ -40,9 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Search",
-    items: [
-      { to: "/job-search", label: "Job Search", icon: Search01Icon },
-    ],
+    items: [{ to: "/job-search", label: "Job Search", icon: Search01Icon }],
   },
   {
     label: "Pipeline",
@@ -50,9 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "System",
-    items: [
-      { to: "/settings", label: "Settings", icon: Settings01Icon },
-    ],
+    items: [{ to: "/settings", label: "Settings", icon: Settings01Icon }],
   },
 ];
 

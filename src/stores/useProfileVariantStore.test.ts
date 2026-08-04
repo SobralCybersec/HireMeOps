@@ -28,7 +28,13 @@ function variant(id: string, over: Partial<ProfileVariantDto> = {}): ProfileVari
     positions: ["Backend Engineer @ Acme"],
     skills: [{ category: "Languages", skills: "Rust, Java" }],
     experience: [
-      { title: "Engineer", organization: "Acme", location: "Remote", dates: "2020-2025", bullets: ["Shipped X"] },
+      {
+        title: "Engineer",
+        organization: "Acme",
+        location: "Remote",
+        dates: "2020-2025",
+        bullets: ["Shipped X"],
+      },
     ],
     education: [],
     contact: { name: "Ana", location: "BR", email: null, phone: null, website: null },
@@ -138,9 +144,7 @@ describe("useProfileVariantStore", () => {
       useProfileVariantStore.setState({ variants: [variant("a")], selectedId: "a" });
       mockInvokeStrict.mockResolvedValueOnce(variant("new"));
 
-      const result = await useProfileVariantStore
-        .getState()
-        .createVariant("p1", "rw1", "Targeted");
+      const result = await useProfileVariantStore.getState().createVariant("p1", "rw1", "Targeted");
 
       expect(mockInvokeStrict).toHaveBeenCalledWith("create_profile_variant", {
         profileId: "p1",

@@ -623,7 +623,8 @@ export function SettingsLogs() {
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
                       {HEADLESS_TASKS.map((task) => {
                         const overrides = settings?.automationHeadlessOverrides ?? {};
-                        const fallback = task.defaultHeadless ?? settings?.automationHeadless ?? true;
+                        const fallback =
+                          task.defaultHeadless ?? settings?.automationHeadless ?? true;
                         const checked = overrides[task.key] ?? fallback;
                         return (
                           <Switch
@@ -659,9 +660,9 @@ export function SettingsLogs() {
                         lineHeight: 1.5,
                       }}
                     >
-                      When on, the ChatGPT browser session is warmed up silently at startup so
-                      the first AI completion has no cold-start delay. Disable if you prefer the
-                      browser to launch only when explicitly triggered.
+                      When on, the ChatGPT browser session is warmed up silently at startup so the
+                      first AI completion has no cold-start delay. Disable if you prefer the browser
+                      to launch only when explicitly triggered.
                     </p>
                   </div>
 

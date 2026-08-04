@@ -15,7 +15,7 @@ fn service(state: &AppState) -> ApplicationServiceImpl {
 }
 
 /* Emit a coarse AI status milestone so the UI can show "ENI is generating…"
-   live. Buffered delivery is unchanged — this only reports where we are. */
+live. Buffered delivery is unchanged — this only reports where we are. */
 fn ai_progress(app: &AppHandle, phase: &str) {
     app.emit_app_event(AppEvent::new(
         AppEventType::AiProgress,

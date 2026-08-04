@@ -49,7 +49,11 @@ export const useJobPreferencesStore = create<JobPreferencesStoreState>((set, get
     const latest = arr[arr.length - 1];
     if (latest && useJobFiltersStore.getState().filters.targetRoles.length === 0) {
       const parse = (json: string | null | undefined): string[] => {
-        try { return JSON.parse(json ?? "[]") as string[]; } catch { return []; }
+        try {
+          return JSON.parse(json ?? "[]") as string[];
+        } catch {
+          return [];
+        }
       };
       const s = useJobFiltersStore.getState();
       s.setFilter("targetRoles", parse(latest.targetRolesJson));

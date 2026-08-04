@@ -247,10 +247,14 @@ body {
   text-shadow: 0 0 8px color-mix(in oklab, var(--color-success) 45%, transparent);
 }
 @keyframes hud-pulse {
-  50% { opacity: 0.35; }
+  50% {
+    opacity: 0.35;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hud-status__dot { animation: none; }
+  .hud-status__dot {
+    animation: none;
+  }
 }
 
 /* WayneTech scrollbars — thin, dark, accent on hover. */
@@ -399,7 +403,10 @@ select {
   border-radius: var(--radius-sm);
   cursor: pointer;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
-  transition: border-color 0.15s, box-shadow 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
 }
 .glp-fab:hover {
   border-color: var(--color-accent);
@@ -418,8 +425,13 @@ select {
   animation: glp-pulse 1.8s ease-in-out infinite;
 }
 @keyframes glp-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .glp-panel {
@@ -482,4 +494,37 @@ select {
 .glp-panel__viewer {
   border: 0 !important;
   border-radius: 0 !important;
+}
+
+/* ── WayneTech tab treatment ──────────────────────────────────────────────── */
+/* The segmented .filter-tabs group (SettingsLogs / ApplicationsQueue) kept a plain
+   filled look. Give it the same condensed-uppercase header language as the panel
+   titles + an accent underline on the active segment (the "tab underline" motif the
+   .ws-tabs ink already carries), without breaking its segmented shape. */
+.filter-tab {
+  font-family: var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  position: relative;
+}
+.filter-tab.active::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--color-accent-text, var(--color-text-inverse));
+  opacity: 0.9;
+}
+
+/* ── WayneTech focus ring for RAW controls ───────────────────────────────────
+   The button reset strips WebKitGTK's native field chrome from every <input>/
+   <select>/<textarea>, but only .field__* controls got a replacement focus style —
+   so bare inputs (the embedded-browser address bar, ad-hoc inputs) had NO visible
+   focus at all. Accent ring on keyboard focus only (:focus-visible), so it never
+   double-draws over the .field__* box-shadow on mouse click. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }

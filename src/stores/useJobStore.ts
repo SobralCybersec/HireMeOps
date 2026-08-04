@@ -357,10 +357,7 @@ export async function runIndeedSearch(
  * drafted via the AI bridge), then PARKS before the final submit for review.
  * Never submits — the operator confirms or rejects afterward. Throws on failure.
  */
-export async function startIndeedApply(
-  jobUrl: string,
-  profileId: string,
-): Promise<void> {
+export async function startIndeedApply(jobUrl: string, profileId: string): Promise<void> {
   return invokeStrict<void>("automation_start_indeed", { jobUrl, profileId, answers: null });
 }
 

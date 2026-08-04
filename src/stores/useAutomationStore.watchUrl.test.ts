@@ -14,7 +14,6 @@ function resetStore() {
   useAutomationStore.setState({
     state: "Queued",
     currentTaskId: null,
-    isEmergencyStopped: false,
     watchUrl: null,
     error: null,
     detail: null,

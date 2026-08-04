@@ -203,7 +203,6 @@ export function seedDevState(): void {
   useAutomationStore.setState({
     state: "Searching",
     currentTaskId: "task-9f3a",
-    isEmergencyStopped: false,
   });
 
   // Populate the Job Preferences form so its filter fields render non-empty.

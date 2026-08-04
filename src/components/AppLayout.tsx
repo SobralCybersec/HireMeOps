@@ -30,7 +30,8 @@ export function AppLayout() {
       <div className="app-main">
         {!isDesktopRuntime && (
           <div className="banner banner--warning" role="alert">
-            Browser preview has no Rust backend. Run <code>pnpm tauri dev</code> for working actions.
+            Browser preview has no Rust backend. Run <code>pnpm tauri dev</code> for working
+            actions.
           </div>
         )}
         <main className="page-outlet" id="main-content" tabIndex={-1} aria-label="Page content">

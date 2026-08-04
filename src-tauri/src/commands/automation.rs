@@ -3,7 +3,7 @@
 //! Key: automation_confirm_submit / automation_reject_submit — resolve a parked Easy Apply form
 //! Key: automation_start_indeed — drives the Indeed SmartApply flow, parks before final submit
 //! Key: automation_confirm_indeed_submit / automation_reject_indeed_submit — resolve a parked SmartApply popup
-//! Key: automation_pause / automation_resume / automation_stop / automation_emergency_stop — latch control
+//! Key: automation_pause / automation_resume / automation_stop — emergency-stop latch control
 
 use std::sync::atomic::Ordering;
 #[cfg(feature = "real-browser")]
@@ -266,17 +266,6 @@ pub fn automation_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(),
     app.emit_app_event(AppEvent::new(
         AppEventType::AutomationStopped,
         serde_json::json!({ "reason": "user_stop" }),
-    ));
-    Ok(())
-}
-
-#[tauri::command]
-pub fn automation_emergency_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state.emergency_stop.store(true, Ordering::SeqCst);
-    tracing::warn!("EMERGENCY STOP invoked by user — emergency-stop latch set");
-    app.emit_app_event(AppEvent::new(
-        AppEventType::AutomationStopped,
-        serde_json::json!({ "reason": "user_emergency_stop" }),
     ));
     Ok(())
 }

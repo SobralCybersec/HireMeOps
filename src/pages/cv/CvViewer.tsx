@@ -233,7 +233,12 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
       let rect: DOMRect | null = null;
       for (const c of main.querySelectorAll<HTMLCanvasElement>(".cvx-page__canvas")) {
         const r = c.getBoundingClientRect();
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        if (
+          e.clientX >= r.left &&
+          e.clientX <= r.right &&
+          e.clientY >= r.top &&
+          e.clientY <= r.bottom
+        ) {
           canvasEl = c;
           rect = r;
           break;
@@ -268,8 +273,8 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
         // source canvas — scale-independent, so one cache entry serves any zoom.
         const fx = (e.clientX - rect.left) / rect.width;
         const fy = (e.clientY - rect.top) / rect.height;
-        const winW = ((LENS / LENS_ZOOM) / rect.width) * src.width;
-        const winH = ((LENS / LENS_ZOOM) / rect.height) * src.height;
+        const winW = (LENS / LENS_ZOOM / rect.width) * src.width;
+        const winH = (LENS / LENS_ZOOM / rect.height) * src.height;
         lctx.imageSmoothingEnabled = true;
         lctx.imageSmoothingQuality = "high";
         lctx.drawImage(
@@ -321,13 +326,16 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
 
   // Prefetch page-1 native dimensions once the document is ready. Only page 1
   // is needed for fit-width; ViewerPage prefetches per-page dims independently.
+  // Hoisted out of the dep array so the effect re-runs on doc identity, not on
+  // the discriminant expression (which the deps linter can't statically read).
+  const readyDoc = load.kind === "ready" ? load.doc : null;
   useEffect(() => {
-    if (load.kind !== "ready") {
+    if (!readyDoc) {
       setNativePage1(null);
       return;
     }
     let alive = true;
-    void load.doc.getPage(1).then((page) => {
+    void readyDoc.getPage(1).then((page) => {
       if (!alive) return;
       const vp = page.getViewport({ scale: 1 });
       setNativePage1({ w: vp.width, h: vp.height });
@@ -335,7 +343,7 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
     return () => {
       alive = false;
     };
-  }, [load.kind === "ready" ? load.doc : null]);
+  }, [readyDoc]);
 
   // Measure the main column - fit-width needs the real inner width, which
   // depends on modal size (min(1200px, 100%)) minus rail + meta + padding.
@@ -366,7 +374,7 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
 
   // Keep the loupe's refs fresh, and drop cached hi-res page renders when the
   // document changes so a new CV doesn't sample the old one's pixels.
-  const readyDoc = load.kind === "ready" ? load.doc : null;
+  // (`readyDoc` is derived once above, on the page-1 prefetch effect.)
   useEffect(() => {
     docRef.current = readyDoc;
     srcCacheRef.current.clear();

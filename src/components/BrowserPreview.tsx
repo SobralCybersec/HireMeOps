@@ -6,11 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
-import {
-  PREVIEW_OPEN_LIVE,
-  PREVIEW_CLOSE_LIVE,
-  type PreviewFrame,
-} from "../types/preview";
+import { PREVIEW_OPEN_LIVE, PREVIEW_CLOSE_LIVE, type PreviewFrame } from "../types/preview";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -103,7 +99,13 @@ export default function BrowserPreview({ handle = null, className }: Props) {
     <div className={className} style={{ position: "relative", width: "100%" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "auto", display: "block", background: "#0b0b0d", borderRadius: 8 }}
+        style={{
+          width: "100%",
+          height: "auto",
+          display: "block",
+          background: "#0b0b0d",
+          borderRadius: 8,
+        }}
       />
       {status !== "live" && (
         <div

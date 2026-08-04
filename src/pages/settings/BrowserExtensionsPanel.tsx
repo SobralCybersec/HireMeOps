@@ -20,8 +20,7 @@ export function BrowserExtensionsPanel({ value, onChange }: BrowserExtensionsPan
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   const paths = value ?? storeSettings?.browserExtensions ?? [];
-  const commit =
-    onChange ?? ((next: string[]) => void updateSettings({ browserExtensions: next }));
+  const commit = onChange ?? ((next: string[]) => void updateSettings({ browserExtensions: next }));
 
   const [draft, setDraft] = useState("");
 

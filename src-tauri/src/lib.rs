@@ -123,7 +123,6 @@ pub fn run() {
             commands::automation::automation_pause,
             commands::automation::automation_resume,
             commands::automation::automation_stop,
-            commands::automation::automation_emergency_stop,
             commands::automation::automation_confirm_submit,
             commands::automation::automation_reject_submit,
             commands::automation::indeed_login,

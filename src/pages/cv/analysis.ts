@@ -26,9 +26,6 @@ export async function loadCvAnalysisReports(profileId: string): Promise<CvAnalys
  * `language` selects the report language; omitted defaults to Portuguese
  * backend-side. Mirrors `analyze_cv_document({ cvDocumentId, language })`.
  */
-export async function runCvAnalysis(
-  cvDocumentId: string,
-  language?: CvLanguage,
-): Promise<string> {
+export async function runCvAnalysis(cvDocumentId: string, language?: CvLanguage): Promise<string> {
   return invokeStrict<string>("analyze_cv_document", { cvDocumentId, language });
 }

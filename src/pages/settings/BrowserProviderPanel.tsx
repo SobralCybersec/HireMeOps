@@ -9,7 +9,7 @@ import type { AiProviderSettings } from "../../types/settings";
  * (or a bare `"<site>"` when no model is given), matching the fixed backend
  * contract for provider `kind: "browser"`. No endpoint or API key is used.
  */
-export const BROWSER_SITES = [{ value: "chatgpt", label: "ChatGPT" }] as const;
+const BROWSER_SITES = [{ value: "chatgpt", label: "ChatGPT" }] as const;
 
 // `string[]` (not the literal union) so `.includes(rawSite)` accepts any string.
 const BROWSER_SITE_VALUES: string[] = BROWSER_SITES.map((s) => s.value);
@@ -47,7 +47,7 @@ let modelsCache: Record<string, string[]> = {};
  * unrecognised site decodes to `site: ""` so the Select shows its placeholder
  * and the provider reads as "Not configured" until the user picks a site.
  */
-export function decodeBrowserModel(defaultModel: string): { site: string; model: string } {
+function decodeBrowserModel(defaultModel: string): { site: string; model: string } {
   const raw = defaultModel.trim();
   if (raw === "") return { site: "", model: "" };
   const slash = raw.indexOf("/");
@@ -58,7 +58,7 @@ export function decodeBrowserModel(defaultModel: string): { site: string; model:
 }
 
 /** Encode a `{ site, model }` pair back into the `"<site>/<model>"` form. */
-export function encodeBrowserModel(site: string, model: string): string {
+function encodeBrowserModel(site: string, model: string): string {
   const m = model.trim();
   return m === "" ? site : `${site}/${m}`;
 }
