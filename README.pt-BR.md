@@ -256,6 +256,14 @@ npm run build:docker:slim   # slim  — Debian bookworm + só Chromium (mais lev
 HIREMEOPS_USE_DOCKER=1 pnpm app   # sobe com o worker em container
 ```
 
+Ou pule o build e **puxe a imagem publicada pelo CI** no GHCR (o workflow `docker-build-push` faz build, scan com Trivy e publica as duas variantes a cada push na branch padrão):
+
+```bash
+docker pull ghcr.io/sobralcybersec/hiremeops-worker:slim
+docker tag  ghcr.io/sobralcybersec/hiremeops-worker:slim hiremeops-worker:latest  # a tag que o app procura
+HIREMEOPS_USE_DOCKER=1 pnpm app
+```
+
 | Sabor | Base | Trade |
 |---|---|---|
 | `noble` | `mcr.microsoft.com/playwright:v1.61.1-noble` | Mais confiável; empacota os três navegadores mesmo usando só Chromium — maior |
@@ -398,36 +406,50 @@ flowchart LR
  <img src="https://i.imgur.com/6nSJzZ2.gif" width="35"/> GitHub Actions CI/CD
 </h1>
 
+Oito workflows, cada `uses:` **fixado por commit SHA** (norma de supply-chain 2026), mantidos atualizados pelo Dependabot. Os gates de push/PR ficam rápidos; os builds pesados rodam em tags e releases.
+
 ### Matriz de Workflow
 
-| Job | Gatilho | Passos |
+| Workflow | Gatilho | O que faz |
 |---|---|---|
-| `rust` | push / PR | `fmt --check` · `clippy` (lean **e** all-features, `-D warnings`) · `cargo test --all-features` |
-| `frontend` | push / PR | `typecheck` · `lint` · `format:check` · `test` |
-| `docker` | push / PR | `shellcheck` no entrypoint · **build** da imagem do worker (`npm install` + `patchright install chromium`, com cache gha) · smoke-run (Node resolve o patchright) |
+| **`ci`** | push / PR | `rust` (fmt · clippy lean **e** all-features · test) · `frontend` (typecheck · lint · format · test) · `docker` (build das duas imagens do worker + smoke) |
+| **`code-quality`** | push / PR (shell + CI) | `actionlint` + **`zizmor`** (SAST de Actions) + `shellcheck` + `shfmt` nos scripts shell |
+| **`security`** | push / PR / semanal | `gitleaks` v3 · **`cargo-audit`** · **`cargo-deny`** (advisories + licenças + bans) · **OSV-Scanner** (lockfiles pnpm + Cargo) · checagem de licença |
+| **`codeql`** | push / PR / semanal | SAST CodeQL — `javascript-typescript` + `actions` (deps Rust cobertos por audit/deny/OSV) |
+| **`docker-build-push`** | push / PR | Build das imagens do worker (noble + slim) → scan **Trivy** (→ aba Security) → push para o GHCR com provenance + SBOM |
+| **`release`** | tag semver | Matriz nativa **tauri-action v1** (Linux `.deb`/`.rpm`/AppImage + instaladores Windows) → draft → SHA256SUMS + build provenance → publica |
+| **`performance`** | PR / semanal | Relatório de tamanho do bundle do frontend (total + maiores chunks, limite soft) |
+| **`ci-distro`** | release / dispatch | Smoke de instalação de pacote — instala o `.deb`/`.rpm` em containers Debian/Ubuntu/Fedora + checagem de link `ldd` |
 
 ```mermaid
 flowchart LR
-    push[Push / PR] --> R[rust]
-    push --> FE[frontend]
-    push --> DK[docker]
+    push[Push / PR] --> CI[ci]
+    push --> CQ[code-quality]
+    push --> SEC[security]
+    push --> CQL[codeql]
+    push --> DBP[docker-build-push]
 
-    R --> FMT[cargo fmt --check]
-    R --> CL1[clippy --no-default-features -D warnings]
-    R --> CL2[clippy --all-features -D warnings]
-    R --> T[cargo test --all-features]
+    tag[Semver tag] --> REL[release]
+    rel([Release published]) --> DIST[ci-distro · pkg smoke]
 
-    FE --> TC[pnpm typecheck]
-    FE --> LN[pnpm lint]
-    FE --> PF[pnpm format:check]
-    FE --> VT[pnpm test]
+    CI --> R[rust: fmt · clippy · test]
+    CI --> FE[frontend: typecheck · lint · format · test]
+    CI --> DK[docker: build both images + smoke]
 
-    DK --> SC[shellcheck entrypoint]
-    DK --> BLD[build worker image · gha cache]
-    DK --> SM[smoke: patchright resolves]
+    SEC --> GL[gitleaks]
+    SEC --> CA[cargo-audit + cargo-deny]
+    SEC --> OSV[OSV-Scanner]
+
+    DBP --> TRIVY[Trivy → Security tab]
+    DBP --> GHCR[push → ghcr.io]
+
+    REL --> TA[tauri-action v1 · linux + windows]
+    REL --> PROV[SHA256SUMS + provenance]
 ```
 
 > A **passada lean do clippy é deliberada**: ela garante que o build padrão (sem `real-browser`) fique livre de warnings, pegando qualquer gate `#[cfg(feature = "real-browser")]` faltando antes de chegar num contribuidor.
+
+> **Postura de supply-chain (2026):** todo action é fixado por SHA (não uma tag móvel), `permissions: contents: read` no topo com elevação por job, `gitleaks` v3 (o runtime Node 20 da v2 sai dos runners em set/2026) e `trivy-action` fixado num SHA pós-incidente após o sequestro de tags de março/2026. O Dependabot atualiza os pins — e seus comentários `# vX` — semanalmente.
 
 ---
 

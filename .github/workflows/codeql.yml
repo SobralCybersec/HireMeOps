@@ -1,0 +1,60 @@
+# ============================================================
+# HireMeOps — CodeQL (SAST for our own source)
+# Inspects the JS/TS in the workspace and our GitHub Actions usage for
+# security bugs. Results land under Security > Code scanning.
+# Rust is intentionally OFF — CodeQL Rust is still public-preview in 2026;
+# Rust deps are covered by cargo-audit / cargo-deny / OSV in security.yml.
+# Pinned to codeql-action v3.37.6 (verified 2026-08-04).
+# ============================================================
+name: CodeQL
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  schedule:
+    # Weekly re-scan (Mondays 03:27 UTC) so new CodeQL queries catch issues
+    # even without a code change.
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          category: "/language:${{ matrix.language }}"

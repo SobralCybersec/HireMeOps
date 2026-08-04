@@ -1,0 +1,115 @@
+# ============================================================
+# HireMeOps — Release
+# Triggered by semver tags (v1.2.3 / v1.2.3-rc1). Builds the Tauri v2 app on
+# native runners (Linux .deb/.rpm/AppImage + Windows installers) with the
+# `real-browser` feature, attaches bundles to a DRAFT release, then a publish
+# job adds SHA256SUMS + build provenance and flips the draft to published.
+#
+# Native windows-latest replaces the mingw cross-compile for releases (real
+# MSVC + WebView2 + installers); scripts/build-windows.sh stays for local dev.
+# tauri-action is v1 (action-v1.0.0, 2026-06); all `uses:` SHA-pinned.
+# ============================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Per-OS build → attach to a draft release ───────────
+  build:
+    name: "build / ${{ matrix.platform }}"
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    permissions:
+      contents: write # tauri-action creates the draft release + uploads assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: "--features real-browser"
+          - platform: windows-latest
+            args: "--features real-browser"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            patchelf xdg-utils
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master @ 2026-07-16
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: "src-tauri -> target"
+          key: real-browser # keep the chromiumoxide build separate from feature-less ci.yml
+          cache-on-failure: true
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "HireMeOps ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download and install. Verify with SHA256SUMS."
+          releaseDraft: true # first leg creates the draft; the rest attach to it
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          args: ${{ matrix.args }}
+
+  # ── 2. Integrity + provenance, then publish ───────────────
+  publish:
+    name: SHA256SUMS + provenance → publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # edit release, upload checksums, flip draft
+      id-token: write # OIDC for provenance signing
+      attestations: write # write the build attestation
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir dist && cd dist
+          gh release download "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY"
+          sha256sum ./* > SHA256SUMS
+          gh release upload "${{ github.ref_name }}" SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Assets:"; ls -la
+
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: "dist/*"
+
+      - name: Publish (flip draft off)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "Published ${{ github.ref_name }} — users verify with: gh attestation verify <asset> --owner ${GITHUB_REPOSITORY%/*}"

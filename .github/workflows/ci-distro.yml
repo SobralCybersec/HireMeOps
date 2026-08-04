@@ -1,0 +1,116 @@
+# ============================================================
+# HireMeOps — Package Install Smoke
+# The template's distro smoke tested shell installer scripts we don't have.
+# The real analog for a Tauri app: do the RELEASE PACKAGES install cleanly and
+# resolve their runtime deps on the distros users actually run? release.yml
+# builds on ubuntu-22.04; this proves the .deb/.rpm install on Debian/Ubuntu/
+# Fedora and the binary's dynamic libs are all present.
+#   release: published → auto-validate the freshly published assets
+#   workflow_dispatch  → validate any tag on demand
+# We install + link-check the binary; we do NOT launch it (no display in CI).
+# ============================================================
+name: Package Install Smoke
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to validate (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pkg-smoke-${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  install-smoke:
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Debian 13 (.deb)"
+            image: "debian:trixie"
+            kind: deb
+          - name: "Ubuntu 24.04 (.deb)"
+            image: "ubuntu:24.04"
+            kind: deb
+          - name: "Fedora 41 (.rpm)"
+            image: "fedora:41"
+            kind: rpm
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: echo "value=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: "Install smoke — ${{ matrix.name }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.value }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e TAG -e KIND -e GH_TOKEN \
+            -v "$PWD:/work" -w /work \
+            "${{ matrix.image }}" \
+            bash -euo pipefail -c '
+              # --- bootstrap: gh + the native package tooling ---
+              if command -v apt-get >/dev/null; then
+                apt-get update -qq
+                apt-get install -y --no-install-recommends curl ca-certificates gpg >/dev/null
+                curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                  | gpg --dearmor -o /usr/share/keyrings/githubcli.gpg
+                echo "deb [signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+                  > /etc/apt/sources.list.d/github-cli.list
+                apt-get update -qq && apt-get install -y --no-install-recommends gh >/dev/null
+              else
+                dnf install -y gh >/dev/null
+              fi
+
+              mkdir -p /pkg && cd /pkg
+              if [ "$KIND" = "deb" ]; then
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "*.deb"
+                apt-get install -y ./*.deb
+                PKG=$(dpkg-deb -f ./*.deb Package)
+                BIN=$(dpkg -L "$PKG" | grep -E "/(usr/)?bin/" | head -1)
+              else
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "*.rpm"
+                dnf install -y ./*.rpm
+                BIN=$(rpm -qlp ./*.rpm | grep -E "/(usr/)?bin/" | head -1)
+              fi
+
+              echo "Installed binary: $BIN"
+              test -x "$BIN" || { echo "::error::installed binary not executable: $BIN"; exit 1; }
+
+              # No display in CI, so do not launch the GUI — instead prove every
+              # shared lib resolves. A missing runtime dep shows up as "not found".
+              if ldd "$BIN" | grep "not found"; then
+                echo "::error::unresolved shared libraries — packaging is missing a runtime dep"
+                exit 1
+              fi
+              echo "Package installs and all dynamic libs resolve ✓"
+            '
+
+  smoke-summary:
+    name: All package smokes passed
+    needs: install-smoke
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check matrix result
+        run: |
+          if [[ "${{ needs.install-smoke.result }}" != "success" ]]; then
+            echo "::error::One or more package install smokes failed — see matrix above"
+            exit 1
+          fi
+          echo "All package install smokes passed ✓"

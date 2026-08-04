@@ -1,0 +1,96 @@
+# ============================================================
+# HireMeOps — Code Quality (meta: workflows + shell)
+# Rust/TS quality lives in ci.yml; this file lints the CI itself and the
+# handful of shell scripts. Fast, no builds. Target: < 3 min.
+# Jobs: actionlint · zizmor (Actions security) · ShellCheck · shfmt
+# Every `uses:` is SHA-pinned (2026 supply-chain norm).
+# ============================================================
+name: Code Quality
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "**.sh"
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  pull_request:
+    paths:
+      - "**.sh"
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+
+# The three real shell scripts in this repo (no install.sh / lib/ here).
+env:
+  SHELL_FILES: "scripts/build-linux.sh scripts/build-windows.sh docker/entrypoint.sh"
+
+jobs:
+  # ── 1. Workflow syntax + embedded-shell linting ───────────
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # actionlint has no first-party action — the maintainer's pinned download
+      # script is the recommended path. It auto-runs ShellCheck on `run:` blocks.
+      - name: Run actionlint
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  # ── 2. GitHub Actions security static analysis ────────────
+  zizmor:
+    name: zizmor (Actions security)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+
+  # ── 3. ShellCheck (warning+) ──────────────────────────────
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # shellcheck is pre-installed on ubuntu-24.04. --format=gcc → PR annotations.
+      - name: Run ShellCheck
+        run: |
+          # shellcheck disable=SC2086  # intentional word-split of the file list
+          shellcheck --severity=warning --format=gcc --shell=bash $SHELL_FILES
+
+  # ── 4. shfmt formatting ───────────────────────────────────
+  shfmt:
+    name: shfmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install shfmt v3.10.0
+        run: |
+          curl -sSL \
+            https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64 \
+            -o /usr/local/bin/shfmt
+          chmod +x /usr/local/bin/shfmt
+          shfmt --version
+
+      # -d diff mode (exit 1 on violation) · -i 2 two-space · -ci indent switch cases
+      - name: shfmt diff check
+        run: |
+          # shellcheck disable=SC2086
+          shfmt -d -i 2 -ci $SHELL_FILES

@@ -1,0 +1,79 @@
+# ============================================================
+# Dependabot — keeps deps current across every ecosystem in the repo.
+# MUST live at .github/dependabot.yml (GitHub ignores it under workflows/).
+# Ecosystems: cargo (Rust) · npm/pnpm (frontend + automation) · actions · docker.
+# Dependabot bumps SHA-pinned actions AND their `# vX` comment together, so
+# pinning and Dependabot are complementary, not in tension.
+# ============================================================
+version: 2
+
+updates:
+  # ── Rust backend ──────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Lisbon"
+    labels: ["dependencies", "rust"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # ── JS/TS: root (pnpm) + automation (npm), one entry via `directories` ──
+  # `npm` auto-detects pnpm-lock.yaml. `automation/` has only a package.json
+  # (no lockfile), so there Dependabot manages the manifest range only.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/automation"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Lisbon"
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # ── GitHub Actions (keeps the pinned workflow SHAs fresh) ──
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Lisbon"
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "chore(ci)"
+    open-pull-requests-limit: 5
+    groups:
+      actions-all:
+        patterns: ["*"]
+
+  # ── Docker base images (Dockerfile.worker + .slim) ─────────
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Lisbon"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(docker)"
+    open-pull-requests-limit: 5
+    groups:
+      docker-all:
+        patterns: ["*"]
