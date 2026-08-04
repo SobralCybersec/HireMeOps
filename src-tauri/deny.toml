@@ -5,7 +5,11 @@
 
 [advisories]
 version = 2
-yanked = "deny"
+yanked = "warn" # surface yanked crates without blocking CI on a transitive one
+# Only flag unmaintained crates we depend on directly — the gtk-rs GTK3 stack
+# (RUSTSEC-2024-041x) is unmaintained but pulled transitively by Tauri v2's Linux
+# WebKitGTK backend; there's no alternative until Tauri moves to GTK4.
+unmaintained = "workspace"
 # ignore = ["RUSTSEC-XXXX-XXXX"]  # add triaged IDs with a comment explaining why
 
 [licenses]
@@ -22,6 +26,8 @@ allow = [
   "Zlib",
   "MPL-2.0",
   "CC0-1.0",
+  "bzip2-1.0.6",         # bzip2 (via a transitive compression dep)
+  "CDLA-Permissive-2.0", # permissive data license (transitive)
 ]
 confidence-threshold = 0.9
 
