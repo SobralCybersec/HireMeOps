@@ -5,18 +5,23 @@
 # Rust is intentionally OFF — CodeQL Rust is still public-preview in 2026;
 # Rust deps are covered by cargo-audit / cargo-deny / OSV in security.yml.
 # Pinned to codeql-action v3.37.6 (verified 2026-08-04).
+#
+# NOTE: CodeQL uploads results to GitHub code scanning, which a PRIVATE repo
+# only has with GitHub Advanced Security. This repo is private without GHAS, so
+# automatic push/PR/schedule runs would fail at the upload step. It's therefore
+# MANUAL-ONLY (workflow_dispatch) for now — restore the push/pull_request/schedule
+# triggers below once the repo is public or GHAS is enabled.
 # ============================================================
 name: CodeQL
 
 on:
-  push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
-  schedule:
-    # Weekly re-scan (Mondays 03:27 UTC) so new CodeQL queries catch issues
-    # even without a code change.
-    - cron: "27 3 * * 1"
+  workflow_dispatch:
+  # push:
+  #   branches: [master, main]
+  # pull_request:
+  #   branches: [master, main]
+  # schedule:
+  #   - cron: "27 3 * * 1"   # weekly re-scan for newly published queries
 
 permissions:
   contents: read

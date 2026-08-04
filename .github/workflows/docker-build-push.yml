@@ -35,7 +35,6 @@ jobs:
     permissions:
       contents: read
       packages: write # push to GHCR
-      security-events: write # upload Trivy SARIF
     strategy:
       fail-fast: false
       matrix:
@@ -81,23 +80,18 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
 
+      # Advisory: prints CVEs to the log (no SARIF upload — private repo has no
+      # code scanning). exit-code stays 0 so unfixable base-image CVEs don't block
+      # the push; set exit-code '1' to make it a hard gate.
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: hiremeops-worker:${{ matrix.variant }}-scan
-          format: sarif
-          output: trivy-${{ matrix.variant }}.sarif
+          format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true # base-image CVEs Debian hasn't patched aren't actionable
           vuln-type: os,library
-
-      - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
-        with:
-          sarif_file: trivy-${{ matrix.variant }}.sarif
-          category: trivy-${{ matrix.variant }}
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'

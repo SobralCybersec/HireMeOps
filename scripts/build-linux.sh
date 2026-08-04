@@ -22,7 +22,10 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 REL="src-tauri/target/release"
 
-command -v cargo >/dev/null || { echo "error: cargo not found"; exit 1; }
+command -v cargo >/dev/null || {
+  echo "error: cargo not found"
+  exit 1
+}
 
 echo "==> Building frontend (embedded into the binary)"
 npm run build
@@ -32,14 +35,18 @@ npm run prepare:playwright
 
 echo "==> Compiling native release binary"
 # NO_STRIP mirrors the AppImage fix (Arch's strip is too new); harmless elsewhere.
-( cd src-tauri && NO_STRIP=true cargo build --bin hiremeops --release --features real-browser )
+(cd src-tauri && NO_STRIP=true cargo build --bin hiremeops --release --features real-browser)
 
 echo "==> Built: $REL/hiremeops"
-[ "${1:-}" != "--tar" ] && { echo "Done. Pass --tar to package a portable folder."; exit 0; }
+[ "${1:-}" != "--tar" ] && {
+  echo "Done. Pass --tar to package a portable folder."
+  exit 0
+}
 
 echo "==> Staging portable folder"
 STAGE="dist/HireMeOps-linux64"
-rm -rf "$STAGE"; mkdir -p "$STAGE"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
 
 cp "$REL/hiremeops" "$STAGE/HireMeOps"
 chmod +x "$STAGE/HireMeOps"
@@ -56,7 +63,7 @@ cp -r src-tauri/resources "$STAGE/resources"
 # Node dep manifest so the user restores patchright with one command.
 cp package.json package-lock.json "$STAGE/" 2>/dev/null || true
 
-cat > "$STAGE/README-LINUX.txt" <<'EOF'
+cat >"$STAGE/README-LINUX.txt" <<'EOF'
 HireMeOps — portable Linux build (x86_64)
 
 PREREQUISITES (install once, via your package manager):
@@ -80,6 +87,6 @@ Notes:
 EOF
 
 echo "==> Packing tarball"
-( cd dist && rm -f HireMeOps-linux64.tar.gz && tar -czf HireMeOps-linux64.tar.gz HireMeOps-linux64 )
+(cd dist && rm -f HireMeOps-linux64.tar.gz && tar -czf HireMeOps-linux64.tar.gz HireMeOps-linux64)
 echo "==> Done: $ROOT/dist/HireMeOps-linux64.tar.gz"
 du -sh "$ROOT/dist/HireMeOps-linux64.tar.gz"

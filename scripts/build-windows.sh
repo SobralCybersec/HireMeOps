@@ -18,7 +18,9 @@ CARGO="src-tauri/Cargo.toml"
 REL="src-tauri/target/$TARGET/release"
 
 command -v x86_64-w64-mingw32-gcc >/dev/null || {
-  echo "error: mingw-w64 not found (need x86_64-w64-mingw32-gcc)"; exit 1; }
+  echo "error: mingw-w64 not found (need x86_64-w64-mingw32-gcc)"
+  exit 1
+}
 rustup target list --installed | grep -qx "$TARGET" || rustup target add "$TARGET"
 
 echo "==> Building frontend (embedded into the exe)"
@@ -28,14 +30,18 @@ echo "==> Cross-compiling $TARGET (rlib-only for mingw)"
 cp "$CARGO" "$CARGO.winbak"
 trap 'mv "$CARGO.winbak" "$CARGO"' EXIT
 sed -i 's/^crate-type = .*/crate-type = ["rlib"]/' "$CARGO"
-( cd src-tauri && cargo build --bin hiremeops --release --target "$TARGET" --features real-browser )
+(cd src-tauri && cargo build --bin hiremeops --release --target "$TARGET" --features real-browser)
 
 echo "==> Built: $REL/hiremeops.exe"
-[ "${1:-}" != "--zip" ] && { echo "Done. Pass --zip to package."; exit 0; }
+[ "${1:-}" != "--zip" ] && {
+  echo "Done. Pass --zip to package."
+  exit 0
+}
 
 echo "==> Packing portable zip"
 STAGE="dist/HireMeOps-win64"
-rm -rf "$STAGE"; mkdir -p "$STAGE"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
 
 cp "$REL/hiremeops.exe" "$STAGE/HireMeOps.exe"
 cp "$REL/WebView2Loader.dll" "$STAGE/" 2>/dev/null || true
@@ -53,7 +59,7 @@ cp -r src-tauri/resources "$STAGE/resources"
 # Node dep manifest so the user restores patchright with one command on Windows.
 cp package.json package-lock.json "$STAGE/" 2>/dev/null || true
 
-cat > "$STAGE/README-WINDOWS.txt" <<'EOF'
+cat >"$STAGE/README-WINDOWS.txt" <<'EOF'
 HireMeOps — portable Windows build (x86_64)
 
 PREREQUISITES (install once):
@@ -76,6 +82,6 @@ Notes:
 EOF
 
 echo "==> Zipping"
-( cd dist && rm -f HireMeOps-win64.zip && zip -qr HireMeOps-win64.zip HireMeOps-win64 )
+(cd dist && rm -f HireMeOps-win64.zip && zip -qr HireMeOps-win64.zip HireMeOps-win64)
 echo "==> Done: $ROOT/dist/HireMeOps-win64.zip"
 du -sh "$ROOT/dist/HireMeOps-win64.zip"

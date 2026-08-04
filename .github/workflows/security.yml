@@ -64,14 +64,14 @@ jobs:
           command: check advisories bans licenses sources
 
   # ── 4. OSV-Scanner — pnpm + Cargo lockfiles in one pass ────
+  # Table output that fails the job directly on a vuln. (No SARIF upload — this
+  # is a private repo without code scanning, which 403s the upload.)
   osv-scan:
     name: OSV-Scanner
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
-      security-events: write # upload SARIF to code scanning
-      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: google/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
@@ -80,12 +80,6 @@ jobs:
           scan-args: |-
             --lockfile=./pnpm-lock.yaml
             --lockfile=./src-tauri/Cargo.lock
-            --format=sarif
-            --output=results.sarif
-      - if: always()
-        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
-        with:
-          sarif_file: results.sarif
 
   # ── 5. License present ────────────────────────────────────
   license-check:
