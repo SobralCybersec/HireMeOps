@@ -14,7 +14,7 @@
 #
 # Build:  npm run build:docker   (or: docker build -f docker/Dockerfile.worker -t hiremeops-worker:latest .)
 
-FROM mcr.microsoft.com/playwright:v1.61.1-noble
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
 # ^ Ubuntu 24.04; ships every Chromium shared-lib dep + Xvfb already. Pinned to
 #   match automation/package.json patchright 1.61.1 — bump both together.
 
