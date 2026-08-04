@@ -741,6 +741,92 @@ impl PlaywrightDriver {
         })
     }
 
+    pub async fn search_programathor_jobs(
+        &self,
+        user_data_dir: &str,
+        query: &str,
+        max_pages: u32,
+        headless: bool,
+    ) -> DomainResult<SearchJobsResult> {
+        let open = self
+            .rpc(json!({ "cmd": "open", "user_data_dir": user_data_dir, "extensions": [], "headless": headless }))
+            .await?;
+        let handle = open
+            .get("handle")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| DomainError::Other(anyhow::anyhow!("open reply missing handle")))?;
+        self.remember_session(&handle).await;
+
+        let result = self
+            .rpc(json!({
+                "cmd": "programathor_search_jobs",
+                "handle": handle,
+                "query": query,
+                "max_pages": max_pages,
+            }))
+            .await;
+        let _ = self.rpc(json!({ "cmd": "close", "handle": handle })).await;
+
+        let reply = result?;
+        let jobs: Vec<JobCard> = reply
+            .get("jobs")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let has_next_page = reply
+            .get("has_next_page")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        Ok(SearchJobsResult {
+            jobs,
+            has_next_page,
+        })
+    }
+
+    pub async fn search_geekhunter_jobs(
+        &self,
+        user_data_dir: &str,
+        query: &str,
+        remote_only: bool,
+        max_pages: u32,
+        headless: bool,
+    ) -> DomainResult<SearchJobsResult> {
+        let open = self
+            .rpc(json!({ "cmd": "open", "user_data_dir": user_data_dir, "extensions": [], "headless": headless }))
+            .await?;
+        let handle = open
+            .get("handle")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| DomainError::Other(anyhow::anyhow!("open reply missing handle")))?;
+        self.remember_session(&handle).await;
+
+        let result = self
+            .rpc(json!({
+                "cmd": "geekhunter_search_jobs",
+                "handle": handle,
+                "query": query,
+                "remote_only": remote_only,
+                "max_pages": max_pages,
+            }))
+            .await;
+        let _ = self.rpc(json!({ "cmd": "close", "handle": handle })).await;
+
+        let reply = result?;
+        let jobs: Vec<JobCard> = reply
+            .get("jobs")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let has_next_page = reply
+            .get("has_next_page")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        Ok(SearchJobsResult {
+            jobs,
+            has_next_page,
+        })
+    }
+
     pub async fn search_gupy_jobs(
         &self,
         user_data_dir: &str,

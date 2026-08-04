@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { Moon01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./ui/Icon";
 import { NAV_GROUPS } from "../app/routes";
+import { useThemeStore } from "../stores/useThemeStore";
+import { useSettingsStore } from "../stores/useSettingsStore";
 
 // Flatten the grouped nav — the bar shows every destination as one icon.
 const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
@@ -15,6 +18,16 @@ const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
  */
 export function TopNav() {
   const [open, setOpen] = useState(false);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const isDark = theme !== "light";
+
+  function toggleTheme() {
+    const next = isDark ? "light" : "dark";
+    setTheme(next);
+    // Persist through the settings round-trip so the choice survives restarts.
+    void useSettingsStore.getState().updateSettings({ theme: next });
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +64,16 @@ export function TopNav() {
           </li>
         ))}
       </ul>
+
+      <button
+        type="button"
+        className="topnav__theme-toggle"
+        onClick={toggleTheme}
+        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        title={isDark ? "Light mode" : "Dark mode"}
+      >
+        <Icon icon={isDark ? Sun01Icon : Moon01Icon} size={16} />
+      </button>
 
       <button
         type="button"

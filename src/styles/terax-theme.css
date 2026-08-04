@@ -30,10 +30,9 @@
   --tx-primary-8: color-mix(in oklab, var(--tx-primary) 8%, transparent);
 }
 
-/* terax palette (ember on warm-black) — forced across every theme root so the look is consistent. */
+/* terax palette (ember on dark) — applied to dark/unset only; light theme uses theme.css tokens. */
 :root,
 [data-theme="dark"],
-[data-theme="light"],
 html:not([data-theme]) {
   --color-bg: oklch(0.14 0.028 258);
   --color-surface: oklch(0.17 0.03 258);

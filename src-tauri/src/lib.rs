@@ -151,6 +151,8 @@ pub fn run() {
             commands::jobs::run_catho_search,
             commands::jobs::run_upwork_search,
             commands::jobs::run_freelas99_search,
+            commands::jobs::run_programathor_search,
+            commands::jobs::run_geekhunter_search,
             commands::jobs::run_infojobs_search,
             commands::jobs::run_gupy_search,
             commands::jobs::catho_apply,

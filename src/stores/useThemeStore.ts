@@ -8,18 +8,31 @@ interface ThemeStoreState {
   setReducedEffects: (mode: ReducedEffectsMode) => void;
 }
 
-// Single HUD theme. The app ships one dark-blue command-center palette, so the
-// stored ThemeMode preference is accepted (settings still round-trips it) but
-// always resolves to "dark" — the only token block in theme.css.
 function wantsReducedEffects(mode: ReducedEffectsMode): boolean {
   if (mode === "on") return true;
   if (mode === "off") return false;
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Applies [data-theme] + the `.reduced-effects` guard class to <html>. */
-function applyThemeToDocument(_theme: ThemeMode, reducedEffects: ReducedEffectsMode): void {
-  document.documentElement.setAttribute("data-theme", "dark");
+/** Resolve the stored ThemeMode to the concrete attribute value "dark" | "light".
+ *  "system" follows prefers-color-scheme; exotic variants ("red", "solo-leveling")
+ *  stay dark. */
+function resolveTheme(theme: ThemeMode): "dark" | "light" {
+  if (theme === "light") return "light";
+  if (theme === "system") {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "dark";
+}
+
+/** Applies [data-theme] + the `.reduced-effects` guard class to <html>.
+ *  No-ops in SSR / test environments where document is unavailable. */
+function applyThemeToDocument(theme: ThemeMode, reducedEffects: ReducedEffectsMode): void {
+  if (typeof document === "undefined") return;
+  const resolved = resolveTheme(theme);
+  document.documentElement.setAttribute("data-theme", resolved);
   document.documentElement.classList.toggle("reduced-effects", wantsReducedEffects(reducedEffects));
 }
 

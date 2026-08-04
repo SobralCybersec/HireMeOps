@@ -171,6 +171,73 @@ html:not([data-theme]) {
   --color-info: var(--status-running-text);
 }
 
+/* ---- Light palette — WayneTech daylight ops ----------------------
+   Cool slate-blue base (not cream/warm): the command-center aesthetic
+   in full ambient light. Cyan accent deepened for WCAG AA on white.
+   Every token that the dark block defines is mirrored here. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #edf2f9;
+  --color-surface: #f4f7fc;
+  --color-surface-2: #eaeff8;
+  --color-surface-3: #e0eaf4;
+  --color-surface-hover: #d8e6f2;
+  --color-surface-sunken: #e6edf6;
+  --color-surface-raised: #fafcff;
+
+  --color-border: #c0cfe6;
+  --color-border-strong: #93b0d0;
+
+  --color-text: #0c1a2e;
+  --color-text-2: #2c4a6a;
+  --color-text-muted: #5c7a9a;
+  --color-text-inverse: #edf2f9;
+
+  /* Accent deepened from the dark #38bdf8 so it clears 4.5:1 on --color-surface */
+  --color-accent: #006eb5;
+  --color-accent-dim: #d8eef8;
+  --color-accent-text: #004e80;
+  --color-accent-hover: #0082d4;
+
+  --color-danger: #b91c1c;
+  --color-danger-dim: #fde8e8;
+  --color-danger-hover: #cc2424;
+
+  /* Elevation — softer on light; no heavy black bleeds */
+  --shadow-1: 0 1px 3px rgba(10, 30, 60, 0.1);
+  --shadow-2: 0 4px 14px rgba(10, 30, 60, 0.12);
+  --shadow-3: 0 12px 32px rgba(10, 30, 60, 0.14);
+  --shadow-inset: inset 0 1px 2px rgba(10, 30, 60, 0.08);
+
+  /* HUD glow in daylight: subtler, blue-tinted */
+  --hud-glow: 0 0 0 1px rgba(0, 110, 181, 0.2), 0 0 10px -2px rgba(0, 110, 181, 0.22);
+
+  --color-border-subtle: #d2dff0;
+
+  /* Status tokens — saturated enough to read on a light field */
+  --status-queued-bg: #e4ecf6;
+  --status-queued-text: #3a5c84;
+  --status-running-bg: #d8eef8;
+  --status-running-text: #006eb5;
+  --status-success-bg: #e0f4ea;
+  --status-success-text: #166534;
+  --status-failed-bg: #fde8e8;
+  --status-failed-text: #991b1b;
+  --status-review-bg: #fef3c7;
+  --status-review-text: #92400e;
+  --status-stopped-bg: #fde8e8;
+  --status-stopped-text: #7f1d1d;
+  --status-paused-bg: #e8eef6;
+  --status-paused-text: #4a6680;
+  --status-neutral-bg: #eaeff8;
+  --status-neutral-text: #4a6080;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
+}
+
 /* Libra Heart — a 7px bitmap/pixel display face (self-hosted, offline). Used for
    the brand wordmark + display/section titles; NOT for body/UI (it's aliased and
    cramped at reading sizes, so --font-ui/--font-mono stay on readable faces). */
@@ -3111,6 +3178,42 @@ html.reduced-effects .hud-burger__bar {
 }
 /* Hamburger — pinned top-right, always interactive (even when the bar is
    otherwise click-through), always visible so the menu can be re-opened. */
+/* Theme toggle: sits left of the burger, shares its visual language */
+.topnav__theme-toggle {
+  position: absolute;
+  right: calc(var(--sp-4) + 48px);
+  top: 6px;
+  pointer-events: auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-2);
+  cursor: pointer;
+  transition:
+    background var(--tx-fast),
+    border-color var(--tx-fast),
+    color var(--tx-fast);
+}
+.topnav__theme-toggle:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+  color: var(--color-accent);
+}
+.topnav__theme-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .topnav__theme-toggle {
+    transition: none;
+  }
+}
+
 .topnav__burger {
   position: absolute;
   right: var(--sp-4);

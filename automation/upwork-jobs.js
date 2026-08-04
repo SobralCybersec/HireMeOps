@@ -2,12 +2,22 @@
 // Key: buildUpworkSearchUrl — pure URL helper
 // Key: findJobsArray — deep-finds the job-card array inside __NUXT__ (state key hashes shift per build)
 // Key: nuxtJobToCard / scrapeUpworkDom — map to shared JobCard shape (NUXT path / DOM fallback)
-// Key: upworkSearchJobs — pages results, dedups by job_id
+// Key: upworkSearchJobs — pages results, dedups by job_id; clears the Cloudflare wall via the keyless pass
 
-export function buildUpworkSearchUrl({ query = "", sort = "recency", page, contractorTier = [], jobType = [] } = {}) {
+import { passCaptchaIfChallenged } from "./captcha.js";
+
+export function buildUpworkSearchUrl({
+  query = "",
+  sort = "recency",
+  page,
+  contractorTier = [],
+  jobType = [],
+} = {}) {
   const parts = [`nbs=1`, `q=${encodeURIComponent(String(query).trim())}`];
   if (sort) parts.push(`sort=${encodeURIComponent(sort)}`);
-  const tiers = (Array.isArray(contractorTier) ? contractorTier : []).filter((t) => t != null && `${t}` !== "");
+  const tiers = (Array.isArray(contractorTier) ? contractorTier : []).filter(
+    (t) => t != null && `${t}` !== "",
+  );
   if (tiers.length) parts.push(`contractor_tier=${tiers.map(encodeURIComponent).join(",")}`);
   const types = (Array.isArray(jobType) ? jobType : []).filter((t) => t != null && `${t}` !== "");
   if (types.length) parts.push(`t=${types.map(encodeURIComponent).join(",")}`);
@@ -36,7 +46,8 @@ function findJobsArray(root) {
     if (seen.has(v)) continue;
     seen.add(v);
     if (Array.isArray(v)) {
-      if (v.length && v[0] && typeof v[0] === "object" && "ciphertext" in v[0] && "title" in v[0]) return v;
+      if (v.length && v[0] && typeof v[0] === "object" && "ciphertext" in v[0] && "title" in v[0])
+        return v;
       for (const item of v) stack.push({ v: item, d: d + 1 });
     } else {
       for (const key of Object.keys(v)) stack.push({ v: v[key], d: d + 1 });
@@ -81,7 +92,9 @@ function scrapeUpworkDom(page) {
         .replace(/<[^>]*>/g, "")
         .replace(/\s+/g, " ")
         .trim();
-    const cards = Array.from(document.querySelectorAll('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]'));
+    const cards = Array.from(
+      document.querySelectorAll('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]'),
+    );
     const jobs = cards.flatMap((card) => {
       const uid = card.getAttribute("data-ev-job-uid");
       const a = card.querySelector('a[data-test="job-tile-title-link"]');
@@ -90,19 +103,37 @@ function scrapeUpworkDom(page) {
       const id = uid || (m ? m[1] : null);
       if (!id) return [];
       const title = clean(a ? a.textContent : "");
-      const desc = clean((card.querySelector('[data-test="JobDescription"] p, .air3-line-clamp p') || {}).textContent);
-      const skills = Array.from(card.querySelectorAll('[data-test="TokenClamp JobAttrs"] .air3-token'))
+      const desc = clean(
+        (card.querySelector('[data-test="JobDescription"] p, .air3-line-clamp p') || {})
+          .textContent,
+      );
+      const skills = Array.from(
+        card.querySelectorAll('[data-test="TokenClamp JobAttrs"] .air3-token'),
+      )
         .map((t) => clean(t.textContent))
         .filter(Boolean);
       const info = Array.from(card.querySelectorAll('ul[data-test="JobInfo"] li'))
         .map((li) => clean(li.textContent))
         .filter(Boolean);
       const description =
-        [info.join(" · "), skills.length ? `Skills: ${skills.join(", ")}` : "", desc].filter(Boolean).join("\n\n") ||
-        null;
+        [info.join(" · "), skills.length ? `Skills: ${skills.join(", ")}` : "", desc]
+          .filter(Boolean)
+          .join("\n\n") || null;
       const cipher = href.match(/(~0\d\d+)/);
-      const apply = cipher ? `https://www.upwork.com/jobs/${cipher[1]}/` : `https://www.upwork.com/jobs/~02${id}/`;
-      return [{ job_id: String(id), title: title || null, company: null, location: null, apply_url: apply, is_easy_apply: false, description }];
+      const apply = cipher
+        ? `https://www.upwork.com/jobs/${cipher[1]}/`
+        : `https://www.upwork.com/jobs/~02${id}/`;
+      return [
+        {
+          job_id: String(id),
+          title: title || null,
+          company: null,
+          location: null,
+          apply_url: apply,
+          is_easy_apply: false,
+          description,
+        },
+      ];
     });
     return jobs;
   });
@@ -121,12 +152,21 @@ export async function upworkSearchJobs(page, opts = {}) {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
+    // Upwork fronts search with a Cloudflare wall. Give the interstitial a beat
+    // to render, then run the keyless auto-pass (headed/Xvfb is what clears it);
+    // best-effort — if it doesn't lift we still try to scrape whatever loaded.
+    await page.waitForTimeout(1_500).catch(() => {});
+    await passCaptchaIfChallenged(page).catch(() => {});
     await page
-      .waitForSelector('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]', { timeout: 20_000 })
+      .waitForSelector('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]', {
+        timeout: 20_000,
+      })
       .catch(() => {});
 
     let pageJobs = [];
-    const nuxt = await page.evaluate(() => (window.__NUXT__ ? window.__NUXT__ : null)).catch(() => null);
+    const nuxt = await page
+      .evaluate(() => (window.__NUXT__ ? window.__NUXT__ : null))
+      .catch(() => null);
     if (nuxt) {
       const arr = findJobsArray(nuxt) || [];
       pageJobs = arr.map(nuxtJobToCard).filter(Boolean);

@@ -16,6 +16,7 @@
     "format": "prettier --write src",
     "format:check": "prettier --check src",
     "prepare:playwright": "node ./scripts/prepare-tauri-playwright-resources.mjs",
+    "headless-test": "node automation/headless-test.mjs",
     "build:linux": "NO_STRIP=true tauri build -f real-browser",
     "build:linux:portable": "bash scripts/build-linux.sh --tar",
     "build:windows": "bash scripts/build-windows.sh",

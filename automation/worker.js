@@ -21,10 +21,12 @@ import { infojobsSearchJobs, infojobsApply } from "./infojobs-jobs.js";
 import { cathoSearchJobs, cathoApply } from "./catho-jobs.js";
 import { upworkSearchJobs } from "./upwork-jobs.js";
 import { freelas99SearchJobs } from "./freelas99-jobs.js";
+import { programathorSearchJobs } from "./programathor-jobs.js";
+import { geekhunterSearchJobs } from "./geekhunter-jobs.js";
 import { initPerf, perfEnabled, nowMs, logSpan, descendantPids } from "./perf.js";
 import { classifyIndeedQuestion } from "./indeed-helpers.js";
 import { attachDiagnostics, attachNetworkCapture, captureDom, captureResult } from "./capture.js";
-import { passCaptchaOnPage, captchaSolvingEnabled } from "./captcha.js";
+import { passCaptchaOnPage, captchaSolvingEnabled, passCaptchaIfChallenged } from "./captcha.js";
 import { humanClick, humanType, thinkTime } from "./human.js";
 
 const HUMAN_TYPE_MAX = 120;
@@ -68,14 +70,12 @@ function reapDir(userDataDir) {
       try {
         process.kill(d, "SIGKILL");
         killed++;
-      } catch {
-      }
+      } catch {}
     }
     try {
       process.kill(pid, "SIGKILL");
       killed++;
-    } catch {
-    }
+    } catch {}
   }
   return killed;
 }
@@ -214,14 +214,34 @@ function writeLine(obj) {
 }
 
 const CAPTURE_CMDS = new Set([
-  "fill_easy_apply", "answer_easy_apply", "confirm_submit", "reject_submit", "extract_hr",
-  "search_jobs", "search_linkedin_posts", "search_google", "push_profile",
-  "catho_push_profile", "gupy_push_profile", "infojobs_push_profile",
-  "search_gupy_jobs", "gupy_start_login", "catho_search_jobs", "catho_apply",
-  "infojobs_search_jobs", "infojobs_apply",
-  "upwork_search_jobs", "freelas99_search_jobs",
-  "auto_connect", "search_indeed_jobs", "fill_indeed_apply",
-  "answer_indeed_free_text", "confirm_indeed_submit", "reject_indeed_submit",
+  "fill_easy_apply",
+  "answer_easy_apply",
+  "confirm_submit",
+  "reject_submit",
+  "extract_hr",
+  "search_jobs",
+  "search_linkedin_posts",
+  "search_google",
+  "push_profile",
+  "catho_push_profile",
+  "gupy_push_profile",
+  "infojobs_push_profile",
+  "search_gupy_jobs",
+  "gupy_start_login",
+  "catho_search_jobs",
+  "catho_apply",
+  "infojobs_search_jobs",
+  "infojobs_apply",
+  "upwork_search_jobs",
+  "freelas99_search_jobs",
+  "programathor_search_jobs",
+  "geekhunter_search_jobs",
+  "auto_connect",
+  "search_indeed_jobs",
+  "fill_indeed_apply",
+  "answer_indeed_free_text",
+  "confirm_indeed_submit",
+  "reject_indeed_submit",
 ]);
 
 async function dispatch(cmd) {
@@ -230,13 +250,15 @@ async function dispatch(cmd) {
   try {
     page = await activePage(cmd.handle);
     attachDiagnostics(page);
-  } catch {
-  }
+  } catch {}
   try {
     const result = await route(cmd);
     return page ? await captureResult(page, cmd.cmd, result) : result;
   } catch (e) {
-    if (page) await captureDom(page, `${cmd.cmd}_throw`, { error: String(e?.message ?? e) }).catch(() => {});
+    if (page)
+      await captureDom(page, `${cmd.cmd}_throw`, { error: String(e?.message ?? e) }).catch(
+        () => {},
+      );
     throw e;
   }
 }
@@ -299,6 +321,10 @@ async function route(cmd) {
       return cmdUpworkSearchJobs(cmd);
     case "freelas99_search_jobs":
       return cmdFreelas99SearchJobs(cmd);
+    case "programathor_search_jobs":
+      return cmdProgramathorSearchJobs(cmd);
+    case "geekhunter_search_jobs":
+      return cmdGeekhunterSearchJobs(cmd);
     case "auto_connect":
       return cmdAutoConnect(cmd);
     case "search_indeed_jobs":
@@ -379,16 +405,13 @@ async function ensureHiddenDisplay() {
     return display;
   }
   await new Promise((resolve, reject) => {
-    const proc = spawn(
-      "Xvfb",
-      [display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"],
-      { stdio: "ignore", detached: true },
-    );
+    const proc = spawn("Xvfb", [display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"], {
+      stdio: "ignore",
+      detached: true,
+    });
     proc.on("error", (e) =>
       reject(
-        new Error(
-          `Xvfb launch failed (install it: 'pacman -S xorg-server-xvfb'): ${e.message}`,
-        ),
+        new Error(`Xvfb launch failed (install it: 'pacman -S xorg-server-xvfb'): ${e.message}`),
       ),
     );
     const startedAt = Date.now();
@@ -486,10 +509,11 @@ async function cmdOpen({ user_data_dir = "", extensions = [], headless = true, h
       const software = /swiftshader|llvmpipe|software/i.test(renderer);
       process.stderr.write(
         `worker: hidden GPU renderer = ${renderer}` +
-          (software ? " [SOFTWARE — Akamai may block; GPU didn't attach under Xvfb]\n" : " [hardware ok]\n"),
+          (software
+            ? " [SOFTWARE — Akamai may block; GPU didn't attach under Xvfb]\n"
+            : " [hardware ok]\n"),
       );
-    } catch {
-    }
+    } catch {}
   }
 
   attachDiagnostics(page);
@@ -589,8 +613,7 @@ async function cmdFillEasyApply({ handle, answers = [], cover_letter, cv_path })
         { timeout: 10_000 },
       );
     }
-  } catch {
-  }
+  } catch {}
 
   const unansweredByLabel = new Map();
   const MAX_STEPS = 15;
@@ -633,7 +656,10 @@ async function cmdFillEasyApply({ handle, answers = [], cover_letter, cv_path })
 
 async function cmdAnswerEasyApply({ handle, questions = {} }) {
   const { page } = session(handle);
-  const answers = Object.entries(questions).map(([label, value]) => ({ label, value: String(value) }));
+  const answers = Object.entries(questions).map(([label, value]) => ({
+    label,
+    value: String(value),
+  }));
   if (answers.length === 0) return { unanswered: [], parked: true };
 
   let leftover = [];
@@ -751,8 +777,7 @@ async function cmdRejectSubmit({ handle }) {
     if (await btn.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await btn.click();
     }
-  } catch {
-  }
+  } catch {}
   try {
     const discard = page
       .locator(
@@ -763,8 +788,7 @@ async function cmdRejectSubmit({ handle }) {
     if (await discard.isVisible({ timeout: 1_500 }).catch(() => false)) {
       await discard.click();
     }
-  } catch {
-  }
+  } catch {}
   return {};
 }
 
@@ -1000,8 +1024,7 @@ async function cmdSearchJobs({
           location: parsed.location ?? best?.location ?? null,
         };
         if (best.description) break;
-      } catch {
-      }
+      } catch {}
     }
     return best;
   }
@@ -1129,8 +1152,7 @@ async function cmdSearchLinkedInPosts({ handle, keywords = "", page_index = 0 })
         document.querySelectorAll('button[data-testid="expandable-text-button"]').forEach((b) => {
           try {
             b.click();
-          } catch {
-          }
+          } catch {}
         });
       })
       .catch(() => {});
@@ -1299,23 +1321,39 @@ const LOGIN_URLS = {
 };
 
 const LOGIN_PROBES = {
-  linkedin: { url: "https://www.linkedin.com/feed/", out: /\/login|\/authwall|\/checkpoint|\/uas\/login/ },
-  catho: { url: "https://www.catho.com.br/area-candidato/", out: /\/login|\/signin|\/entrar|account\.catho/ },
-  infojobs: { url: "https://www.infojobs.com.br/candidate/cv/insert2.aspx", out: /\/login|\/entrar|\/candidate\/login/ },
+  linkedin: {
+    url: "https://www.linkedin.com/feed/",
+    out: /\/login|\/authwall|\/checkpoint|\/uas\/login/,
+  },
+  catho: {
+    url: "https://www.catho.com.br/area-candidato/",
+    out: /\/login|\/signin|\/entrar|account\.catho/,
+  },
+  infojobs: {
+    url: "https://www.infojobs.com.br/candidate/cv/insert2.aspx",
+    out: /\/login|\/entrar|\/candidate\/login/,
+  },
   indeed: { url: "https://myjobs.indeed.com/", out: /\/auth|\/account\/login|secure\.indeed\.com/ },
-  gupy: { url: "https://login.gupy.io/candidates/curriculum", out: /\/candidates\/(sign-?in|login)/ },
+  gupy: {
+    url: "https://login.gupy.io/candidates/curriculum",
+    out: /\/candidates\/(sign-?in|login)/,
+  },
 };
 
 async function cmdOpenLoginTabs({ handle, sites }) {
   const sess = sessions.get(handle);
   if (!sess) throw new Error(`open_login_tabs: unknown handle ${handle}`);
   const { browser, page } = sess;
-  const wanted = (sites && sites.length ? sites : Object.keys(LOGIN_URLS)).filter((s) => LOGIN_URLS[s]);
+  const wanted = (sites && sites.length ? sites : Object.keys(LOGIN_URLS)).filter(
+    (s) => LOGIN_URLS[s],
+  );
   const opened = [];
   for (let i = 0; i < wanted.length; i++) {
     const p = i === 0 ? page : await browser.newPage();
     attachDiagnostics(p);
-    await p.goto(LOGIN_URLS[wanted[i]], { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => {});
+    await p
+      .goto(LOGIN_URLS[wanted[i]], { waitUntil: "domcontentloaded", timeout: 45_000 })
+      .catch(() => {});
     opened.push(wanted[i]);
   }
   return { opened };
@@ -1402,128 +1440,124 @@ async function cmdSearchIndeedJobs({
       );
     }
 
-    const isChallenged = () =>
-      page
-        .evaluate(() => {
-          if (
-            document.querySelector(
-              "#challenge-form, #challenge-stage, #challenge-running, #cf-chl-widget, " +
-                '[id^="cf-chl-widget"], input[name="cf-turnstile-response"], ' +
-                'input[name="cf_challenge_response"], #px-captcha, ' +
-                'script[src*="challenges.cloudflare.com/turnstile"], ' +
-                'iframe[src*="challenges.cloudflare.com"]',
-            )
-          )
-            return true;
-          const t = (document.title || "").toLowerCase();
-          if (/just a moment|um momento|aguarde/.test(t)) return true;
-          const body = (document.body?.innerText || "").toLowerCase();
-          return /verif\w* (que )?voc[eê] [eé] humano|confirme que voc[eê] [eé] um humano|antes de continuar|verificando se a conex[aã]o|precisamos verificar se voc[eê]|verify you are human|checking your browser|additional verification/.test(
-            body,
-          );
-        })
-        .catch(() => false);
-
-    await page
-      .waitForFunction(
-        () =>
-          !!window.mosaic?.providerData?.["mosaic-provider-jobcards"] ||
-          !!document.querySelector('a[data-jk], [data-testid="slider_item"], #mosaic-provider-jobcards'),
-        { timeout: 15_000 },
-      )
-      .catch(() => {});
-
-    if (await isChallenged()) {
-      await passCaptchaOnPage(page).catch(() => {});
-      await page.waitForTimeout(2_500);
-      if (await isChallenged()) {
+    // Clear any Cloudflare wall FIRST — its wait is adaptive (returns the moment
+    // the challenge lifts), so we don't burn the full 15s card-wait below on a
+    // challenge page where the cards can never load. No wall → instant no-op.
+    {
+      const cf = await passCaptchaIfChallenged(page);
+      if (cf.challenged && !cf.solved) {
         throw new Error(
           "Indeed is asking to verify you're human (Cloudflare). Solve the check in the Indeed window once, then retry — it'll stay cleared for a while.",
         );
       }
     }
 
-    const jobs = await page.evaluate(() => {
-    const card = (jk, title, company, loc, easyApply) => ({
-      job_id: jk,
-      title: (title ?? "").trim() || null,
-      company: (company ?? "").trim() || null,
-      location: (loc ?? "").trim() || null,
-      apply_url: `https://br.indeed.com/viewjob?jk=${jk}`,
-      is_easy_apply: easyApply === true,
-    });
-
-    const readMosaicResults = () => {
-      const g = window.mosaic?.providerData?.["mosaic-provider-jobcards"];
-      const fromGlobal = g?.metaData?.mosaicProviderJobCardsModel?.results ?? g?.results;
-      if (Array.isArray(fromGlobal) && fromGlobal.length) return fromGlobal;
-
-      for (const s of document.scripts) {
-        const t = s.textContent || "";
-        const at = t.indexOf('providerData["mosaic-provider-jobcards"]=');
-        if (at === -1) continue;
-        const start = t.indexOf("{", at);
-        if (start === -1) continue;
-        let depth = 0, end = -1, inStr = false, esc = false;
-        for (let k = start; k < t.length; k++) {
-          const c = t[k];
-          if (esc) { esc = false; continue; }
-          if (c === "\\") { esc = true; continue; }
-          if (c === '"') { inStr = !inStr; continue; }
-          if (inStr) continue;
-          if (c === "{") depth++;
-          else if (c === "}" && --depth === 0) { end = k + 1; break; }
-        }
-        if (end === -1) continue;
-        try {
-          const obj = JSON.parse(t.slice(start, end));
-          const r = obj?.metaData?.mosaicProviderJobCardsModel?.results ?? obj?.results;
-          if (Array.isArray(r)) return r;
-        } catch {
-        }
-      }
-      return null;
-    };
-
-    const results = readMosaicResults();
-    if (Array.isArray(results) && results.length) {
-      return results
-        .filter((r) => r && r.jobkey)
-        .map((r) =>
-          card(
-            r.jobkey,
-            r.displayTitle ?? r.title,
-            r.company ?? r.truncatedCompany,
-            r.formattedLocation ?? r.jobLocationCity,
-            r.indeedApplyEnabled === true || r.indeedApplyable === true,
+    await page
+      .waitForFunction(
+        () =>
+          !!window.mosaic?.providerData?.["mosaic-provider-jobcards"] ||
+          !!document.querySelector(
+            'a[data-jk], [data-testid="slider_item"], #mosaic-provider-jobcards',
           ),
-        );
-    }
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
 
-    const cards = Array.from(document.querySelectorAll('h3.jobTitle, [class*="jobTitle"]'));
-    return cards.flatMap((h3) => {
-      const link = h3.querySelector("a[data-jk]");
-      if (!link) return [];
-      const jobId = link.getAttribute("data-jk");
-      const titleSpan = link.querySelector("span[id], span[title]");
-      const container =
-        h3.closest(
-          '[data-testid="slider_item"], [class*="resultContent"], [class*="job_seen_beacon"]',
-        ) ?? h3.parentElement?.parentElement?.parentElement;
-      const easyApply = !!container?.querySelector('[data-testid="indeedApply"]');
-      return [
-        card(
-          jobId,
-          titleSpan?.textContent ?? link.textContent,
-          container?.querySelector('[data-testid="company-name"], [class*="companyName"]')
-            ?.textContent,
-          container?.querySelector('[data-testid="text-location"], [class*="companyLocation"]')
-            ?.textContent,
-          easyApply,
-        ),
-      ];
+    const jobs = await page.evaluate(() => {
+      const card = (jk, title, company, loc, easyApply) => ({
+        job_id: jk,
+        title: (title ?? "").trim() || null,
+        company: (company ?? "").trim() || null,
+        location: (loc ?? "").trim() || null,
+        apply_url: `https://br.indeed.com/viewjob?jk=${jk}`,
+        is_easy_apply: easyApply === true,
+      });
+
+      const readMosaicResults = () => {
+        const g = window.mosaic?.providerData?.["mosaic-provider-jobcards"];
+        const fromGlobal = g?.metaData?.mosaicProviderJobCardsModel?.results ?? g?.results;
+        if (Array.isArray(fromGlobal) && fromGlobal.length) return fromGlobal;
+
+        for (const s of document.scripts) {
+          const t = s.textContent || "";
+          const at = t.indexOf('providerData["mosaic-provider-jobcards"]=');
+          if (at === -1) continue;
+          const start = t.indexOf("{", at);
+          if (start === -1) continue;
+          let depth = 0,
+            end = -1,
+            inStr = false,
+            esc = false;
+          for (let k = start; k < t.length; k++) {
+            const c = t[k];
+            if (esc) {
+              esc = false;
+              continue;
+            }
+            if (c === "\\") {
+              esc = true;
+              continue;
+            }
+            if (c === '"') {
+              inStr = !inStr;
+              continue;
+            }
+            if (inStr) continue;
+            if (c === "{") depth++;
+            else if (c === "}" && --depth === 0) {
+              end = k + 1;
+              break;
+            }
+          }
+          if (end === -1) continue;
+          try {
+            const obj = JSON.parse(t.slice(start, end));
+            const r = obj?.metaData?.mosaicProviderJobCardsModel?.results ?? obj?.results;
+            if (Array.isArray(r)) return r;
+          } catch {}
+        }
+        return null;
+      };
+
+      const results = readMosaicResults();
+      if (Array.isArray(results) && results.length) {
+        return results
+          .filter((r) => r && r.jobkey)
+          .map((r) =>
+            card(
+              r.jobkey,
+              r.displayTitle ?? r.title,
+              r.company ?? r.truncatedCompany,
+              r.formattedLocation ?? r.jobLocationCity,
+              r.indeedApplyEnabled === true || r.indeedApplyable === true,
+            ),
+          );
+      }
+
+      const cards = Array.from(document.querySelectorAll('h3.jobTitle, [class*="jobTitle"]'));
+      return cards.flatMap((h3) => {
+        const link = h3.querySelector("a[data-jk]");
+        if (!link) return [];
+        const jobId = link.getAttribute("data-jk");
+        const titleSpan = link.querySelector("span[id], span[title]");
+        const container =
+          h3.closest(
+            '[data-testid="slider_item"], [class*="resultContent"], [class*="job_seen_beacon"]',
+          ) ?? h3.parentElement?.parentElement?.parentElement;
+        const easyApply = !!container?.querySelector('[data-testid="indeedApply"]');
+        return [
+          card(
+            jobId,
+            titleSpan?.textContent ?? link.textContent,
+            container?.querySelector('[data-testid="company-name"], [class*="companyName"]')
+              ?.textContent,
+            container?.querySelector('[data-testid="text-location"], [class*="companyLocation"]')
+              ?.textContent,
+            easyApply,
+          ),
+        ];
+      });
     });
-  });
 
     if (jobs.length === 0) {
       const hasShell = await page
@@ -1567,6 +1601,12 @@ async function cmdFillIndeedApply({ handle, url, answers = {} }) {
 
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
+  // Indeed fronts the job/apply pages with the same Cloudflare "verify you're
+  // human" wall the search hits — best-effort keyless auto-pass before we look
+  // for the Apply button (headed/Xvfb is what actually passes it). Don't throw
+  // here: if it's still walled, the applyBtn wait below surfaces the CF error.
+  await passCaptchaIfChallenged(page).catch(() => {});
+
   if (/[/]jobs(\?|$)/.test(page.url())) {
     throw new Error(
       "Indeed sent us to the search page instead of the job — your Indeed session isn't logged in (or expired). Run 'Login Indeed' first, then retry the application.",
@@ -1583,6 +1623,9 @@ async function cmdFillIndeedApply({ handle, url, answers = {} }) {
   const form = popup ?? page;
 
   await form.waitForLoadState("domcontentloaded", { timeout: 20_000 }).catch(() => {});
+  // The SmartApply popup can open straight onto a Cloudflare check — pass it
+  // before waiting for the form controls, or `mounted` times out on the wall.
+  await passCaptchaIfChallenged(form).catch(() => {});
   const mounted = await form
     .locator('button, input:not([type="hidden"]), textarea, select, [role="main"], form')
     .first()
@@ -1642,7 +1685,12 @@ async function cmdAnswerIndeedFreeText({ handle, answers = {} }) {
   const MAX_STEPS = 10;
   for (let step = 0; step < MAX_STEPS; step++) {
     await popup.waitForTimeout(400);
-    if (await popup.locator(INDEED_SUBMIT_SEL).isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (
+      await popup
+        .locator(INDEED_SUBMIT_SEL)
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false)
+    ) {
       indeedPopups.set(handle, popup);
       return { parked: true, unanswered, needsHuman };
     }
@@ -1693,7 +1741,11 @@ async function answerIndeedQuestions(popup, answers = {}) {
     if (await item.locator('[data-testid="information-question"]').count()) continue;
 
     const qLabel = (
-      (await item.locator('[data-testid="safe-markup"]').first().textContent().catch(() => "")) || ""
+      (await item
+        .locator('[data-testid="safe-markup"]')
+        .first()
+        .textContent()
+        .catch(() => "")) || ""
     ).trim();
     const bucket = classifyIndeedQuestion(qLabel);
     const isConsent = bucket === "consent";
@@ -1708,7 +1760,12 @@ async function answerIndeedQuestions(popup, answers = {}) {
       const n = await labels.count();
       const out = [];
       for (let k = 0; k < n; k++) {
-        const t = norm(await labels.nth(k).textContent().catch(() => ""));
+        const t = norm(
+          await labels
+            .nth(k)
+            .textContent()
+            .catch(() => ""),
+        );
         if (t) out.push({ text: t, el: labels.nth(k) });
       }
       return out;
@@ -1718,7 +1775,9 @@ async function answerIndeedQuestions(popup, answers = {}) {
     if ((await item.locator('input[type="radio"]').count()) > 0) {
       const opts = await readOpts("radio");
       const isYesNo =
-        opts.length > 0 && opts.length <= 3 && opts.every((o) => YESRE.test(o.text) || NORE.test(o.text));
+        opts.length > 0 &&
+        opts.length <= 3 &&
+        opts.every((o) => YESRE.test(o.text) || NORE.test(o.text));
 
       if (provAns) {
         const want = norm(provAns);
@@ -1786,13 +1845,21 @@ async function answerIndeedQuestions(popup, answers = {}) {
     }
 
     if ((await item.locator('[role="combobox"]').count()) > 0) {
-      await item.locator('[role="combobox"]').first().click().catch(() => {});
-      const search = item.locator('input[aria-controls^="Listbox"], input[placeholder*="esquis" i]').first();
+      await item
+        .locator('[role="combobox"]')
+        .first()
+        .click()
+        .catch(() => {});
+      const search = item
+        .locator('input[aria-controls^="Listbox"], input[placeholder*="esquis" i]')
+        .first();
       if (await search.count()) {
         await search.fill("Brasil").catch(() => {});
         await popup.waitForTimeout(350);
       }
-      const opt = item.locator('li[role="option"]', { hasText: /brasil \(br\)|^\s*brasil/i }).first();
+      const opt = item
+        .locator('li[role="option"]', { hasText: /brasil \(br\)|^\s*brasil/i })
+        .first();
       if (await opt.count()) await opt.click().catch(() => {});
       continue;
     }
@@ -1802,7 +1869,7 @@ async function answerIndeedQuestions(popup, answers = {}) {
     const field = (await textarea.count()) ? textarea : (await input.count()) ? input : null;
     if (!field) continue;
 
-    if ((await field.inputValue().catch(() => ""))) continue;
+    if (await field.inputValue().catch(() => "")) continue;
 
     const name = (await field.getAttribute("name").catch(() => null)) || "";
     const ll = qLabel.toLowerCase();
@@ -1969,7 +2036,7 @@ async function handleResumeStep(page, cvPath) {
     .first();
   if (!(await uploadBtn.isVisible({ timeout: 250 }).catch(() => false))) return false;
 
-  const fileInput = page.locator('input[type=file]').first();
+  const fileInput = page.locator("input[type=file]").first();
   if ((await fileInput.count().catch(() => 0)) > 0) {
     await fileInput.setInputFiles(cvPath).catch(() => {});
     await page.waitForTimeout(1_800);
@@ -2177,7 +2244,11 @@ async function fillStep(page, answers, coverLetter) {
             (await el.getAttribute("aria-checked").catch(() => null)) === "true";
           await el.click().catch(() => {});
           if (!(await isChecked())) {
-            await el.locator('p, input[type=radio], label').first().click().catch(() => {});
+            await el
+              .locator("p, input[type=radio], label")
+              .first()
+              .click()
+              .catch(() => {});
           }
           if (!(await isChecked())) {
             await el.evaluate((d) => d.click()).catch(() => {});
@@ -2185,7 +2256,11 @@ async function fillStep(page, answers, coverLetter) {
         } else {
           await el.check({ timeout: 1_500 }).catch(async () => {
             const id = await el.getAttribute("id");
-            if (id) await group.locator(`label[for="${id}"]`).click().catch(() => {});
+            if (id)
+              await group
+                .locator(`label[for="${id}"]`)
+                .click()
+                .catch(() => {});
           });
         }
         break;
@@ -2872,7 +2947,14 @@ async function cmdCathoApply({ handle, offer_id, apply_url }) {
   return cathoApply(page, { offerId: offer_id, applyUrl: apply_url });
 }
 
-async function cmdUpworkSearchJobs({ handle, query = "", sort = "recency", contractor_tier = [], job_type = [], max_pages }) {
+async function cmdUpworkSearchJobs({
+  handle,
+  query = "",
+  sort = "recency",
+  contractor_tier = [],
+  job_type = [],
+  max_pages,
+}) {
   const page = await activePage(handle);
   return upworkSearchJobs(page, {
     query,
@@ -2886,6 +2968,16 @@ async function cmdUpworkSearchJobs({ handle, query = "", sort = "recency", contr
 async function cmdFreelas99SearchJobs({ handle, query = "", max_pages }) {
   const page = await activePage(handle);
   return freelas99SearchJobs(page, { query, maxPages: max_pages });
+}
+
+async function cmdProgramathorSearchJobs({ handle, query = "", max_pages }) {
+  const page = await activePage(handle);
+  return programathorSearchJobs(page, { query, maxPages: max_pages });
+}
+
+async function cmdGeekhunterSearchJobs({ handle, query = "", remote_only, max_pages }) {
+  const page = await activePage(handle);
+  return geekhunterSearchJobs(page, { query, remoteOnly: !!remote_only, maxPages: max_pages });
 }
 
 async function cmdInfojobsSearchJobs({
@@ -2994,7 +3086,11 @@ async function cmdAutoConnect({ handle, max_count = 200, delay_ms = 2000, max_re
     ".artdeco-modal__dismiss",
   ].join(", ");
   const dismissModal = () =>
-    page.locator(DISMISS_SEL).first().click({ force: true }).catch(() => {});
+    page
+      .locator(DISMISS_SEL)
+      .first()
+      .click({ force: true })
+      .catch(() => {});
 
   const attempted = new Set();
   let sent = 0;
@@ -3051,7 +3147,10 @@ async function cmdAutoConnect({ handle, max_count = 200, delay_ms = 2000, max_re
     // it (verify-email / add-note / upsell) — dismiss it and DON'T count. This is the fix for
     // "displayed 20 but only sent 4": every non-confirmed click used to increment `sent`.
     await page.waitForTimeout(300);
-    const stillOffering = await page.getByLabel(key, { exact: true }).count().catch(() => 1);
+    const stillOffering = await page
+      .getByLabel(key, { exact: true })
+      .count()
+      .catch(() => 1);
     if (stillOffering === 0) {
       sent += 1;
       stuck = 0;
@@ -3099,8 +3198,7 @@ async function cmdGmailSend({ handle, to, subject, body, attachment_path }) {
     if (attachment_path) {
       try {
         await page.setInputFiles('input[type="file"][name="Filedata"]', attachment_path);
-      } catch {
-      }
+      } catch {}
     }
 
     await page.waitForTimeout(attachment_path ? 4_000 : 1_500);

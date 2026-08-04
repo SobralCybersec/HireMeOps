@@ -41,10 +41,7 @@ const TURNSTILE_WIDGETS = [
   "[class*='turnstile'] div:not([class])",
   "body > div#check > div:not([class])",
 ];
-const RECAPTCHA_WIDGETS = [
-  "iframe[src*='recaptcha/api2/anchor']",
-  "iframe[title*='recaptcha' i]",
-];
+const RECAPTCHA_WIDGETS = ["iframe[src*='recaptcha/api2/anchor']", "iframe[title*='recaptcha' i]"];
 const HCAPTCHA_WIDGETS = [
   "iframe[src*='hcaptcha.com'][title*='checkbox' i]",
   "iframe[src*='newassets.hcaptcha.com'][title*='checkbox' i]",
@@ -104,9 +101,14 @@ async function turnstilePending(page) {
     .evaluate(() => {
       const el = document.querySelector('input[name="cf-turnstile-response"]');
       const widget = document.querySelector(
-        ".cf-turnstile, iframe[src*='challenges.cloudflare.com'], [data-callback='onCaptchaSuccess']",
+        ".cf-turnstile, iframe[src*='challenges.cloudflare.com'], [data-callback='onCaptchaSuccess'], " +
+          // Indeed/managed-challenge shape: the response input mounts with a
+          // `cf-chl-widget-*` id inside #cf-box-container before the iframe loads.
+          "[id^='cf-chl-widget'], #cf-box-container [id^='cf-chl-widget']",
       );
-      return !!widget && !(el && el.value);
+      // A mounted response input with no token yet IS a pending Turnstile, even
+      // before the challenges.cloudflare.com iframe has been injected.
+      return (!!widget || !!el) && !(el && el.value);
     })
     .catch(() => false);
 }
@@ -114,7 +116,10 @@ async function turnstilePending(page) {
 async function recaptchaCheckboxPresent(page) {
   return page
     .evaluate(
-      () => !!document.querySelector("iframe[src*='recaptcha/api2/anchor'], iframe[title*='recaptcha' i]"),
+      () =>
+        !!document.querySelector(
+          "iframe[src*='recaptcha/api2/anchor'], iframe[title*='recaptcha' i]",
+        ),
     )
     .catch(() => false);
 }
@@ -131,16 +136,13 @@ async function hcaptchaCheckboxPresent(page) {
 }
 
 async function friendlyPresent(page) {
-  return page.evaluate(() => !!document.querySelector("iframe[data--frc-frame-id], .frc-captcha")).catch(() => false);
+  return page
+    .evaluate(() => !!document.querySelector("iframe[data--frc-frame-id], .frc-captcha"))
+    .catch(() => false);
 }
 
 async function datadomeSliderPresent(page) {
-  return page
-    .evaluate(
-      (sel) => !!document.querySelector(sel),
-      DATADOME_IFRAME,
-    )
-    .catch(() => false);
+  return page.evaluate((sel) => !!document.querySelector(sel), DATADOME_IFRAME).catch(() => false);
 }
 
 async function imageChallengeOpen(page) {
@@ -167,13 +169,17 @@ async function normalizeTurnstileAlignment(page) {
             el.setAttribute("class", rw(rw(c, "center", "left"), "right", "left"));
           }
         }
-        for (const el of document.querySelectorAll("form[style], form div[style], [style*='text-align: center']")) {
+        for (const el of document.querySelectorAll(
+          "form[style], form div[style], [style*='text-align: center']",
+        )) {
           const s = el.getAttribute("style") || "";
           if (s.includes("center") || s.includes("right")) {
             el.setAttribute("style", rw(rw(s, "center", "left"), "right", "left"));
           }
         }
-        for (const el of document.querySelectorAll("form [id*='turnstile'], form [class*='turnstile']")) {
+        for (const el of document.querySelectorAll(
+          "form [id*='turnstile'], form [class*='turnstile']",
+        )) {
           el.setAttribute("align", "left");
         }
       } catch {}
@@ -241,18 +247,35 @@ async function solveDataDomeSlider(page, shy) {
 }
 
 export async function passCaptchaOnPage(page) {
-  if (!enabled()) return { solved: false, reason: "auto-captcha off (set HIREMEOPS_AUTO_CAPTCHA=1)" };
+  if (!enabled())
+    return { solved: false, reason: "auto-captcha off (set HIREMEOPS_AUTO_CAPTCHA=1)" };
 
   const shy = getShyMouse(page);
 
-  // 1) Cloudflare full-page interstitial ("Just a moment"): automatic — behave human and wait.
+  // 1) Cloudflare full-page interstitial ("Just a moment" / Indeed "Additional
+  // Verification Required"): a MANAGED challenge. Behave human and wait — a
+  // trusted (headed) browser auto-solves most of these. If Cloudflare escalates
+  // it to an interactive Turnstile checkbox mid-wait, click it (managed→interactive).
   if (await cloudflareInterstitial(page)) {
     await humanize(page);
+    const offsetFor = (sel) =>
+      sel.includes("iframe") ? CHECKBOX_OFFSET.turnstile_iframe : CHECKBOX_OFFSET.turnstile_div;
+    let clickedTs = false;
     for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(1_000);
       if (!(await cloudflareInterstitial(page))) return { solved: true, kind: "cloudflare" };
+      // Escalation: an interactive Turnstile appeared — click it once (then keep
+      // waiting for the token to clear the interstitial).
+      if (!clickedTs && i >= 2 && (await turnstilePending(page))) {
+        await normalizeTurnstileAlignment(page);
+        clickedTs = await clickCheckbox(page, shy, TURNSTILE_WIDGETS, offsetFor);
+      }
     }
-    return { solved: false, kind: "cloudflare", reason: "interstitial did not clear (human needed)" };
+    return {
+      solved: false,
+      kind: "cloudflare",
+      reason: "interstitial did not clear (human needed)",
+    };
   }
 
   // 2) DataDome slider: drag the handle to its target.
@@ -264,7 +287,12 @@ export async function passCaptchaOnPage(page) {
       if (!(await datadomeSliderPresent(page))) return { solved: true, kind: "datadome", dragged };
       if (i === 5) dragged = (await solveDataDomeSlider(page, shy)) || dragged;
     }
-    return { solved: false, kind: "datadome", dragged, reason: "slider did not clear (human needed)" };
+    return {
+      solved: false,
+      kind: "datadome",
+      dragged,
+      reason: "slider did not clear (human needed)",
+    };
   }
 
   // 3) Cloudflare Turnstile widget: left-align, then humanized CLICK on the checkbox; wait for token.
@@ -277,13 +305,16 @@ export async function passCaptchaOnPage(page) {
     for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(1_000);
       if (!(await turnstilePending(page))) return { solved: true, kind: "turnstile", clicked };
-      if (i === 7) clicked = (await clickCheckbox(page, shy, TURNSTILE_WIDGETS, offsetFor)) || clicked;
+      if (i === 7)
+        clicked = (await clickCheckbox(page, shy, TURNSTILE_WIDGETS, offsetFor)) || clicked;
     }
     return {
       solved: false,
       kind: "turnstile",
       clicked,
-      reason: clicked ? "token not issued after click (human needed)" : "checkbox not found (human needed)",
+      reason: clicked
+        ? "token not issued after click (human needed)"
+        : "checkbox not found (human needed)",
     };
   }
 
@@ -294,7 +325,11 @@ export async function passCaptchaOnPage(page) {
     const hit = await firstVisibleWidget(page, RECAPTCHA_WIDGETS);
     const vp = await page.viewportSize().catch(() => null);
     if (hit && vp && isInvisibleBadge(hit.box, vp.width, vp.height)) {
-      return { solved: false, kind: "recaptcha_v2", reason: "invisible reCAPTCHA badge (nothing to click)" };
+      return {
+        solved: false,
+        kind: "recaptcha_v2",
+        reason: "invisible reCAPTCHA badge (nothing to click)",
+      };
     }
     let clicked = await clickCheckbox(page, shy, RECAPTCHA_WIDGETS, CHECKBOX_OFFSET.recaptcha);
     if (!clicked) {
@@ -317,7 +352,12 @@ export async function passCaptchaOnPage(page) {
       if (await imageChallengeOpen(page))
         return { solved: false, kind: "recaptcha_v2", reason: "image grid opened (human needed)" };
     }
-    return { solved: false, kind: "recaptcha_v2", clicked, reason: "checkbox did not confirm (human needed)" };
+    return {
+      solved: false,
+      kind: "recaptcha_v2",
+      clicked,
+      reason: "checkbox did not confirm (human needed)",
+    };
   }
 
   // 5) hCaptcha / Incapsula checkbox: humanized coordinate click, watch for token or challenge panel.
@@ -330,18 +370,24 @@ export async function passCaptchaOnPage(page) {
         return { solved: false, kind: "hcaptcha", reason: "challenge opened (human needed)" };
       const token = await page
         .evaluate(() => {
-          const el = document.querySelector('textarea[name="h-captcha-response"], [name="h-captcha-response"]');
+          const el = document.querySelector(
+            'textarea[name="h-captcha-response"], [name="h-captcha-response"]',
+          );
           return !!(el && el.value);
         })
         .catch(() => false);
       if (token) return { solved: true, kind: "hcaptcha", clicked };
-      if (i === 5) clicked = (await clickCheckbox(page, shy, HCAPTCHA_WIDGETS, CHECKBOX_OFFSET.hcaptcha)) || clicked;
+      if (i === 5)
+        clicked =
+          (await clickCheckbox(page, shy, HCAPTCHA_WIDGETS, CHECKBOX_OFFSET.hcaptcha)) || clicked;
     }
     return {
       solved: false,
       kind: "hcaptcha",
       clicked,
-      reason: clicked ? "token not issued after click (human needed)" : "checkbox not found (human needed)",
+      reason: clicked
+        ? "token not issued after click (human needed)"
+        : "checkbox not found (human needed)",
     };
   }
 
@@ -359,8 +405,52 @@ export async function passCaptchaOnPage(page) {
         .catch(() => false);
       if (done) return { solved: true, kind: "friendly", clicked };
     }
-    return { solved: false, kind: "friendly", clicked, reason: "solution not issued (human needed)" };
+    return {
+      solved: false,
+      kind: "friendly",
+      clicked,
+      reason: "solution not issued (human needed)",
+    };
   }
 
   return { solved: false, reason: "no keyless-passable challenge found (human fallback)" };
+}
+
+// Detect a Cloudflare / bot-wall interstitial or widget on the current page —
+// the "verify you're human" / "Just a moment" gate (PT-BR + EN). Shared by every
+// scraper/apply flow so the detection logic lives in ONE place. Best-effort:
+// any evaluate failure (navigation mid-check) reads as "not challenged".
+export async function isCloudflareChallenge(page) {
+  return page
+    .evaluate(() => {
+      if (
+        document.querySelector(
+          "#challenge-form, #challenge-stage, #challenge-running, #cf-chl-widget, " +
+            '[id^="cf-chl-widget"], input[name="cf-turnstile-response"], ' +
+            'input[name="cf_challenge_response"], #px-captcha, ' +
+            'script[src*="challenges.cloudflare.com/turnstile"], ' +
+            'iframe[src*="challenges.cloudflare.com"]',
+        )
+      )
+        return true;
+      const t = (document.title || "").toLowerCase();
+      if (/just a moment|um momento|aguarde|checking your browser/.test(t)) return true;
+      const body = (document.body?.innerText || "").toLowerCase();
+      return /verif\w* (que )?voc[eê] [eé] humano|confirme que voc[eê] [eé] um humano|antes de continuar|verificando se a conex[aã]o|precisamos verificar se voc[eê]|verify you are human|checking your browser|additional verification/.test(
+        body,
+      );
+    })
+    .catch(() => false);
+}
+
+// If the page is sitting on a Cloudflare/bot wall, run the keyless auto-pass and
+// wait for it to clear. Returns { challenged, solved }. No-op (challenged:false)
+// when there's no wall, so it's safe to call after every navigation. Honours the
+// same HIREMEOPS_AUTO_CAPTCHA gate as passCaptchaOnPage (off → pauses for human).
+export async function passCaptchaIfChallenged(page, { settleMs = 2_500 } = {}) {
+  if (!(await isCloudflareChallenge(page))) return { challenged: false, solved: true };
+  await passCaptchaOnPage(page).catch(() => {});
+  await page.waitForTimeout(settleMs).catch(() => {});
+  const still = await isCloudflareChallenge(page);
+  return { challenged: true, solved: !still };
 }

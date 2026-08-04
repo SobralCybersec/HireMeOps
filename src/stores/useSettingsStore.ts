@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AppSettings } from "../types/settings";
 import { errMessage, invokeStrict, safeInvoke } from "../lib/tauriInvoke";
+import { useThemeStore } from "./useThemeStore";
 
 interface SettingsStoreState {
   settings: AppSettings | null;
@@ -20,6 +21,10 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
     const settings = await safeInvoke<AppSettings>("get_settings");
     if (settings) {
       set({ settings, isLoading: false });
+      // Bridge persisted theme preference to the live data-theme attribute.
+      const ts = useThemeStore.getState();
+      ts.setTheme(settings.theme);
+      ts.setReducedEffects(settings.reducedEffects);
     } else {
       set({
         isLoading: false,
@@ -35,6 +40,10 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
     // Optimistic: reflect immediately, but roll back if the write fails so the
     // in-memory store never silently diverges from what was actually persisted.
     set({ settings: next, error: null });
+    // Keep the live theme/effects attributes in sync with any patch.
+    const ts = useThemeStore.getState();
+    if (patch.theme !== undefined) ts.setTheme(patch.theme);
+    if (patch.reducedEffects !== undefined) ts.setReducedEffects(patch.reducedEffects);
     try {
       await invokeStrict<void>("update_settings", { settings: next });
     } catch (e) {

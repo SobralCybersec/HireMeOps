@@ -295,6 +295,47 @@ export async function runFreelas99Search(
   });
 }
 
+/**
+ * Scrape ProgramaThor (/jobs) — a curated Brazilian dev-jobs board — ingesting
+ * under `searchQueryId` so run_search() scores the posts. View-only. A `query`
+ * that maps to a known skill narrows the list; otherwise the recent list is
+ * ingested and scored against the CV.
+ */
+export async function runProgramathorSearch(
+  profileId: string,
+  searchQueryId: string | null,
+  query: string,
+  maxPages?: number,
+): Promise<LinkedInSearchResult> {
+  return invokeStrict<LinkedInSearchResult>("run_programathor_search", {
+    profileId,
+    searchQueryId: searchQueryId ?? null,
+    query,
+    maxPages: maxPages ?? null,
+  });
+}
+
+/**
+ * Scrape GeekHunter (/pt/vagas) for `query`, ingesting under `searchQueryId` so
+ * run_search() scores the posts. View-only. `remoteOnly` maps to the
+ * `workModality=remote` facet.
+ */
+export async function runGeekhunterSearch(
+  profileId: string,
+  searchQueryId: string | null,
+  query: string,
+  remoteOnly?: boolean,
+  maxPages?: number,
+): Promise<LinkedInSearchResult> {
+  return invokeStrict<LinkedInSearchResult>("run_geekhunter_search", {
+    profileId,
+    searchQueryId: searchQueryId ?? null,
+    query,
+    remoteOnly: remoteOnly ?? null,
+    maxPages: maxPages ?? null,
+  });
+}
+
 /** Result of applying to one Catho offer. */
 export interface CathoApplyResult {
   offerId?: string;

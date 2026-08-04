@@ -4,6 +4,36 @@
  * need a tiny pointer handler in JS — see the components that use them.
  */
 
+/* Light-mode overrides — soften shadows and tint glass so effects feel intentional, not muddy. */
+[data-theme="light"] .fx-glass {
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  box-shadow:
+    0 4px 20px rgba(10, 30, 60, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .fx-lift:hover {
+  box-shadow:
+    0 8px 24px rgba(10, 30, 60, 0.14),
+    0 0 18px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+[data-theme="light"] .fx-orbs::before,
+[data-theme="light"] .fx-orbs::after {
+  opacity: 0.12;
+}
+
+[data-theme="light"] .fx-aurora::before {
+  opacity: 0.3;
+}
+
+[data-theme="light"] .fx-scanlines::before {
+  background: repeating-linear-gradient(
+    transparent 0 2px,
+    color-mix(in srgb, var(--color-text) 4%, transparent) 2px 4px
+  );
+}
+
 /* Blanket reduced-motion fallback — every animated class degrades even without a per-effect guard. */
 @media (prefers-reduced-motion: reduce) {
   .fx-aurora *,

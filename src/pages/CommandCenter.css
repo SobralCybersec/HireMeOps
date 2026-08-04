@@ -811,3 +811,40 @@
   border-radius: 20px;
   background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface));
 }
+
+/* ---- Light-mode overrides for hardcoded dark colors ---- */
+[data-theme="light"] .cc-zone {
+  box-shadow: 0 4px 16px rgba(10, 30, 60, 0.09);
+}
+[data-theme="light"] .cc-zone:hover {
+  box-shadow: 0 10px 28px rgba(10, 30, 60, 0.14);
+}
+[data-theme="light"] .cc-platform:hover {
+  box-shadow: 0 4px 12px rgba(10, 30, 60, 0.1);
+}
+
+[data-theme="light"] .cc-dlg {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 8px 24px rgba(10, 30, 60, 0.1);
+}
+[data-theme="light"] .cc-dlg__title {
+  color: var(--color-text);
+}
+[data-theme="light"] .cc-dlg__text {
+  color: var(--color-text-2);
+}
+[data-theme="light"] .cc-dlg__next {
+  color: var(--color-text-muted);
+}
+[data-theme="light"] .cc-dlg__next:hover {
+  color: var(--color-text);
+}
+[data-theme="light"] .cc-dlg__name {
+  color: var(--color-surface);
+}
+[data-theme="light"] .cc-dlg__triangle {
+  background: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+}

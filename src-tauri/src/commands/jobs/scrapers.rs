@@ -676,6 +676,294 @@ pub async fn run_freelas99_search(
     }
 }
 
+/// Scrape ProgramaThor (programathor.com.br/jobs), a curated Brazilian dev-jobs
+/// board. View-only (no apply); server-rendered so no anti-bot dance. A query
+/// that maps to a known skill narrows the list; otherwise the recent list is
+/// ingested and the CV scorer filters it downstream.
+#[tauri::command]
+pub async fn run_programathor_search(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    profile_id: String,
+    search_query_id: Option<String>,
+    query: String,
+    max_pages: Option<u32>,
+) -> Result<LinkedInSearchResult, String> {
+    #[cfg(feature = "real-browser")]
+    {
+        use crate::storage::paths::automation_profile_dir;
+
+        let profile_exists: i64 =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM profiles WHERE id = ?1)")
+                .bind(&profile_id)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+        if profile_exists == 0 {
+            return Err(format!(
+                "unknown profile '{profile_id}' — select an active profile first"
+            ));
+        }
+
+        let search_query_id: Option<String> = match search_query_id {
+            Some(id) => {
+                let exists: i64 =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM search_queries WHERE id = ?1)")
+                        .bind(&id)
+                        .fetch_one(&state.db)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                exists.ne(&0).then_some(id)
+            }
+            None => None,
+        };
+
+        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+            .to_string_lossy()
+            .into_owned();
+        let global = crate::storage::settings::read_automation_headless(&state.db).await;
+        let headless = crate::storage::settings::read_automation_headless_for(
+            &state.db,
+            "programathor_search",
+            global,
+        )
+        .await;
+
+        let result = state
+            .playwright
+            .search_programathor_jobs(&dir, &query, max_pages.unwrap_or(5), headless)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut ingested = 0u32;
+        let mut skipped_duplicates = 0u32;
+        for card in &result.jobs {
+            let url = match &card.apply_url {
+                Some(u) if !u.is_empty() => u.clone(),
+                _ => continue,
+            };
+            let canonical = canonicalize(&url);
+            let dedupe = check_dedupe(&state.db, &profile_id, "programathor", &canonical)
+                .await
+                .map_err(|e| e.to_string())?;
+            let (is_dup, status) = match &dedupe {
+                DedupeOutcome::Unique => (false, "discovered"),
+                DedupeOutcome::Duplicate { .. } => (true, "skipped_duplicate_url"),
+            };
+
+            let id = Uuid::new_v4().to_string();
+            let now = now_iso();
+
+            let hay = format!(
+                "{} {}",
+                card.title.as_deref().unwrap_or(""),
+                card.description.as_deref().unwrap_or("")
+            )
+            .to_lowercase();
+            let remote_mode = crate::matching::scorer::classify_work_model(&hay);
+
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("programathor")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("programathor_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if is_dup {
+                skipped_duplicates += 1;
+            } else {
+                ingested += 1;
+                emit_job_found(&app, &state.db, &profile_id, &id).await;
+            }
+        }
+
+        Ok(LinkedInSearchResult {
+            ingested,
+            skipped_duplicates,
+            has_next_page: result.has_next_page,
+            pages_scraped: max_pages.unwrap_or(5),
+        })
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (app, state, profile_id, search_query_id, query, max_pages);
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
+/// Scrape GeekHunter (geekhunter.com.br/pt/vagas), a Brazilian tech-jobs SPA.
+/// View-only (no apply). `remote_only` maps to the `workModality=remote` facet;
+/// cards hydrate client-side so the worker waits for them before scraping.
+#[allow(clippy::too_many_arguments)] // IPC arg list is the frontend contract
+#[tauri::command]
+pub async fn run_geekhunter_search(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    profile_id: String,
+    search_query_id: Option<String>,
+    query: String,
+    remote_only: Option<bool>,
+    max_pages: Option<u32>,
+) -> Result<LinkedInSearchResult, String> {
+    #[cfg(feature = "real-browser")]
+    {
+        use crate::storage::paths::automation_profile_dir;
+
+        let profile_exists: i64 =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM profiles WHERE id = ?1)")
+                .bind(&profile_id)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+        if profile_exists == 0 {
+            return Err(format!(
+                "unknown profile '{profile_id}' — select an active profile first"
+            ));
+        }
+
+        let search_query_id: Option<String> = match search_query_id {
+            Some(id) => {
+                let exists: i64 =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM search_queries WHERE id = ?1)")
+                        .bind(&id)
+                        .fetch_one(&state.db)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                exists.ne(&0).then_some(id)
+            }
+            None => None,
+        };
+
+        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+            .to_string_lossy()
+            .into_owned();
+        let global = crate::storage::settings::read_automation_headless(&state.db).await;
+        let headless = crate::storage::settings::read_automation_headless_for(
+            &state.db,
+            "geekhunter_search",
+            global,
+        )
+        .await;
+
+        let result = state
+            .playwright
+            .search_geekhunter_jobs(
+                &dir,
+                &query,
+                remote_only.unwrap_or(false),
+                max_pages.unwrap_or(5),
+                headless,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut ingested = 0u32;
+        let mut skipped_duplicates = 0u32;
+        for card in &result.jobs {
+            let url = match &card.apply_url {
+                Some(u) if !u.is_empty() => u.clone(),
+                _ => continue,
+            };
+            let canonical = canonicalize(&url);
+            let dedupe = check_dedupe(&state.db, &profile_id, "geekhunter", &canonical)
+                .await
+                .map_err(|e| e.to_string())?;
+            let (is_dup, status) = match &dedupe {
+                DedupeOutcome::Unique => (false, "discovered"),
+                DedupeOutcome::Duplicate { .. } => (true, "skipped_duplicate_url"),
+            };
+
+            let id = Uuid::new_v4().to_string();
+            let now = now_iso();
+
+            let hay = format!(
+                "{} {}",
+                card.title.as_deref().unwrap_or(""),
+                card.description.as_deref().unwrap_or("")
+            )
+            .to_lowercase();
+            let remote_mode = crate::matching::scorer::classify_work_model(&hay)
+                .or_else(|| remote_only.unwrap_or(false).then_some("remote"));
+
+            sqlx::query(INSERT_JOB_POST_SQL)
+                .bind(&id)
+                .bind(&profile_id)
+                .bind("geekhunter")
+                .bind(&card.job_id)
+                .bind(&url)
+                .bind(&canonical)
+                .bind(card.title.as_deref().unwrap_or(""))
+                .bind(card.company.as_deref().unwrap_or(""))
+                .bind(&card.location)
+                .bind(remote_mode)
+                .bind(card.description.as_deref().unwrap_or(""))
+                .bind::<Option<String>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<i64>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind::<Option<String>>(None)
+                .bind(&now)
+                .bind("geekhunter_search")
+                .bind(&search_query_id)
+                .bind(status)
+                .bind::<Option<String>>(None)
+                .execute(&state.db)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if is_dup {
+                skipped_duplicates += 1;
+            } else {
+                ingested += 1;
+                emit_job_found(&app, &state.db, &profile_id, &id).await;
+            }
+        }
+
+        Ok(LinkedInSearchResult {
+            ingested,
+            skipped_duplicates,
+            has_next_page: result.has_next_page,
+            pages_scraped: max_pages.unwrap_or(5),
+        })
+    }
+    #[cfg(not(feature = "real-browser"))]
+    {
+        let _ = (
+            app,
+            state,
+            profile_id,
+            search_query_id,
+            query,
+            remote_only,
+            max_pages,
+        );
+        Err("real-browser feature not enabled".to_string())
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // IPC arg list is the frontend contract
 #[tauri::command]
 pub async fn run_infojobs_search(

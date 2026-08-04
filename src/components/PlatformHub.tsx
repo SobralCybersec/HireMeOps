@@ -11,6 +11,8 @@ import upworkIcon from "../assets/platform-icons/upwork.svg";
 import freelas99Icon from "../assets/platform-icons/freelas99.svg";
 import inhireIcon from "../assets/platform-icons/inhire.svg";
 import googleIcon from "../assets/platform-icons/google.svg";
+import programathorIcon from "../assets/platform-icons/programathor.png";
+import geekhunterIcon from "../assets/platform-icons/geekhunter.png";
 
 /** One action a platform icon offers. `fill`/`sync` invoke a push command against
  *  the selected variant; `link` navigates. Login is intentionally absent — the
@@ -75,6 +77,18 @@ const PLATFORMS: Plat[] = [
     label: "99freelas",
     icon: freelas99Icon,
     actions: [{ label: "Search 99freelas", to: "/job-search" }],
+  },
+  {
+    key: "programathor",
+    label: "ProgramaThor",
+    icon: programathorIcon,
+    actions: [{ label: "Search ProgramaThor", to: "/job-search" }],
+  },
+  {
+    key: "geekhunter",
+    label: "GeekHunter",
+    icon: geekhunterIcon,
+    actions: [{ label: "Search GeekHunter", to: "/job-search" }],
   },
   {
     // Google Dork is the broad board-discovery search — one query fans out across

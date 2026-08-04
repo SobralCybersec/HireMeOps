@@ -14,6 +14,8 @@ import {
   runGupySearch,
   runUpworkSearch,
   runFreelas99Search,
+  runProgramathorSearch,
+  runGeekhunterSearch,
   cathoApply,
   infojobsApply,
   runIndeedSearch,
@@ -32,6 +34,8 @@ import upworkIcon from "../assets/platform-icons/upwork.svg";
 import freelas99Icon from "../assets/platform-icons/freelas99.svg";
 import inhireIcon from "../assets/platform-icons/inhire.svg";
 import googleIcon from "../assets/platform-icons/google.svg";
+import programathorIcon from "../assets/platform-icons/programathor.png";
+import geekhunterIcon from "../assets/platform-icons/geekhunter.png";
 import { useJobFiltersStore } from "../stores/useJobFiltersStore";
 import { useSearchQueryStore } from "../stores/useSearchQueryStore";
 import { useProfileStore } from "../stores/useProfileStore";
@@ -98,6 +102,8 @@ const PLATFORM_ICONS: Record<string, string> = {
   upwork: upworkIcon,
   "99freelas": freelas99Icon,
   inhire: inhireIcon,
+  programathor: programathorIcon,
+  geekhunter: geekhunterIcon,
 };
 
 // Friendly label for the icon's alt/title (falls back to the raw key).
@@ -112,6 +118,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   upwork: "Upwork",
   "99freelas": "99freelas",
   inhire: "inhire",
+  programathor: "ProgramaThor",
+  geekhunter: "GeekHunter",
 };
 
 const STATUS_OPTIONS = [
@@ -258,7 +266,9 @@ export function JobSearch() {
       | "gupy"
       | "indeed"
       | "upwork"
-      | "99freelas",
+      | "99freelas"
+      | "programathor"
+      | "geekhunter",
   ) => {
     if (activeProfileId === null) return;
     setSearchMsg(null);
@@ -480,6 +490,78 @@ export function JobSearch() {
       return;
     }
 
+    if (platform === "programathor") {
+      // ProgramaThor: a curated Brazilian dev-jobs board. Server-rendered, so a
+      // fast scrape. One pass per target role (up to 3); the query narrows to a
+      // skill slug when it matches, else the recent list is scored against the CV.
+      const target = available.find((q) => q.platform === "linkedin" && q.enabled);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (roles.length === 0) {
+        setSearchMsg("Set a target role in Job Preferences first.");
+        return;
+      }
+      let totalIngested = 0;
+      for (const role of roles) {
+        setSearchMsg(`Searching ProgramaThor for "${role}"…`);
+        try {
+          const scraped = await runProgramathorSearch(activeProfileId, target?.id ?? null, role, 5);
+          totalIngested += scraped.ingested;
+        } catch (e) {
+          setSearchMsg(errMessage(e));
+          return;
+        }
+      }
+      const count = target ? await runSearch(target.id) : 0;
+      setSearchMsg(
+        `Scraped ${totalIngested} ProgramaThor job${totalIngested === 1 ? "" : "s"} across ${roles.length} keyword${roles.length === 1 ? "" : "s"} · ${count ?? 0} scored`,
+      );
+      await loadJobs(activeProfileId);
+      await loadMatches(activeProfileId);
+      return;
+    }
+
+    if (platform === "geekhunter") {
+      // GeekHunter: a Brazilian tech-jobs SPA. One scrape per target role (up to
+      // 3); remote-only mirrors the calibration remote preference.
+      const target = available.find((q) => q.platform === "linkedin" && q.enabled);
+      const roles = filters.targetRoles
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (roles.length === 0) {
+        setSearchMsg("Set a target role in Job Preferences first.");
+        return;
+      }
+      const remoteOnly = workModelsFrom(filters.remoteModes).includes("remote");
+      let totalIngested = 0;
+      for (const role of roles) {
+        setSearchMsg(`Searching GeekHunter for "${role}"…`);
+        try {
+          const scraped = await runGeekhunterSearch(
+            activeProfileId,
+            target?.id ?? null,
+            role,
+            remoteOnly,
+            5,
+          );
+          totalIngested += scraped.ingested;
+        } catch (e) {
+          setSearchMsg(errMessage(e));
+          return;
+        }
+      }
+      const count = target ? await runSearch(target.id) : 0;
+      setSearchMsg(
+        `Scraped ${totalIngested} GeekHunter job${totalIngested === 1 ? "" : "s"} across ${roles.length} keyword${roles.length === 1 ? "" : "s"} · ${count ?? 0} scored`,
+      );
+      await loadJobs(activeProfileId);
+      await loadMatches(activeProfileId);
+      return;
+    }
+
     if (platform === "indeed") {
       // Indeed takes plain keywords (not a boolean query); group ingested posts
       // under the linkedin query so run_search() scores them, same as Catho.
@@ -602,22 +684,35 @@ export function JobSearch() {
         `Scraped ${totalIngested} new job${totalIngested === 1 ? "" : "s"} across ${capped.length} keyword combo${capped.length === 1 ? "" : "s"}${countriesSuffix} · ${count ?? 0} scored against your CV.`,
       );
     } else {
-      // Google dork — throws when blocked (captcha wall) so we catch locally
-      // and show the error in the toolbar status span, not the store banner.
-      let scraped;
-      try {
-        scraped = await runGoogleSearch(activeProfileId, target.id, target.query);
-      } catch (e) {
-        setSearchMsg(errMessage(e));
-        return;
+      // Google dork — build_google_dork emits ONE query PER board × keyword-depth
+      // (5+), so run EVERY enabled google query, not just the first (that was the
+      // bug: only 1 of ~5 boards ever got scraped). Each ingests under its own id;
+      // score per id. Throws when blocked (captcha wall) → caught locally and
+      // shown in the toolbar status span, not the store banner.
+      const googleQueries = available.filter((q) => q.platform === "google" && q.enabled);
+      let totalIngested = 0;
+      let totalScored = 0;
+      for (let i = 0; i < googleQueries.length; i++) {
+        const gq = googleQueries[i];
+        setSearchMsg(`Searching Google dork (${i + 1}/${googleQueries.length})…`);
+        let scraped;
+        try {
+          scraped = await runGoogleSearch(activeProfileId, gq.id, gq.query);
+        } catch (e) {
+          setSearchMsg(errMessage(e));
+          return;
+        }
+        if (scraped.blocked) {
+          setSearchMsg(
+            `Google blocked the request after ${i} dork${i === 1 ? "" : "s"} — try again later or solve the captcha.`,
+          );
+          break;
+        }
+        totalIngested += scraped.ingested;
+        totalScored += (await runSearch(gq.id)) ?? 0;
       }
-      if (scraped.blocked) {
-        setSearchMsg("Google blocked the request — try again later or solve the captcha.");
-        return;
-      }
-      const count = await runSearch(target.id);
       setSearchMsg(
-        `Scraped ${scraped.ingested} Google result${scraped.ingested === 1 ? "" : "s"} across ${scraped.pagesScraped} page${scraped.pagesScraped === 1 ? "" : "s"} · ${count ?? 0} scored`,
+        `Scraped ${totalIngested} Google result${totalIngested === 1 ? "" : "s"} across ${googleQueries.length} dork quer${googleQueries.length === 1 ? "y" : "ies"} · ${totalScored} scored`,
       );
     }
 
@@ -639,6 +734,8 @@ export function JobSearch() {
       "indeed",
       "upwork",
       "99freelas",
+      "programathor",
+      "geekhunter",
     ] as const;
     let done = 0;
     for (const p of platforms) {
@@ -1122,6 +1219,22 @@ export function JobSearch() {
               onClick={() => void handleRunSearch("99freelas")}
             >
               99freelas
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canSearch}
+              title={searchDisabledTitle}
+              onClick={() => void handleRunSearch("programathor")}
+            >
+              ProgramaThor
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canSearch}
+              title={searchDisabledTitle}
+              onClick={() => void handleRunSearch("geekhunter")}
+            >
+              GeekHunter
             </Button>
           </>
         )}
