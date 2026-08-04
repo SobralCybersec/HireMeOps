@@ -67,22 +67,70 @@ struct WorkerConn {
     _reader: tokio::task::JoinHandle<()>,
 }
 
+/// True when the user opted the worker into Docker (`HIREMEOPS_USE_DOCKER=1`) AND the
+/// image is available locally. `docker images -q` needs a live daemon, so a success
+/// here also proves the daemon is up — one probe covers the whole gate. Any failure
+/// (opt-out, no docker, daemon down, image missing) falls back to the host `node` path.
+fn docker_worker_enabled() -> bool {
+    if std::env::var("HIREMEOPS_USE_DOCKER").as_deref() != Ok("1") {
+        return false;
+    }
+    std::process::Command::new("docker")
+        .args(["images", "-q", crate::commands::docker::WORKER_IMAGE])
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
 impl WorkerConn {
-    async fn spawn(script: &PathBuf) -> DomainResult<Arc<Self>> {
+    async fn spawn(script: &PathBuf, profiles_root: &std::path::Path) -> DomainResult<Arc<Self>> {
         use std::process::Stdio;
         use tokio::process::Command;
 
-        let mut child = Command::new("node")
-            .arg(script)
+        let use_docker = docker_worker_enabled();
+        let mut cmd = if use_docker {
+            tracing::info!(
+                image = crate::commands::docker::WORKER_IMAGE,
+                "spawning patchright worker in Docker"
+            );
+            // The profile jars all live under `profiles_root`; mount it at the IDENTICAL
+            // absolute path inside the container so each per-call `user_data_dir` resolves
+            // unchanged — no path translation. `-i` (never `-t`) keeps stdin a raw pipe so
+            // the JSON-RPC line protocol crosses the boundary intact. uid-1000 host assumed
+            // (see docker/Dockerfile.worker). --ipc=host + --shm-size guard Chromium crashes.
+            let mount = format!("{p}:{p}", p = profiles_root.display());
+            let mut c = Command::new("docker");
+            c.arg("run")
+                .arg("--rm")
+                .arg("-i")
+                .arg("--init")
+                .arg("--ipc=host")
+                .arg("--shm-size=2g")
+                .arg("--cap-add=SYS_ADMIN")
+                .arg("-v")
+                .arg(&mount)
+                .arg(crate::commands::docker::WORKER_IMAGE);
+            c
+        } else {
+            let mut c = Command::new("node");
+            c.arg(script);
+            c
+        };
+
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| {
+                let target = if use_docker {
+                    "docker".to_owned()
+                } else {
+                    script.display().to_string()
+                };
                 DomainError::Other(anyhow::anyhow!(
-                    "Failed to spawn patchright worker at {}: {e}",
-                    script.display()
+                    "Failed to spawn patchright worker via {target}: {e}"
                 ))
             })?;
 
@@ -224,6 +272,9 @@ pub struct PostSubmitMeta {
 
 pub struct PlaywrightDriver {
     worker_script: PathBuf,
+    /// Root holding every per-profile jar (`<data>/profiles`). Volume-mounted into
+    /// the container at the same path when the Docker worker runtime is enabled.
+    profiles_root: PathBuf,
     conn: Mutex<Option<Arc<WorkerConn>>>,
     screenshot_dir: PathBuf,
     parked: Mutex<Option<ParkedInfo>>,
@@ -240,6 +291,7 @@ impl PlaywrightDriver {
 
         Self {
             worker_script,
+            profiles_root: data_root.join("profiles"),
             conn: Mutex::new(None),
             screenshot_dir: data_root.join("screenshots"),
             parked: Mutex::new(None),
@@ -325,7 +377,7 @@ impl PlaywrightDriver {
             script = %self.worker_script.display(),
             "spawning patchright worker"
         );
-        let c = WorkerConn::spawn(&self.worker_script).await?;
+        let c = WorkerConn::spawn(&self.worker_script, &self.profiles_root).await?;
         *slot = Some(c.clone());
         Ok(c)
     }

@@ -1,0 +1,51 @@
+# HireMeOps patchright worker — SLIM variant (lighter alternative to Dockerfile.worker).
+#
+# WHY this and not the MS Playwright base: that image bundles Chromium + Firefox +
+# WebKit and every dep for all three. We only ever launch Chromium, so this builds
+# from node:22-bookworm-slim and installs Chromium ONLY via patchright — noticeably
+# smaller. Same runtime contract as the noble image (headed under Xvfb, stdio-clean).
+#
+# WHY NOT Alpine: patchright's Chromium is glibc-only. Playwright dropped musl/Alpine
+# support and Chromium won't launch there — so the lightest image that actually runs
+# a browser is slim glibc Debian, not Alpine.
+#
+# Build:  npm run build:docker:slim
+#         (tags hiremeops-worker:latest — same tag the app looks for, so building
+#          either variant makes it the active worker; build the one you want.)
+
+FROM node:22-bookworm-slim
+# ^ Debian 12 (glibc). Bookworm matches the Chromium build patchright ships.
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Xvfb (headed-in-container), coherence fonts, tzdata, and locales. `--with-deps`
+# below pulls the rest of Chromium's shared libs, so we keep this list lean.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb x11-utils \
+      fonts-liberation fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji \
+      fonts-freefont-ttf tzdata locales \
+    && sed -i '/pt_BR.UTF-8/s/^# //' /etc/locale.gen && locale-gen \
+    && rm -rf /var/lib/apt/lists/*
+
+# Timezone + locale coherent with BR (must match the residential exit IP's region).
+ENV TZ=America/Sao_Paulo
+ENV LANG=pt_BR.UTF-8 LANGUAGE=pt_BR LC_ALL=pt_BR.UTF-8
+
+WORKDIR /app
+
+# Deps at /app/node_modules (one level above /app/automation) so Node still resolves
+# `patchright` for the worker via upward lookup. No lockfile → npm install.
+COPY automation/package.json ./package.json
+RUN npm install --omit=dev
+
+# Chromium ONLY (+ its apt deps). This is what keeps the image lighter than noble.
+RUN npx patchright install chromium --with-deps
+
+COPY automation/ ./automation/
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# node:22 images ship a non-root `node` user at uid 1000 — matches the typical host
+# uid so the mounted profile jar is readable without a chown.
+USER node
+ENTRYPOINT ["/entrypoint.sh"]

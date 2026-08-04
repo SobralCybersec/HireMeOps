@@ -7,6 +7,7 @@ pub mod automation;
 pub mod browser_provider;
 pub mod browser_view;
 pub mod cv;
+pub mod docker;
 pub mod events;
 pub mod exports;
 pub mod jobs;

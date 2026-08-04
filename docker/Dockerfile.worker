@@ -1,0 +1,55 @@
+# HireMeOps patchright worker — optional containerized automation runtime.
+#
+# WHY: lets a user with Docker run the browser worker in a reproducible image
+# (Node + patchright + Chromium + Xvfb + BR fonts) instead of installing all of
+# that on the host. It is OPT-IN — the Rust side only uses it when
+# HIREMEOPS_USE_DOCKER=1 AND the daemon is up AND this image exists; otherwise it
+# spawns `node worker.js` on the host exactly as before.
+#
+# The container runs on the USER'S desktop, so it NATs out through their
+# residential IP — the biggest datacenter tell (IP reputation) never appears.
+# It runs Chromium HEADED under Xvfb (not headless), so it is fingerprint-identical
+# to the host headed+Xvfb path once fonts/TZ/locale are coherent. That is the whole
+# point: coherence, not spoofing. See docs/AUTOMATION_UPGRADE_PLAN.md.
+#
+# Build:  npm run build:docker   (or: docker build -f docker/Dockerfile.worker -t hiremeops-worker:latest .)
+
+FROM mcr.microsoft.com/playwright:v1.61.1-noble
+# ^ Ubuntu 24.04; ships every Chromium shared-lib dep + Xvfb already. Pinned to
+#   match automation/package.json patchright 1.61.1 — bump both together.
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Coherence fonts. A near-empty font list is the #1 "this is a server" tell, so
+# install a small real set (Latin + CJK + emoji) the way a real BR desktop has.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      fonts-liberation fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji \
+      fonts-freefont-ttf tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Timezone + locale must match the target market (BR) and the residential exit IP.
+ENV TZ=America/Sao_Paulo
+ENV LANG=pt_BR.UTF-8 LANGUAGE=pt_BR LC_ALL=pt_BR.UTF-8
+
+WORKDIR /app
+
+# Deps live at /app/node_modules (one level ABOVE the code at /app/automation), so
+# Node still resolves `patchright` for /app/automation/worker.js via upward lookup.
+# No package-lock.json in the repo → npm install, not npm ci.
+COPY automation/package.json ./package.json
+RUN npm install --omit=dev
+
+# patchright's OWN patched Chromium (matches what worker.js launches: chromium, not
+# chrome). Lands in the pwuser cache, NOT node_modules.
+RUN npx patchright install chromium --with-deps
+
+# The worker code. Baked in (not mounted) — rebuild the image when worker.js changes.
+COPY automation/ ./automation/
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# pwuser (uid 1000) ships with the MS image. The mounted profile jar must be
+# readable by uid 1000 — true for the typical single-user Linux host. If your host
+# uid differs, add `--user "$(id -u):$(id -g)"` to the docker run (see playwright.rs).
+USER pwuser
+ENTRYPOINT ["/entrypoint.sh"]

@@ -22,6 +22,7 @@ import { isProviderConfigured } from "./settings/providerMeta";
 import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import { DataCleanupPanel } from "./settings/DataCleanupPanel";
 import { BrowserExtensionsPanel } from "./settings/BrowserExtensionsPanel";
+import { DockerStatusPanel } from "./settings/DockerStatusPanel";
 
 // Automations that open a browser session, each with a stable task key (matches
 // the Rust command layer) and a per-flow default. `defaultHeadless` overrides
@@ -450,6 +451,22 @@ export function SettingsLogs() {
                     >
                       Portable mode - store all data next to the executable
                     </Switch>
+                  </div>
+
+                  {/* Docker — optional containerized worker runtime */}
+                  <div style={{ marginTop: "var(--sp-5)" }}>
+                    <h3
+                      style={{
+                        margin: 0,
+                        marginBottom: "var(--sp-3)",
+                        fontSize: "var(--text-sm)",
+                        fontWeight: 600,
+                        color: "var(--color-text)",
+                      }}
+                    >
+                      Container runtime (Docker)
+                    </h3>
+                    <DockerStatusPanel />
                   </div>
                 </div>
               )}

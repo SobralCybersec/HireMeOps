@@ -84,6 +84,7 @@ pub fn run() {
             commands::setup::install_latex,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::docker::docker_status,
             commands::profiles::list_profiles,
             commands::profiles::create_profile,
             commands::profiles::rename_profile,

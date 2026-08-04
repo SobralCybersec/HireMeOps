@@ -57,3 +57,44 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm test
+
+  docker:
+    name: Docker worker image builds
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: noble
+            file: docker/Dockerfile.worker
+          - variant: slim
+            file: docker/Dockerfile.worker.slim
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catch shell bugs in the shared entrypoint before spending minutes on a build.
+      # shellcheck ships preinstalled on ubuntu-latest runners. (Runs per-variant —
+      # cheap, and keeps each matrix leg self-contained.)
+      - name: shellcheck entrypoint
+        run: shellcheck docker/entrypoint.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Building the image = the real "does it compile" gate: runs `npm install` +
+      # `patchright install chromium` end to end. Per-variant gha cache keeps the
+      # base image + chromium out of the download path on re-runs.
+      - name: Build worker image (${{ matrix.variant }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          tags: hiremeops-worker:${{ matrix.variant }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+
+      # Smoke: the image is runnable and Node resolves patchright from /app.
+      - name: Smoke — image runs (${{ matrix.variant }})
+        run: |
+          docker run --rm --entrypoint node hiremeops-worker:${{ matrix.variant }} \
+            --input-type=module -e "import('patchright').then(() => console.log('patchright ok'))"

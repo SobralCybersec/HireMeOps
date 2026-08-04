@@ -7,6 +7,17 @@ export interface Profile {
   isActive: boolean;
 }
 
+/** Result of the `docker_status` command — environment check for the optional
+ *  containerized worker runtime. Mirrors the Rust `DockerStatus` (camelCase). */
+export interface DockerStatus {
+  installed: boolean;
+  daemonRunning: boolean;
+  serverVersion: string | null;
+  imageBuilt: boolean;
+  optIn: boolean;
+  summary: string;
+}
+
 export interface CvDocument {
   id: string;
   profileId: string;

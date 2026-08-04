@@ -106,11 +106,55 @@ flowchart TD
 ---
 
 <h1 align="center">
+ <img src="https://i.imgur.com/dwyUWDH.gif" width="30"/> What It Saves You
+</h1>
+
+Every action the cockpit performs replaces one you'd otherwise do by hand. The numbers below are conservative per-task estimates — the *counts* are whatever your own runs produce, the *minutes* are what that same work costs manually.
+
+| Task | By hand | With HireMeOps | You save |
+|---|---:|---:|---:|
+| Find & triage one listing | ~2 min | ~5 s (lands in the live feed) | **~96%** |
+| Read the JD & judge fit | ~3 min | 0 (auto-scored vs your CV) | **100%** |
+| Fill one application form | ~12 min | ~1.5 min (review + confirm the parked form) | **~88%** |
+| Tailor a CV to one role | ~20 min | ~3 min (skim the AI rewrite) | **~85%** |
+| Send one connection request | ~1 min | 0 (auto-connect) | **100%** |
+
+> **A 100-application week:** ~**28 h** by hand → ~**2.6 h** with the cockpit. Across the whole loop — searching, scoring, tailoring, applying — HireMeOps automates **~60–90%** of the repetitive work (60% if you review every form yourself, ~90% if you let auto-fill run). The busywork disappears; your judgement stays in the loop where it matters.
+
+### What the *Ops* delivers
+
+HireMeOps treats the job hunt like a running operation, not a one-off task. The design goals it's built against:
+
+- Olhar para o negócio.
+- Medir o desempenho da área.
+- Alocar custos.
+- Manter níveis de serviço interno.
+- Reduzir custo.
+- Otimizar estrutura.
+- Ser ágil.
+- Inovar nas soluções propostas.
+- Fazer previsões acuradas.
+- Não focar em "commodities".
+- Gerar informação correta.
+- Manter um Business Intelligence.
+- Focar em ações de valor.
+- Manter os processos críticos.
+- Manter o ambiente seguro.
+- Manter 24 x 7 x 365 toda a infraestrutura.
+- Modelo reutilizável.
+- Conquistar o pessoal do negócio.
+- Ser mais eficiente, ser mais eficaz.
+- Padronizar processos.
+- Automatizar tarefas dos usuários.
+
+---
+
+<h1 align="center">
  <img src="https://i.imgur.com/eu3StDB.gif" width="30"/> Tech Stack
 </h1>
 
 <p align="center">
- <img src="https://go-skill-icons.vercel.app/api/icons?i=rust,react,typescript,tauri,vite,tailwind,nodejs,sqlite,githubactions&size=64" />
+ <img src="https://go-skill-icons.vercel.app/api/icons?i=rust,react,typescript,tauri,vite,tailwind,nodejs,sqlite,docker,githubactions&size=64" />
 </p>
 
 * **Shell / Runtime**: Tauri v2 (Rust core + system WebView), single binary
@@ -123,6 +167,7 @@ flowchart TD
 * **CI/CD**: GitHub Actions — `fmt` · `clippy -D warnings` (lean + all-features) · `cargo test` · frontend `typecheck · lint · format · test`
 * **Quality**: `rustfmt` · Clippy · ESLint 10 (+ react-hooks 7) · Prettier · Vitest
 * **Packaging**: `.deb` · `.rpm` · AppImage (Linux) · portable `.zip` (Windows, cross-compiled from Linux via mingw)
+* **Optional container runtime**: Docker image for the worker in two flavours — a Playwright-base `noble` build and a lighter Chromium-only `slim` (Debian bookworm); opt-in, fails safe to the host
 
 ---
 
@@ -197,6 +242,30 @@ cargo test --all-features
 cargo build                          # lean
 cargo build --features real-browser  # full cockpit
 ```
+
+### Optional: run the worker in Docker <img src="https://go-skill-icons.vercel.app/api/icons?i=docker&size=28" width="28" align="center" />
+
+The browser worker runs on the host by default. If you'd rather not install Node + patchright + Chromium on the host, you can run it in a reproducible container instead — everything baked in, plus BR fonts, timezone, and locale for coherence. Settings ▸ General shows a live Docker check.
+
+**Two image flavours — build whichever you want; both tag `hiremeops-worker:latest`, which the app looks for:**
+
+```bash
+npm run build:docker        # noble — Playwright base image (most tested, larger)
+npm run build:docker:slim   # slim  — Debian bookworm + Chromium only (lighter)
+
+HIREMEOPS_USE_DOCKER=1 pnpm app   # launch with the container worker
+```
+
+| Flavour | Base | Trade |
+|---|---|---|
+| `noble` | `mcr.microsoft.com/playwright:v1.61.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
+| `slim` | `node:22-bookworm-slim` + `patchright install chromium` | Chromium only → noticeably smaller image |
+
+> **Why not Alpine?** patchright's Chromium is glibc-only — Playwright dropped musl/Alpine support and Chromium won't launch there. Slim **Debian** is the lightest base that actually runs a browser.
+
+It runs Chromium **headed under Xvfb** inside the container (not headless) and NATs out through your own residential IP, so the stealth posture matches the host path — the container is a packaging convenience, not a detection change. The switch is fail-safe: if Docker is missing, the daemon is down, or the image isn't built, the worker silently falls back to `node worker.js` on the host. The per-profile cookie jars are volume-mounted at their real paths, so logins persist exactly as on the host. A `.dockerignore` keeps the build context tiny (excludes `target/`, `node_modules/`, `.git`) — without it the build would ship ~18 GB to the daemon.
+
+> **Detection tradeoff:** the hard-blocked sites (Indeed, Upwork, Cloudflare-gated boards, Catho, Google) still need the headed+Xvfb path — which the container provides. Don't run those headless anywhere.
 
 ---
 
@@ -335,11 +404,13 @@ flowchart LR
 |---|---|---|
 | `rust` | push / PR | `fmt --check` · `clippy` (lean **and** all-features, `-D warnings`) · `cargo test --all-features` |
 | `frontend` | push / PR | `typecheck` · `lint` · `format:check` · `test` |
+| `docker` | push / PR | `shellcheck` entrypoint · **build** the worker image (`npm install` + `patchright install chromium`, gha-cached) · smoke-run (Node resolves patchright) |
 
 ```mermaid
 flowchart LR
     push[Push / PR] --> R[rust]
     push --> FE[frontend]
+    push --> DK[docker]
 
     R --> FMT[cargo fmt --check]
     R --> CL1[clippy --no-default-features -D warnings]
@@ -350,6 +421,10 @@ flowchart LR
     FE --> LN[pnpm lint]
     FE --> PF[pnpm format:check]
     FE --> VT[pnpm test]
+
+    DK --> SC[shellcheck entrypoint]
+    DK --> BLD[build worker image · gha cache]
+    DK --> SM[smoke: patchright resolves]
 ```
 
 > The **lean clippy pass is deliberate**: it guarantees the default (no-`real-browser`) build stays warning-clean, catching any missing `#[cfg(feature = "real-browser")]` gate before it reaches a contributor.

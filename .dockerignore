@@ -1,0 +1,40 @@
+# Keep the Docker build context tiny. Without this, `docker build .` ships the
+# whole repo (~18 GB with src-tauri/target + node_modules) to the daemon on every
+# build. The worker image only needs automation/ + docker/, so exclude the rest.
+
+# Rust build output — the single biggest offender (GBs).
+src-tauri/target
+target
+
+# Node deps — the image installs its own; never copy host ones (wrong platform).
+node_modules
+automation/node_modules
+**/node_modules
+
+# VCS + editor + CI
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Frontend build + tooling output
+dist
+.vite
+coverage
+*.tsbuildinfo
+
+# Automation runtime junk that must not leak into an image
+automation/captures
+automation/.cache
+
+# Packaging / release artifacts
+*.deb
+*.rpm
+*.AppImage
+*.zip
+
+# Docs, tests, and misc not needed to run the worker
+docs
+*.md
+scratchpad
