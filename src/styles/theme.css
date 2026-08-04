@@ -191,14 +191,15 @@ html:not([data-theme]) {
 
   --color-text: #0c1a2e;
   --color-text-2: #2c4a6a;
-  --color-text-muted: #5c7a9a;
+  --color-text-muted: #486680; /* was #5c7a9a — darkened: 5.35:1 on bg, 5.61:1 on surface (WCAG AA) */
   --color-text-inverse: #edf2f9;
 
-  /* Accent deepened from the dark #38bdf8 so it clears 4.5:1 on --color-surface */
-  --color-accent: #006eb5;
+  /* Accent: 1 shade darker than original #006eb5 so it clears 4.5:1 on --color-accent-dim */
+  --color-accent: #0068ac;
   --color-accent-dim: #d8eef8;
   --color-accent-text: #004e80;
-  --color-accent-hover: #0082d4;
+  /* Hover darkens (not lightens) in light context so text-inverse stays ≥6.9:1 */
+  --color-accent-hover: #005490;
 
   --color-danger: #b91c1c;
   --color-danger-dim: #fde8e8;
@@ -219,7 +220,7 @@ html:not([data-theme]) {
   --status-queued-bg: #e4ecf6;
   --status-queued-text: #3a5c84;
   --status-running-bg: #d8eef8;
-  --status-running-text: #006eb5;
+  --status-running-text: #0068ac; /* tracks --color-accent; gives 4.90:1 on dim bg */
   --status-success-bg: #e0f4ea;
   --status-success-text: #166534;
   --status-failed-bg: #fde8e8;

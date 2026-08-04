@@ -527,3 +527,16 @@ select:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+/* ── Light-mode btn--primary contrast fixes ───────────────────────────────────
+   The terax .btn--primary rule uses --color-accent-text for text (correct in dark:
+   near-white on blue). In light, --color-accent-text is #004e80 — dark blue on
+   --color-accent #0068ac — giving only 1.62:1. Use --color-text-inverse (#edf2f9)
+   instead; gives 5.22:1. Hover darkens via --color-accent-hover; 6.99:1. */
+[data-theme="light"] .btn--primary {
+  color: var(--color-text-inverse);
+}
+[data-theme="light"] .btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: transparent;
+}

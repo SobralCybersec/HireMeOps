@@ -69,8 +69,9 @@ export function TopNav() {
         type="button"
         className="topnav__theme-toggle"
         onClick={toggleTheme}
-        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-        title={isDark ? "Light mode" : "Dark mode"}
+        aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+        aria-pressed={isDark}
+        title={isDark ? "Light theme" : "Dark theme"}
       >
         <Icon icon={isDark ? Sun01Icon : Moon01Icon} size={16} />
       </button>

@@ -14,7 +14,7 @@ import {
   ToolbarSep,
 } from "../components/ui";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
-import type { ReducedEffectsMode, AiProviderSettings } from "../types/settings";
+import type { ReducedEffectsMode, AiProviderSettings, ThemeMode } from "../types/settings";
 import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import { AiProviderForm } from "./settings/AiProviderForm";
 import { ProviderIcon } from "./settings/ProviderIcon";
@@ -160,6 +160,8 @@ export function SettingsLogs() {
   // Theme store — single HUD theme; only motion preference is user-facing.
   const reducedEffects = useThemeStore((s) => s.reducedEffects);
   const setReducedEffects = useThemeStore((s) => s.setReducedEffects);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
 
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [exportingKey, setExportingKey] = useState<string | null>(null);
@@ -417,6 +419,25 @@ export function SettingsLogs() {
                             startupBehavior: e.target.value as "normal" | "minimized" | "tray",
                           })
                         }
+                      />
+                    </Field>
+                  </FormRow>
+
+                  <FormRow>
+                    <Field label="Theme" htmlFor="app-theme">
+                      <Select
+                        id="app-theme"
+                        value={theme}
+                        options={[
+                          { value: "dark", label: "Dark" },
+                          { value: "light", label: "Light" },
+                          { value: "system", label: "System (follow OS)" },
+                        ]}
+                        onChange={(e) => {
+                          const next = e.target.value as ThemeMode;
+                          setTheme(next);
+                          void updateSettings({ theme: next });
+                        }}
                       />
                     </Field>
                   </FormRow>
