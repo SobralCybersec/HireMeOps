@@ -7,6 +7,7 @@
 // Key: cmdSearchJobs and the *SearchJobs/*Apply imports (gupy/infojobs/catho/upwork/freelas99) — per-site job search and apply routines invoked through the same dispatch table
 
 import { chromium } from "patchright";
+import { baseLaunchOptions } from "./browser-launch.js";
 import readline from "readline";
 import { randomUUID } from "crypto";
 import { spawn } from "child_process";
@@ -436,30 +437,14 @@ async function cmdOpen({ user_data_dir = "", extensions = [], headless = true, h
 
   await reclaimProfileDir(user_data_dir);
 
-  const args = [
-    "--no-sandbox",
-    "--disable-features=DevToolsDebuggingRestrictions,CalculateNativeWinOcclusion",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-infobars",
-    "--disable-dev-shm-usage",
-    "--class=HireMeOpsBot",
-    "--disable-background-timer-throttling",
-    "--disable-backgrounding-occluded-windows",
-    "--disable-renderer-backgrounding",
-    "--mute-audio",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-sync",
-    "--disable-default-apps",
-    "--disable-client-side-phishing-detection",
-  ];
+  // Per-launch extras layered onto the shared stealth base (browser-launch.js).
+  const extraArgs = [];
 
   let launchEnv;
   let runHeadless = headless;
   if (hidden) {
     runHeadless = false;
-    args.push(
+    extraArgs.push(
       "--use-angle=vulkan",
       "--enable-features=Vulkan",
       "--enable-unsafe-webgl",
@@ -481,20 +466,15 @@ async function cmdOpen({ user_data_dir = "", extensions = [], headless = true, h
   });
   if (validExtensions.length > 0) {
     const extPaths = validExtensions.join(",");
-    args.push(`--disable-extensions-except=${extPaths}`);
-    args.push(`--load-extension=${extPaths}`);
+    extraArgs.push(`--disable-extensions-except=${extPaths}`);
+    extraArgs.push(`--load-extension=${extPaths}`);
   }
 
   const resolvedExec = resolveChromiumExec();
 
   const browser = await chromium.launchPersistentContext(user_data_dir, {
-    headless: runHeadless,
+    ...baseLaunchOptions({ headless: runHeadless, executablePath: resolvedExec, extraArgs }),
     ...(launchEnv ? { env: launchEnv } : {}),
-    channel: resolvedExec ? undefined : "chrome",
-    viewport: null,
-    args,
-    ignoreDefaultArgs: ["--enable-automation"],
-    executablePath: resolvedExec,
   });
 
   const page = browser.pages()[0] ?? (await browser.newPage());

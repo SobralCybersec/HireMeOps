@@ -17,13 +17,6 @@ export function AppLayout() {
 
       <TopNav />
 
-      {/* WayneTech HUD status chip — bottom-left, echoing the mockup's "SYSTEM STATUS · ONLINE". */}
-      <div className="hud-status" aria-hidden="true">
-        <span className="hud-status__dot" />
-        <span className="hud-status__label">System Status</span>
-        <span className="hud-status__on">Online</span>
-      </div>
-
       {/* One shared live-automation preview, watchable from any page. */}
       <GlobalLivePreview />
 

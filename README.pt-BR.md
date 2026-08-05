@@ -56,6 +56,8 @@ Um cockpit local-first de automação de busca de vagas. Um único app desktop f
 | **Google dork** | Scrape (descoberta de portais) | patchright | Estável |
 | **ChatGPT** (reescrita/análise de CV) | Ponte via navegador | patchright (jar próprio) | Estável |
 
+> **Teste headless** (`node automation/headless-test.mjs`, contra um jar real, 05/08/2026): **9 de 11 sites retornam vagas em headless** — programathor (15), geekhunter (10), 99freelas (1), catho (20), gupy (12), infojobs (20), linkedin vagas (25), linkedin posts (3), google-dork (10). **Upwork** retorna 0 em headless (Cloudflare) e o **Indeed** cai num bloqueio "verifique que você é humano" — os dois sites que só funcionam com janela visível (use o caminho Xvfb/Docker). O Catho dava 403 em headless por causa da UA `HeadlessChrome`; um launch compartilhado sem "Headless" (`automation/browser-launch.js`) corrigiu isso. Tabela completa + como rodar: [`automation/README.md`](automation/README.md).
+
 ---
 
 <h1 align="center">Como Funciona</h1>

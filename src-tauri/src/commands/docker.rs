@@ -7,6 +7,9 @@
 //! daemon + the image) — see `docker_worker_enabled` there.
 
 use serde::Serialize;
+use tauri::State;
+
+use crate::{storage, AppState};
 
 /// Image tag the Dockerfile builds to and the spawn path looks for.
 pub const WORKER_IMAGE: &str = "hiremeops-worker:latest";
@@ -83,4 +86,24 @@ pub async fn docker_status() -> Result<DockerStatus, String> {
         opt_in,
         summary,
     })
+}
+
+/// Toggle the Docker container runtime for the browser worker from the UI.
+/// Persists the choice and applies it to the live process env the spawn gate
+/// reads, so it takes effect on the next worker spawn without a restart. The
+/// env var stays the source of truth (CI/headless runs set it directly).
+#[tauri::command]
+pub async fn set_docker_worker(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    storage::settings::set_docker_worker_opt_in(&state.db, enabled)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // ponytail: process-wide env write. `docker_worker_enabled` only reads this
+    // at worker spawn (rare), so the theoretical env data-race is immaterial.
+    if enabled {
+        std::env::set_var("HIREMEOPS_USE_DOCKER", "1");
+    } else {
+        std::env::remove_var("HIREMEOPS_USE_DOCKER");
+    }
+    Ok(())
 }

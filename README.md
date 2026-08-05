@@ -56,6 +56,8 @@ A local-first job-search automation cockpit. One desktop app scrapes nine Brazil
 | **Google dork** | Scrape (board discovery) | patchright | Stable |
 | **ChatGPT** (CV rewrite/analysis) | Browser bridge | patchright (own jar) | Stable |
 
+> **Headless smoke test** (`node automation/headless-test.mjs`, against a real jar, 2026-08-05): **9/11 sites return jobs headless** — programathor (15), geekhunter (10), 99freelas (1), catho (20), gupy (12), infojobs (20), linkedin jobs (25), linkedin posts (3), google-dork (10). **Upwork** returns 0 headless (Cloudflare) and **Indeed** hits a human-verify block — the two headed-only sites (use the Xvfb/Docker path). Catho used to 403 headless on the `HeadlessChrome` UA; a shared de-Headlessed launch (`automation/browser-launch.js`) fixed it. Full table + how to run it: [`automation/README.md`](automation/README.md).
+
 ---
 
 <h1 align="center">How It Works</h1>

@@ -4,10 +4,29 @@ import tailwindcss from "@tailwindcss/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// @ts-expect-error import.meta.dirname is a Vite/Node runtime global, untyped here
+const rootDir = import.meta.dirname as string;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+
+  // `@` → src for shadcn/ui imports; `base: "./"` keeps asset paths relative for
+  // the tauri://localhost custom protocol.
+  base: "./",
+  resolve: {
+    alias: { "@": `${rootDir}/src` },
+  },
+
+  // Multi-page: the main app plus the standalone Settings window entry.
+  build: {
+    rollupOptions: {
+      input: {
+        main: `${rootDir}/index.html`,
+        settings: `${rootDir}/settings.html`,
+      },
+    },
+  },
 
   // NOTE on bundle splitting: routes are already lazy-loaded via React.lazy in
   // the router, so each page (CvLibrary, JobSearch, AutomationCockpit, …) is

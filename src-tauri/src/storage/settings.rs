@@ -119,6 +119,22 @@ async fn set(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Whether the user opted the browser worker into the Docker container runtime.
+/// Persisted separately from `AppSettings` (a runtime switch, not a UI preference
+/// round-tripped through the settings form) under the `use_docker_worker` key.
+pub async fn docker_worker_opt_in(pool: &SqlitePool) -> Result<bool> {
+    let m = get_all(pool).await?;
+    Ok(m.get("use_docker_worker")
+        .map(|v| v == "true")
+        .unwrap_or(false))
+}
+
+/// Persist the Docker-worker opt-in. The live process env is updated by the
+/// command layer so the toggle takes effect without a restart.
+pub async fn set_docker_worker_opt_in(pool: &SqlitePool, enabled: bool) -> Result<()> {
+    set(pool, "use_docker_worker", if enabled { "true" } else { "false" }).await
+}
+
 pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {
     let m = get_all(pool).await?;
     let get = |k: &str, d: &str| m.get(k).cloned().unwrap_or_else(|| d.to_string());

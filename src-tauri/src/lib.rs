@@ -20,7 +20,7 @@ mod util;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub struct AppState {
     pub db: sqlx::SqlitePool,
@@ -36,6 +36,11 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     let db = storage::db::init_pool(&paths).await?;
     storage::db::run_migrations(&db).await?;
     storage::settings::ensure_defaults(&db).await?;
+    // Restore the persisted Docker-worker opt-in into the process env that the
+    // spawn gate (`browser::playwright::docker_worker_enabled`) reads.
+    if storage::settings::docker_worker_opt_in(&db).await.unwrap_or(false) {
+        std::env::set_var("HIREMEOPS_USE_DOCKER", "1");
+    }
     Ok(AppState {
         db,
         #[cfg(feature = "real-browser")]
@@ -45,8 +50,85 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     })
 }
 
+/// Keep a native Wayland session healthy. WebKitGTK's DMABUF renderer trips
+/// `Gdk-Message: Error 71 (Protocol error)` on many Wayland compositors — the
+/// window maps then the Wayland connection is torn down and the app "opens and
+/// closes" instantly. Disabling that renderer avoids the crash without forcing
+/// XWayland. Must run before the Tauri builder touches GTK/WebKit.
+#[cfg(target_os = "linux")]
+fn configure_linux_display() {
+    use std::env;
+
+    // Respect an explicit X11 choice — native-Wayland tuning is then irrelevant.
+    if env::var_os("GDK_BACKEND")
+        .map(|v| v.to_string_lossy().to_ascii_lowercase().contains("x11"))
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    let is_wayland = env::var_os("WAYLAND_DISPLAY").is_some()
+        || env::var("XDG_SESSION_TYPE")
+            .map(|v| v.eq_ignore_ascii_case("wayland"))
+            .unwrap_or(false);
+
+    // Only set it on Wayland and only if the user hasn't already chosen — so an
+    // explicit `WEBKIT_DISABLE_DMABUF_RENDERER=0` still wins.
+    if is_wayland && env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_linux_display() {}
+
+/// Open the dedicated Settings webview window (its own React entry, `settings.html`).
+/// Mirrors the terax-ai pattern: reuse the window if it already exists (show + focus,
+/// re-emit the tab), otherwise build it hidden and let the JS entry `show()` it after
+/// mount so there's no unstyled flash. `tab` optionally deep-links a section.
+#[tauri::command]
+async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
+    let url_path = match tab.as_deref() {
+        Some(t) if !t.is_empty() => format!("settings.html?tab={t}"),
+        _ => "settings.html".to_string(),
+    };
+
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        if let Some(t) = tab.as_deref().filter(|s| !s.is_empty()) {
+            let _ = window.emit("hiremeops:settings-tab", t);
+        }
+        return Ok(());
+    }
+
+    let mut builder =
+        WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
+            .title("Settings")
+            .inner_size(900.0, 700.0)
+            .min_inner_size(820.0, 620.0)
+            .resizable(true)
+            .visible(false);
+
+    if let Some(main) = app.get_webview_window("main") {
+        builder = builder.parent(&main).map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    let builder = builder.decorations(false).transparent(true);
+
+    let window = builder.build().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    let _ = window.set_decorations(false);
+    let _ = window;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_linux_display();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -85,6 +167,8 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::docker::docker_status,
+            commands::docker::set_docker_worker,
+            open_settings_window,
             commands::profiles::list_profiles,
             commands::profiles::create_profile,
             commands::profiles::rename_profile,

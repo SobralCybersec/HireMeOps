@@ -34,6 +34,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { captureDom, attachDiagnostics, attachNetworkCapture, CAPTURE_DIR } from "./capture.js";
+import { baseLaunchOptions } from "./browser-launch.js";
 import { gupySearchJobs } from "./gupy.js";
 import { infojobsSearchJobs } from "./infojobs-jobs.js";
 import { cathoSearchJobs } from "./catho-jobs.js";
@@ -128,15 +129,17 @@ const results = [];
 // ── module phase ──────────────────────────────────────────────────────────
 async function runModulePhase() {
   if (!moduleSites.length) return;
-  const opts = { headless: !headed, viewport: null };
+  // Launch the SAME stealthy way the worker does (worker.js cmdOpen), otherwise
+  // WAF-fronted boards (Catho) 403 the bare headless client and the harness
+  // under-reports what the real app can scrape.
   let ctx;
   try {
-    ctx = await chromium.launchPersistentContext(profileDir, {
-      ...opts,
-      executablePath: "/usr/bin/chromium",
-    });
+    ctx = await chromium.launchPersistentContext(
+      profileDir,
+      baseLaunchOptions({ headless: !headed, executablePath: "/usr/bin/chromium" }),
+    );
   } catch {
-    ctx = await chromium.launchPersistentContext(profileDir, opts);
+    ctx = await chromium.launchPersistentContext(profileDir, baseLaunchOptions({ headless: !headed }));
   }
   attachNetworkCapture(ctx);
   try {

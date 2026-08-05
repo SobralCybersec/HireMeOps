@@ -5,6 +5,7 @@ import { Icon } from "./ui/Icon";
 import { NAV_GROUPS } from "../app/routes";
 import { useThemeStore } from "../stores/useThemeStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
+import { openSettingsWindow, IS_TAURI } from "../lib/openSettingsWindow";
 
 // Flatten the grouped nav — the bar shows every destination as one icon.
 const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
@@ -54,7 +55,15 @@ export function TopNav() {
               title={item.label}
               aria-label={item.label}
               tabIndex={open ? 0 : -1}
-              onClick={() => setOpen(false)}
+              onClick={(e) => {
+                // In the desktop app, Settings opens its own window (1:1 terax);
+                // in browser-preview it falls through to the in-app /settings route.
+                if (item.to === "/settings" && IS_TAURI) {
+                  e.preventDefault();
+                  void openSettingsWindow();
+                }
+                setOpen(false);
+              }}
               className={({ isActive }) =>
                 isActive ? "topnav__link topnav__link--active" : "topnav__link"
               }
