@@ -111,6 +111,10 @@ export interface CvRewrite {
   education: CvEducationEntry[];
   /** Output language stamped by the domain layer — "pt" or "en". Defaults to "pt" when absent (old rows). */
   language?: CvLanguage;
+  /** Hex accent for the rendered CV header/rules (no leading `#`), e.g. "2B0A3D". Empty/absent = template default. */
+  accentColor?: string;
+  /** Headshot URL (http/https). Downloaded at render time; empty/absent = no photo. */
+  photoUrl?: string;
 }
 
 /**

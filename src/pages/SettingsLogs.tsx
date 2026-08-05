@@ -13,7 +13,18 @@ import {
   Toolbar,
   ToolbarSep,
 } from "../components/ui";
-import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
+import {
+  CheckmarkCircle02Icon,
+  Settings01Icon,
+  Moon01Icon,
+  Globe02Icon,
+  BrowserIcon,
+  Analytics01Icon,
+  Download01Icon,
+  InboxIcon,
+  Cancel01Icon,
+} from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
 import type { ReducedEffectsMode, AiProviderSettings, ThemeMode } from "../types/settings";
 import { errMessage, invokeStrict } from "../lib/tauriInvoke";
 import { AiProviderForm } from "./settings/AiProviderForm";
@@ -23,6 +34,8 @@ import { BackupRestorePanel } from "./settings/BackupRestorePanel";
 import { DataCleanupPanel } from "./settings/DataCleanupPanel";
 import { BrowserExtensionsPanel } from "./settings/BrowserExtensionsPanel";
 import { DockerStatusPanel } from "./settings/DockerStatusPanel";
+import { SectionHeader } from "./settings/SectionHeader";
+import { SettingRow } from "./settings/SettingRow";
 
 // Automations that open a browser session, each with a stable task key (matches
 // the Rust command layer) and a per-flow default. `defaultHeadless` overrides
@@ -79,6 +92,18 @@ const TAB_GROUPS: TabGroup[] = [
 
 // Flat list for keyboard nav index calculations
 const TABS = TAB_GROUPS.flatMap((g) => g.tabs);
+
+// Icon for each tab — purely presentational, matches the tab key contract.
+const TAB_ICON_MAP: Record<Tab, IconSvgElement> = {
+  general: Settings01Icon,
+  effects: Moon01Icon,
+  ai: Globe02Icon,
+  browser: BrowserIcon,
+  data: Analytics01Icon,
+  exports: Download01Icon,
+  backups: InboxIcon,
+  cleanup: Cancel01Icon,
+};
 
 const REDUCED_OPTS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto - follow OS prefers-reduced-motion" },
@@ -208,14 +233,16 @@ export function SettingsLogs() {
   }
 
   // Keyboard nav for the vertical settings tablist (ArrowUp/Down + Home/End).
+  // WAI-ARIA vertical tablist: only ArrowUp/ArrowDown navigate between tabs.
+  // ArrowLeft/Right are reserved for horizontal orientation and must not be
+  // captured here — they belong to the content panel (e.g. text editing).
   function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
-    const keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"];
+    const keys = ["ArrowUp", "ArrowDown", "Home", "End"];
     if (!keys.includes(e.key)) return;
     e.preventDefault();
     let next: number;
-    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (idx + 1) % TABS.length;
-    else if (e.key === "ArrowUp" || e.key === "ArrowLeft")
-      next = (idx - 1 + TABS.length) % TABS.length;
+    if (e.key === "ArrowDown") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
     else if (e.key === "Home") next = 0;
     else next = TABS.length - 1;
     setActiveTab(TABS[next].key);
@@ -276,104 +303,80 @@ export function SettingsLogs() {
     activeTab === "cleanup";
 
   return (
-    <div className="page page--fill" style={{ padding: 0 }}>
-      {/* ── Page header ─────────────────────────────────────────────────── */}
-      <div
-        style={{
-          padding: "var(--sp-4)",
-          borderBottom: "1px solid var(--color-border)",
-          background: "var(--color-surface)",
-          flexShrink: 0,
-        }}
-      >
-        <h1 className="page-title">Settings</h1>
-      </div>
+    <div className="settings-shell">
+      {/* ── Header band ─────────────────────────────────────────────────── */}
+      <header className="settings-shell__header">
+        <Icon
+          icon={Settings01Icon}
+          size={14}
+          strokeWidth={1.75}
+          style={{ color: "var(--color-text-muted)", flexShrink: 0 }}
+        />
+        <span className="settings-shell__title">Settings</span>
+      </header>
 
-      {/* ── Settings layout ─────────────────────────────────────────────── */}
-      <div
-        className="settings-layout"
-        style={{
-          borderRadius: 0,
-          borderLeft: "none",
-          borderRight: "none",
-          borderBottom: "none",
-          flex: 1,
-          minHeight: 0,
-        }}
-      >
-        {/* ── Sidebar (grouped navigation rail) ────────────────────── */}
-        <div
-          className="settings-sidebar"
+      {/* ── Body: nav rail + content ─────────────────────────────────────── */}
+      <div className="settings-shell__body">
+        {/* ── Left nav rail ────────────────────────────────────────────── */}
+        <nav
+          className="settings-shell__nav"
           role="tablist"
           aria-label="Settings sections"
           aria-orientation="vertical"
         >
           {TAB_GROUPS.map((group, gi) => (
-            <div key={group.label}>
-              {gi > 0 && (
-                <div
-                  style={{
-                    height: 1,
-                    background: "var(--color-border)",
-                    margin: "var(--sp-2) var(--sp-3)",
-                  }}
-                  role="separator"
-                  aria-hidden="true"
-                />
-              )}
-              <div
-                style={{
-                  padding: "var(--sp-2) var(--sp-3) var(--sp-1)",
-                  fontSize: "var(--text-2xs)",
-                  fontWeight: "var(--fw-semibold)",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "var(--color-text-muted)",
-                  userSelect: "none",
-                }}
-              >
-                {group.label}
+            <React.Fragment key={group.label}>
+              {gi > 0 && <div className="settings-shell__nav-sep" role="separator" aria-hidden="true" />}
+              <div className="settings-shell__nav-group">
+                <span className="settings-shell__nav-group-label">{group.label}</span>
+                {group.tabs.map((t) => {
+                  const flatIdx = TABS.findIndex((ft) => ft.key === t.key);
+                  return (
+                    <button
+                      key={t.key}
+                      id={`settings-tab-${t.key}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === t.key}
+                      aria-controls="settings-panel"
+                      tabIndex={activeTab === t.key ? 0 : -1}
+                      className={activeTab === t.key ? "settings-tab-btn active" : "settings-tab-btn"}
+                      onClick={() => setActiveTab(t.key)}
+                      onKeyDown={(e) => handleTabKey(e, flatIdx)}
+                    >
+                      <span className="settings-tab-btn__icon" aria-hidden="true">
+                        <Icon icon={TAB_ICON_MAP[t.key]} size={13} strokeWidth={1.75} />
+                      </span>
+                      {t.label}
+                    </button>
+                  );
+                })}
               </div>
-              {group.tabs.map((t) => {
-                const flatIdx = TABS.findIndex((ft) => ft.key === t.key);
-                return (
-                  <button
-                    key={t.key}
-                    id={`settings-tab-${t.key}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === t.key}
-                    aria-controls="settings-panel"
-                    tabIndex={activeTab === t.key ? 0 : -1}
-                    className={activeTab === t.key ? "settings-tab-btn active" : "settings-tab-btn"}
-                    onClick={() => setActiveTab(t.key)}
-                    onKeyDown={(e) => handleTabKey(e, flatIdx)}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
+            </React.Fragment>
           ))}
-        </div>
+        </nav>
 
-        {/* ── Content ─────────────────────────────────────────────────── */}
+        {/* ── Scrolling content ────────────────────────────────────────── */}
         <div
           id="settings-panel"
-          className="settings-content"
+          className="settings-shell__content"
           role="tabpanel"
           aria-labelledby={`settings-tab-${activeTab}`}
+          tabIndex={0}
         >
           {isLoading && needsSettings ? (
             <div className="empty-state">
               <p className="empty-state__title">Loading settings...</p>
             </div>
           ) : (
-            <>
-              {/* ════ GENERAL ═══════════════════════════════════════════ */}
+            <div className="settings-shell__inner">
+              {/* ════ GENERAL ══════════════════════════════════════════════ */}
               {activeTab === "general" && (
                 <div className="section-group">
-                  <h2 className="section-title">General</h2>
+                  <SectionHeader
+                    title="General"
+                    description="Profile, language, startup, and runtime preferences."
+                  />
 
                   {/* Active profile (read-only; managed on Profiles page) */}
                   <Field
@@ -443,38 +446,36 @@ export function SettingsLogs() {
                     </Field>
                   </FormRow>
 
-                  {/* Portable mode */}
-                  <div style={{ marginTop: "var(--sp-4)" }}>
-                    <Switch
-                      checked={settings?.portableMode ?? false}
-                      onChange={(checked) => void updateSettings({ portableMode: checked })}
+                  <div className="settings-rows">
+                    <SettingRow
+                      title="Portable mode"
+                      description="Store all data next to the executable."
                     >
-                      Portable mode - store all data next to the executable
-                    </Switch>
+                      <Switch
+                        checked={settings?.portableMode ?? false}
+                        onChange={(checked) => void updateSettings({ portableMode: checked })}
+                        aria-label="Portable mode"
+                      />
+                    </SettingRow>
                   </div>
 
                   {/* Docker — optional containerized worker runtime */}
-                  <div style={{ marginTop: "var(--sp-5)" }}>
-                    <h3
-                      style={{
-                        margin: 0,
-                        marginBottom: "var(--sp-3)",
-                        fontSize: "var(--text-sm)",
-                        fontWeight: 600,
-                        color: "var(--color-text)",
-                      }}
-                    >
-                      Container runtime (Docker)
-                    </h3>
-                    <DockerStatusPanel />
+                  <div style={{ marginTop: "var(--sp-2)" }}>
+                    <SectionHeader level={3} title="Container runtime (Docker)" />
+                    <div style={{ marginTop: "var(--sp-2)" }}>
+                      <DockerStatusPanel />
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* ════ MOTION ═════════════════════════════════════════════ */}
+              {/* ════ MOTION ═══════════════════════════════════════════════ */}
               {activeTab === "effects" && (
                 <div className="section-group">
-                  <h2 className="section-title">Motion and effects</h2>
+                  <SectionHeader
+                    title="Motion and Effects"
+                    description="Control animation and transitions across the app."
+                  />
                   <RadioGroup
                     name="reduced-effects"
                     value={reducedEffects}
@@ -485,7 +486,6 @@ export function SettingsLogs() {
                   <p
                     style={{
                       margin: 0,
-                      marginTop: "var(--sp-3)",
                       fontSize: "var(--text-xs)",
                       color: "var(--color-text-muted)",
                       lineHeight: 1.5,
@@ -498,22 +498,13 @@ export function SettingsLogs() {
                 </div>
               )}
 
-              {/* ════ AI PROVIDERS ═══════════════════════════════════════ */}
+              {/* ════ AI PROVIDERS ═════════════════════════════════════════ */}
               {activeTab === "ai" && (
                 <div className="section-group">
-                  <h2 className="section-title">AI Providers</h2>
-                  <p
-                    style={{
-                      margin: 0,
-                      marginBottom: "var(--sp-4)",
-                      fontSize: "var(--text-xs)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
-                    Configure one or more provider endpoints, then pick the active one below. The
-                    default provider is used for CV analysis, job matching, and cover letter
-                    generation.
-                  </p>
+                  <SectionHeader
+                    title="AI Providers"
+                    description="Configure one or more provider endpoints, then pick the active one below. The default provider is used for CV analysis, job matching, and cover letter generation."
+                  />
 
                   <div
                     className="ai-provider-picker"
@@ -566,22 +557,13 @@ export function SettingsLogs() {
                 </div>
               )}
 
-              {/* ════ BROWSER ════════════════════════════════════════════ */}
+              {/* ════ BROWSER ══════════════════════════════════════════════ */}
               {activeTab === "browser" && (
                 <div className="section-group">
-                  <h2 className="section-title">Browser</h2>
-                  <p
-                    style={{
-                      margin: 0,
-                      marginBottom: "var(--sp-4)",
-                      fontSize: "var(--text-xs)",
-                      color: "var(--color-text-muted)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    Engine: Playwright Chromium (bundled). Each HireMeOps profile keeps its own
-                    browser profile in the path below, preserving login sessions independently.
-                  </p>
+                  <SectionHeader
+                    title="Browser"
+                    description="Engine: Playwright Chromium (bundled). Each HireMeOps profile keeps its own browser profile in the path below, preserving login sessions independently."
+                  />
 
                   <Field
                     label="Browser profile root path"
@@ -605,19 +587,23 @@ export function SettingsLogs() {
                     />
                   </Field>
 
-                  <div style={{ marginTop: "var(--sp-3)" }}>
+                  <div>
                     <Toolbar aria-label="Browser session actions">
-                      <Button variant="ghost" disabled aria-label="Check LinkedIn session health">
+                      {/* aria-disabled keeps these buttons in the toolbar's keyboard/AT tree
+                          so screen-reader users can discover them and hear "unavailable".
+                          pointer-events:none comes from the .btn[aria-disabled] rule in
+                          theme.css; no onClick needed — there is no action yet to guard. */}
+                      <Button variant="ghost" aria-disabled="true" aria-label="Check LinkedIn session health">
                         Check LinkedIn session
                       </Button>
-                      <Button variant="ghost" disabled aria-label="Open manual login setup">
+                      <Button variant="ghost" aria-disabled="true" aria-label="Open manual login setup">
                         Manual login setup
                       </Button>
                       <ToolbarSep />
                       <Button
                         variant="danger"
                         size="sm"
-                        disabled
+                        aria-disabled="true"
                         aria-label="Clear browser session data"
                       >
                         Clear session
@@ -625,32 +611,27 @@ export function SettingsLogs() {
                     </Toolbar>
                   </div>
 
-                  <div style={{ marginTop: "var(--sp-4)" }}>
-                    <h2 className="section-title">Automation</h2>
-                    <Switch
-                      checked={settings?.automationHeadless ?? true}
-                      onChange={(checked) => void updateSettings({ automationHeadless: checked })}
-                    >
-                      Headless automation — hide browser windows while automating
-                    </Switch>
-                    <p
-                      style={{
-                        margin: 0,
-                        marginTop: "var(--sp-2)",
-                        fontSize: "var(--text-xs)",
-                        color: "var(--color-text-muted)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      When off, browser windows are visible during automation runs. The manual
-                      LinkedIn login window always opens visible regardless of this setting.
-                    </p>
+                  {/* Automation sub-section */}
+                  <div style={{ marginTop: "var(--sp-2)" }}>
+                    <SectionHeader level={3} title="Automation" />
+                    <div className="settings-rows" style={{ marginTop: "var(--sp-2)" }}>
+                      <SettingRow
+                        title="Headless automation"
+                        description="Hide browser windows during automation runs. The manual LinkedIn login window always opens visible."
+                      >
+                        <Switch
+                          checked={settings?.automationHeadless ?? true}
+                          onChange={(checked) =>
+                            void updateSettings({ automationHeadless: checked })
+                          }
+                          aria-label="Headless automation"
+                        />
+                      </SettingRow>
+                    </div>
 
                     <p
                       style={{
-                        margin: 0,
-                        marginTop: "var(--sp-4)",
-                        marginBottom: "var(--sp-2)",
+                        margin: "var(--sp-3) 0 var(--sp-2)",
                         fontSize: "var(--text-xs)",
                         fontWeight: "var(--fw-semibold)",
                         color: "var(--color-text-2)",
@@ -658,63 +639,63 @@ export function SettingsLogs() {
                     >
                       Per automation — override the setting above for individual tasks
                     </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+                    <div className="settings-rows">
                       {HEADLESS_TASKS.map((task) => {
                         const overrides = settings?.automationHeadlessOverrides ?? {};
                         const fallback =
                           task.defaultHeadless ?? settings?.automationHeadless ?? true;
                         const checked = overrides[task.key] ?? fallback;
                         return (
-                          <Switch
-                            key={task.key}
-                            checked={checked}
-                            onChange={(value) =>
-                              void updateSettings({
-                                automationHeadlessOverrides: { ...overrides, [task.key]: value },
-                              })
-                            }
-                          >
-                            {task.label}
-                          </Switch>
+                          <SettingRow key={task.key} title={task.label}>
+                            <Switch
+                              checked={checked}
+                              onChange={(value) =>
+                                void updateSettings({
+                                  automationHeadlessOverrides: {
+                                    ...overrides,
+                                    [task.key]: value,
+                                  },
+                                })
+                              }
+                              aria-label={task.label}
+                            />
+                          </SettingRow>
                         );
                       })}
                     </div>
                   </div>
 
-                  <div style={{ marginTop: "var(--sp-4)" }}>
-                    <h2 className="section-title">AI Provider</h2>
-                    <Switch
-                      checked={settings?.aiAutoInit ?? true}
-                      onChange={(checked) => void updateSettings({ aiAutoInit: checked })}
-                    >
-                      Auto-start AI provider on launch (headless)
-                    </Switch>
-                    <p
-                      style={{
-                        margin: 0,
-                        marginTop: "var(--sp-2)",
-                        fontSize: "var(--text-xs)",
-                        color: "var(--color-text-muted)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      When on, the ChatGPT browser session is warmed up silently at startup so the
-                      first AI completion has no cold-start delay. Disable if you prefer the browser
-                      to launch only when explicitly triggered.
-                    </p>
+                  {/* AI Provider sub-section */}
+                  <div style={{ marginTop: "var(--sp-2)" }}>
+                    <SectionHeader level={3} title="AI Provider" />
+                    <div className="settings-rows" style={{ marginTop: "var(--sp-2)" }}>
+                      <SettingRow
+                        title="Auto-start AI provider on launch"
+                        description="Warms up the ChatGPT browser session silently at startup so the first AI completion has no cold-start delay."
+                      >
+                        <Switch
+                          checked={settings?.aiAutoInit ?? true}
+                          onChange={(checked) => void updateSettings({ aiAutoInit: checked })}
+                          aria-label="Auto-start AI provider on launch"
+                        />
+                      </SettingRow>
+                    </div>
                   </div>
 
-                  <div style={{ marginTop: "var(--sp-4)" }}>
-                    <h2 className="section-title">Extensions</h2>
-                    <BrowserExtensionsPanel />
+                  {/* Extensions sub-section */}
+                  <div style={{ marginTop: "var(--sp-2)" }}>
+                    <SectionHeader level={3} title="Extensions" />
+                    <div style={{ marginTop: "var(--sp-2)" }}>
+                      <BrowserExtensionsPanel />
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* ════ DATA STORAGE ═══════════════════════════════════════ */}
+              {/* ════ DATA STORAGE ═════════════════════════════════════════ */}
               {activeTab === "data" && (
                 <div className="section-group">
-                  <h2 className="section-title">Data Storage</h2>
+                  <SectionHeader title="Data Storage" />
 
                   <Field label="Database path">
                     <code
@@ -732,27 +713,18 @@ export function SettingsLogs() {
                 </div>
               )}
 
-              {/* ════ EXPORTS ════════════════════════════════════════════ */}
+              {/* ════ EXPORTS ══════════════════════════════════════════════ */}
               {activeTab === "exports" && (
                 <div className="section-group">
-                  <h2 className="section-title">Exports</h2>
-                  <p
-                    style={{
-                      margin: 0,
-                      marginBottom: "var(--sp-4)",
-                      fontSize: "var(--text-xs)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
-                    Export your data as files. Each export downloads to your default Downloads
-                    folder.
-                  </p>
+                  <SectionHeader
+                    title="Exports"
+                    description="Export your data as files. Each export downloads to your default Downloads folder."
+                  />
 
                   {exportError && (
                     <p
                       style={{
                         margin: 0,
-                        marginBottom: "var(--sp-3)",
                         fontSize: "var(--text-xs)",
                         color: "var(--color-danger)",
                       }}
@@ -813,18 +785,18 @@ export function SettingsLogs() {
                 </div>
               )}
 
-              {/* ════ BACKUPS ════════════════════════════════════════════ */}
+              {/* ════ BACKUPS ══════════════════════════════════════════════ */}
               {activeTab === "backups" && (
                 <div className="section-group">
-                  <h2 className="section-title">Backups</h2>
+                  <SectionHeader title="Backups" />
                   <BackupRestorePanel />
                 </div>
               )}
 
-              {/* ════ CLEANUP ════════════════════════════════════════════ */}
+              {/* ════ CLEANUP ══════════════════════════════════════════════ */}
               {activeTab === "cleanup" && (
                 <div className="section-group">
-                  <h2 className="section-title">Cleanup</h2>
+                  <SectionHeader title="Cleanup" />
 
                   {/* Retention defaults reference */}
                   <div
@@ -832,7 +804,6 @@ export function SettingsLogs() {
                       display: "grid",
                       gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
                       gap: "var(--sp-2)",
-                      marginBottom: "var(--sp-4)",
                       padding: "var(--sp-3) var(--sp-4)",
                       background: "var(--color-surface-2)",
                       border: "1px solid var(--color-border)",
@@ -879,7 +850,7 @@ export function SettingsLogs() {
                   <DataCleanupPanel />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>

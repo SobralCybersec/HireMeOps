@@ -159,6 +159,7 @@ pub fn build_pdf_tex(
     cv: &CvRewrite,
     meta: &CvMetadata,
     cvtex_dir: &Path,
+    photo: Option<&[u8]>,
 ) -> Result<Vec<u8>, String> {
     let cls_src = cvtex_dir.join("curriculo.cls");
     if !cls_src.is_file() {
@@ -178,7 +179,20 @@ pub fn build_pdf_tex(
     std::fs::copy(&cls_src, work.join("curriculo.cls"))
         .map_err(|e| format!("copy curriculo.cls: {e}"))?;
 
-    let tex = crate::cv::latex::generate_resume_tex(cv);
+    // Photo: write the bytes into the workdir and point the tex at that local filename.
+    // Always overwrite photo_url here so a raw URL (or a stale local name) never reaches
+    // \photo{}. No bytes → empty → generate_resume_tex omits the photo entirely.
+    let mut cv_local = cv.clone();
+    cv_local.photo_url = match photo {
+        Some(bytes) if !bytes.is_empty() => {
+            let name = format!("cvphoto.{}", photo_ext(bytes));
+            std::fs::write(work.join(&name), bytes).map_err(|e| format!("write cv photo: {e}"))?;
+            name
+        }
+        _ => String::new(),
+    };
+
+    let tex = crate::cv::latex::generate_resume_tex(&cv_local);
     std::fs::write(work.join("resume.tex"), tex.as_bytes())
         .map_err(|e| format!("write resume.tex: {e}"))?;
 
@@ -220,6 +234,19 @@ pub fn build_pdf_tex(
     }
 
     embed_metadata(&pdf_bytes, meta)
+}
+
+/// Sniff a photo's container from its magic bytes so xelatex's graphics driver picks the
+/// right loader (the extension, not the content, decides how graphicx reads it).
+/// Unknown/headerless bytes default to png.
+fn photo_ext(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else if bytes.starts_with(b"%PDF") {
+        "pdf"
+    } else {
+        "png"
+    }
 }
 
 fn tex_error_tail(log: &str) -> Option<String> {
@@ -474,6 +501,7 @@ mod tests {
                 bullets: vec![],
             }],
             language: Language::En,
+            ..Default::default()
         }
     }
 
@@ -536,7 +564,7 @@ mod tests {
 
         let cv = sample();
         let meta = cv.cv_metadata();
-        let bytes = build_pdf_tex(&cv, &meta, &cvtex).expect("xelatex compile");
+        let bytes = build_pdf_tex(&cv, &meta, &cvtex, None).expect("xelatex compile");
         assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
 
         let doc = Document::load_mem(&bytes).expect("reload");

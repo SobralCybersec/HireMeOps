@@ -860,3 +860,21 @@
   background-color: #ffffff;
   pointer-events: none;
 }
+
+/* CV export appearance controls — accent swatch + headshot URL (feeds accentColor/photoUrl). */
+.cv-export__appearance {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.cv-export__appearance .field__input[type="color"] {
+  inline-size: 34px;
+  block-size: 28px;
+  padding: 2px;
+  cursor: pointer;
+}
+.cv-export__appearance > .field__input[type="url"] {
+  flex: 1;
+  min-inline-size: 0;
+}

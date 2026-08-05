@@ -540,3 +540,267 @@ select:focus-visible {
   background: var(--color-accent-hover);
   border-color: transparent;
 }
+
+/* ── Settings shell — terax-modal three-band layout, WayneTech identity ───────
+   Band 1: 44px header (Settings01Icon + "SETTINGS" mono UPPERCASE label)
+   Band 2: flex row → left nav rail (192px) + scrolling content column
+   Sharp tokens throughout: --radius-sm (2px) / --radius-md (4px).
+   Nav active state: accent-dim bg + accent text + 2px inset left bar.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.settings-shell {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* 44px header band */
+.settings-shell__header {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface) 85%, var(--color-bg));
+}
+
+/* Mono UPPERCASE "SETTINGS" label beside the icon */
+.settings-shell__title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+/* Body row: nav rail + content */
+.settings-shell__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left nav rail (192px) */
+.settings-shell__nav {
+  width: 192px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--sp-2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Nav group wrapper */
+.settings-shell__nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Group label (PREFERENCES / INTEGRATIONS / DATA) */
+.settings-shell__nav-group-label {
+  display: block;
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+/* Hairline separator between nav groups */
+.settings-shell__nav-sep {
+  height: 1px;
+  background: var(--color-border);
+  margin: var(--sp-1) var(--sp-2) var(--sp-2);
+}
+
+/* Tab button: icon + label, active/idle/hover states */
+.settings-shell .settings-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
+  box-shadow: none;
+}
+
+.settings-shell .settings-tab-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.settings-shell .settings-tab-btn.active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  font-weight: var(--fw-medium);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.settings-shell .settings-tab-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Icon slot — dimmed when idle, full when active */
+.settings-tab-btn__icon {
+  flex-shrink: 0;
+  opacity: 0.65;
+  transition: opacity var(--tx-fast);
+}
+
+.settings-tab-btn:hover .settings-tab-btn__icon,
+.settings-tab-btn.active .settings-tab-btn__icon {
+  opacity: 1;
+}
+
+/* Scrolling content area */
+.settings-shell__content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--color-surface);
+}
+
+/* Inner content wrapper — padded, no max-width (settings fills available space) */
+.settings-shell__inner {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  width: 100%;
+}
+
+/* ── SectionHeader primitive ────────────────────────────────────────────────── */
+.settings-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* Main section title: Roboto Condensed UPPERCASE + 3px accent tick */
+.settings-section-header__title {
+  font-family: var(--font-title);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.2;
+}
+
+/* Accent tick — WayneTech glowing bar motif (same as .card__title::before) */
+.settings-section-header__title::before {
+  content: "";
+  width: 3px;
+  height: 0.85em;
+  flex: none;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--color-accent) 55%, transparent);
+}
+
+/* Sub-section variant (level=3): smaller, no accent tick, muted */
+.settings-section-header__title--sub {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  font-weight: var(--fw-semibold);
+  margin-top: var(--sp-2);
+}
+
+.settings-section-header__title--sub::before {
+  display: none;
+}
+
+/* Description under the title */
+.settings-section-header__desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── SettingRow primitive ───────────────────────────────────────────────────── */
+/* Label-left / control-right card — mirrors terax SettingRow.
+   border-subtle keeps it lighter than structural borders; surface-2 tints
+   it one step above the content bg without adding heavy card weight. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 42px;
+}
+
+.settings-row__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-row__title {
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.settings-row__desc {
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.settings-row__control {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Vertical stack of SettingRows with consistent gap */
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* prefers-reduced-motion: kill the background/color/opacity transitions on
+   the settings tab buttons. The global html.reduced-effects rule covers the
+   app-level toggle; this media query covers OS-level preference without JS. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-tab-btn,
+  .settings-tab-btn__icon {
+    transition: none;
+  }
+}

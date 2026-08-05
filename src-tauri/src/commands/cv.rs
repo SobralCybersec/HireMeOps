@@ -149,6 +149,66 @@ pub async fn list_cv_rewrites(
         .map_err(|e| e.to_string())
 }
 
+/// Download a CV headshot for the LaTeX build. Returns None (never an error) for a
+/// non-http URL, a non-2xx response, an oversized body, or any transport failure, so a
+/// bad photo URL degrades to "no photo" instead of breaking the export.
+async fn fetch_photo(url: &str) -> Option<Vec<u8>> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .ok()?;
+    let resp = client.get(url).send().await.ok()?;
+    if !resp.status().is_success() {
+        tracing::warn!(target: "hiremeops::cv", "cv photo fetch {url}: HTTP {}", resp.status());
+        return None;
+    }
+    let bytes = resp.bytes().await.ok()?;
+    // ponytail: 8 MB cap — a headshot is never bigger; stops a hostile URL from ballooning RAM.
+    if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    Some(bytes.to_vec())
+}
+
+/// Persist CV-only appearance (accent hex + headshot URL) onto a stored rewrite's
+/// `rewrite_json`, so the next export renders with them. The hex is stripped of a
+/// leading `#`; `generate_resume_tex` validates it again before it reaches the TeX.
+#[tauri::command]
+pub async fn set_cv_rewrite_appearance(
+    state: State<'_, AppState>,
+    rewrite_id: String,
+    accent_color: String,
+    photo_url: String,
+) -> Result<(), String> {
+    use crate::ai::prompt::CvRewrite;
+
+    let json: Option<String> =
+        sqlx::query_scalar("SELECT rewrite_json FROM cv_rewrites WHERE id = ?1")
+            .bind(&rewrite_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| e.to_string())?;
+    let json = json.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
+
+    let mut rewrite: CvRewrite =
+        serde_json::from_str(&json).map_err(|e| format!("decode rewrite: {e}"))?;
+    rewrite.accent_color = accent_color.trim().trim_start_matches('#').to_string();
+    rewrite.photo_url = photo_url.trim().to_string();
+
+    let updated = serde_json::to_string(&rewrite).map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE cv_rewrites SET rewrite_json = ?1 WHERE id = ?2")
+        .bind(&updated)
+        .bind(&rewrite_id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 async fn render_rewrite_pdf(
     db: &sqlx::SqlitePool,
     rewrite_id: &str,
@@ -192,8 +252,12 @@ async fn render_rewrite_pdf(
         }
     }
 
+    // Best-effort headshot fetch. A broken/slow URL must never fail the whole export —
+    // on any error we fall through with no photo (build_pdf_tex drops \photo entirely).
+    let photo_bytes = fetch_photo(&rewrite.photo_url).await;
+
     if let Some(dir) = cvtex_dir {
-        match export::build_pdf_tex(&rewrite, &metadata, dir) {
+        match export::build_pdf_tex(&rewrite, &metadata, dir, photo_bytes.as_deref()) {
             Ok(bytes) => return Ok(bytes),
             Err(e) => tracing::warn!(
                 target: "hiremeops::cv",

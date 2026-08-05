@@ -101,6 +101,7 @@ pub fn run() {
             commands::cv::list_cv_rewrites,
             commands::cv::export_cv_rewrite,
             commands::cv::save_cv_rewrite_pdf,
+            commands::cv::set_cv_rewrite_appearance,
             commands::profile_variants::create_profile_variant,
             commands::profile_variants::list_profile_variants,
             commands::profile_variants::get_profile_variant,

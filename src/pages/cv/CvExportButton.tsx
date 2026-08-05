@@ -9,9 +9,9 @@
 
 import { useState } from "react";
 import { Download01Icon } from "@hugeicons/core-free-icons";
-import { Button, Icon, Select } from "../../components/ui";
+import { Button, Icon, Input, Select } from "../../components/ui";
 import type { SelectOption } from "../../components/ui";
-import { errMessage } from "../../lib/tauriInvoke";
+import { errMessage, invokeStrict } from "../../lib/tauriInvoke";
 import { saveCvRewritePdf, type CvExportMode } from "./rewrite";
 import type { CvRewriteReport } from "./types";
 
@@ -43,11 +43,21 @@ export function CvExportButton({ rewrite, className }: CvExportButtonProps) {
   const [mode, setMode] = useState<CvExportMode>(canModify ? "modify" : "new");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // CV-only appearance, seeded from the stored rewrite. Accent is a bare hex
+  // (no `#`); the picker needs the `#` form, so we bridge on read/write.
+  const [accent, setAccent] = useState(rewrite.rewrite.accentColor?.trim() || "2B0A3D");
+  const [photoUrl, setPhotoUrl] = useState(rewrite.rewrite.photoUrl?.trim() || "");
 
   async function handleExport() {
     setBusy(true);
     setError(null);
     try {
+      // Persist appearance first — export renders from the stored rewrite_json.
+      await invokeStrict("set_cv_rewrite_appearance", {
+        rewriteId: rewrite.id,
+        accentColor: accent,
+        photoUrl,
+      });
       // Native save dialog + write in Rust; `null` means the user cancelled.
       await saveCvRewritePdf(rewrite.id, mode, exportFilename(rewrite));
     } catch (e) {
@@ -59,6 +69,26 @@ export function CvExportButton({ rewrite, className }: CvExportButtonProps) {
 
   return (
     <div className={["cv-export", className].filter(Boolean).join(" ")}>
+      <div className="cv-export__appearance">
+        <label className="cv-export__swatch" title="CV accent color">
+          <Input
+            type="color"
+            aria-label="CV accent color"
+            value={`#${accent}`}
+            disabled={busy}
+            onChange={(e) => setAccent(e.target.value.replace(/^#/, ""))}
+          />
+        </label>
+        <Input
+          type="url"
+          inputMode="url"
+          placeholder="Photo URL (https://…/photo.png)"
+          aria-label="CV photo URL"
+          value={photoUrl}
+          disabled={busy}
+          onChange={(e) => setPhotoUrl(e.target.value)}
+        />
+      </div>
       <div className="cv-export__row">
         {canModify ? (
           <Select

@@ -447,6 +447,15 @@ pub struct CvRewrite {
     pub education: Vec<CvEducationEntry>,
     #[serde(default)]
     pub language: Language,
+    /// Hex accent for the CV header/rules (e.g. "2B0A3D"); empty = template default.
+    /// Presentation-only — the AI never fills this; the UI color picker does.
+    #[serde(default, rename = "accentColor")]
+    pub accent_color: String,
+    /// Headshot: an http(s) URL on input. `build_pdf_tex` downloads it and rewrites
+    /// this field to the local workdir filename before the tex is generated.
+    /// Empty = no photo.
+    #[serde(default, rename = "photoUrl")]
+    pub photo_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -464,6 +473,8 @@ impl CvRewrite {
     fn cleaned(mut self) -> CvRewrite {
         self.name = self.name.trim().to_string();
         self.summary = self.summary.trim().to_string();
+        self.accent_color = self.accent_color.trim().trim_start_matches('#').to_string();
+        self.photo_url = self.photo_url.trim().to_string();
         self.contact = CvContact {
             email: self.contact.email.trim().to_string(),
             phone: self.contact.phone.trim().to_string(),

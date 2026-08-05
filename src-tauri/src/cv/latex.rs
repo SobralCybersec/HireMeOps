@@ -38,7 +38,10 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
     out.push_str("\\documentclass[11pt, a4paper]{curriculo}\n");
     out.push_str("\\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}\n");
     out.push_str("\\definecolor{verdeescuro}{HTML}{219150}\n");
-    out.push_str("\\definecolor{cordeescolha}{HTML}{2B0A3D}\n");
+    out.push_str(&format!(
+        "\\definecolor{{cordeescolha}}{{HTML}}{{{}}}\n",
+        sanitize_hex(&cv.accent_color).unwrap_or_else(|| "2B0A3D".to_string())
+    ));
     out.push_str("\\colorlet{awesome}{cordeescolha}\n");
     out.push_str("\\definecolor{graytext}{HTML}{5D5D5D}\n");
     out.push_str("\\definecolor{lighttext}{HTML}{999999}\n");
@@ -98,6 +101,13 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
         out.push_str("\\extrainfo{~}\n");
     }
 
+    // ponytail: at build time build_pdf_tex sets photo_url to the LOCAL filename it wrote
+    // into the xelatex workdir (e.g. "cvphoto.png"); empty = no photo. curriculo.cls already
+    // ships \photo (circle,edge,left default), so no cls change is needed.
+    if !cv.photo_url.trim().is_empty() {
+        out.push_str(&format!("\\photo{{{}}}\n", cv.photo_url.trim()));
+    }
+
     out.push_str("\n\\begin{document}\n\\makecvheader[C]\n\n");
     out.push_str(&generate_summary(cv));
     out.push_str(&generate_education(cv));
@@ -106,6 +116,19 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
     out.push_str("\\end{document}\n");
 
     out
+}
+
+/// Validate a user-supplied hex color for `\definecolor{...}{HTML}{...}`.
+/// Accepts `RRGGBB` or `#RRGGBB` (any case); returns the uppercase 6-digit form,
+/// or None for anything else so the caller falls back to the template default.
+/// This is the injection guard: only `[0-9A-F]{6}` ever reaches the TeX source.
+fn sanitize_hex(raw: &str) -> Option<String> {
+    let h = raw.trim().trim_start_matches('#');
+    if h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(h.to_ascii_uppercase())
+    } else {
+        None
+    }
 }
 
 fn generate_summary(cv: &CvRewrite) -> String {
@@ -317,6 +340,7 @@ mod tests {
                 bullets: vec![],
             }],
             language: Language::En,
+            ..Default::default()
         }
     }
 
