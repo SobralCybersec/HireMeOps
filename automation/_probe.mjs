@@ -1,0 +1,14 @@
+import { chromium } from "patchright";
+import { baseLaunchOptions } from "./browser-launch.js";
+const jar = "/home/satu/.local/share/com.hiremeops.app/profiles/default/browser";
+const headed = process.env.PROBE_HEADED === "1";
+const ctx = await chromium.launchPersistentContext(jar, baseLaunchOptions({ headless: !headed, executablePath: "/usr/bin/chromium" }));
+const page = ctx.pages()[0] ?? await ctx.newPage();
+const ua = await page.evaluate(() => navigator.userAgent);
+console.log("MODE:", headed ? "HEADED" : "headless");
+console.log("UA:", ua);
+console.log("hasHeadless:", /Headless/i.test(ua));
+const resp = await page.goto("https://www.catho.com.br/vagas/developer/", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(e => ({ err: e.message }));
+if (resp.err) console.log("navError:", resp.err);
+else console.log("status:", resp.status());
+await ctx.close();
