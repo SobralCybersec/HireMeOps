@@ -45,7 +45,7 @@ keyring = { version = "3", features = ["linux-native", "apple-native", "windows-
 # Optional deps — only compiled when `real-browser` feature is enabled.
 # `tokio-runtime` activates the tokio WebSocket backend inside chromiumoxide
 # (the crate's own default is `async-std-runtime`, which we explicitly exclude).
-chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"], optional = true }
+chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"], optional = true }
 # futures is a direct dep of chromiumoxide so it is always in the dep graph
 # when `real-browser` is on; declare it here so our gated module can name it.
 futures = { version = "0.3", optional = true }
