@@ -372,7 +372,7 @@ async function saveCv(page) {
   await save.scrollIntoViewIfNeeded().catch(() => {});
   const savePost = page
     .waitForResponse(
-      (r) => r.request().method() === "POST" && /infojobs\.com\.br\/candidate\/cv/i.test(r.url()),
+      (r) => r.request().method() === "POST" && /^https?:\/\/(?:[^/]+\.)?infojobs\.com\.br\/candidate\/cv(?:[/?#]|$)/i.test(r.url()),
       { timeout: 20_000 },
     )
     .catch(() => null);

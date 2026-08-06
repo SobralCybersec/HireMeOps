@@ -59,6 +59,15 @@ async function importPlaywright() {
 const playwright = await importPlaywright()
 const { chromium, firefox, webkit } = playwright
 
+function isHostname(url, hostname) {
+  try {
+    const actual = new URL(url).hostname.toLowerCase()
+    return actual === hostname || actual.endsWith(`.${hostname}`)
+  } catch {
+    return false
+  }
+}
+
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
 }
@@ -486,7 +495,7 @@ async function captureChatGPTTemplate(forceNew = false) {
     return state.chatgpt.cachedHeaders
   }
 
-  if (!page.url().includes('chatgpt.com') || forceNew) {
+  if (!isHostname(page.url(), 'chatgpt.com') || forceNew) {
     await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
   }
 
@@ -735,7 +744,7 @@ async function listChatGPTModels() {
   await ensureLiveSession('chatgpt')
   const page = state.chatgpt.page
   if (!page) throw new Error('ChatGPT Playwright not initialized')
-  if (!page.url().includes('chatgpt.com')) {
+  if (!isHostname(page.url(), 'chatgpt.com')) {
     await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
   }
 

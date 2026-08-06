@@ -126,7 +126,7 @@ async function ensureGupyLoggedIn(page, url) {
     .waitForURL(
       (u) => {
         const s = u.toString();
-        return /gupy\.io\/candidates\//i.test(s) && !/\/candidates\/(sign-?in|login)/i.test(s);
+        return /^https?:\/\/(?:[^/]+\.)?gupy\.io\/candidates\//i.test(s) && !/\/candidates\/(sign-?in|login)(?:[/?#]|$)/i.test(s);
       },
       { timeout: 180_000 },
     )
@@ -459,7 +459,7 @@ async function saveSection(page, sectionId) {
 
   const collected = [];
   const onResp = (r) => {
-    if (["POST", "PUT", "PATCH"].includes(r.request().method()) && /gupy\.io/i.test(r.url())) collected.push(r);
+    if (["POST", "PUT", "PATCH"].includes(r.request().method()) && /^https?:\/\/(?:[^/]+\.)?gupy\.io(?:[/:?#]|$)/i.test(r.url())) collected.push(r);
   };
   page.on("response", onResp);
   await save.click().catch(() => {});

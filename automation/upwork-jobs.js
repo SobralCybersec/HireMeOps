@@ -26,14 +26,33 @@ export function buildUpworkSearchUrl({
 }
 
 function stripTags(s) {
-  return String(s ?? "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
+  const text = String(s ?? "");
+  let out = "";
+  let inTag = false;
+  for (const ch of text) {
+    if (ch === "<") {
+      inTag = true;
+      continue;
+    }
+    if (ch === ">") {
+      inTag = false;
+      continue;
+    }
+    if (!inTag) out += ch;
+  }
+  return out
+    .replace(/&(?:amp|lt|gt|nbsp|#39|apos|quot);/g, (entity) => {
+      const named = {
+        "&amp;": "&",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&nbsp;": " ",
+        "&#39;": "'",
+        "&apos;": "'",
+        "&quot;": '"',
+      };
+      return named[entity] ?? entity;
+    })
     .trim();
 }
 
@@ -89,7 +108,6 @@ function scrapeUpworkDom(page) {
   return page.evaluate(() => {
     const clean = (s) =>
       String(s ?? "")
-        .replace(/<[^>]*>/g, "")
         .replace(/\s+/g, " ")
         .trim();
     const cards = Array.from(

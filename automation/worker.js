@@ -41,6 +41,24 @@ const indeedPopups = new Map();
 const RECYCLE_EVERY = Number(process.env.HIREMEOPS_RECYCLE_EVERY ?? 25) || 0;
 let openCount = 0;
 
+function isHostname(url, hostname) {
+  try {
+    const actual = new URL(url).hostname.toLowerCase();
+    return actual === hostname || actual.endsWith(`.${hostname}`);
+  } catch {
+    return false;
+  }
+}
+
+function isGmailLoginUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return isHostname(parsed.href, "accounts.google.com") || /(?:^|\/)ServiceLogin(?:\/|$)/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function procComm(pid) {
   try {
     return readFileSync(`/proc/${pid}/comm`, "utf8").trim();
@@ -2371,7 +2389,7 @@ async function pushAbout(browser, text) {
   await page
     .goto("https://www.linkedin.com/in/me/", { waitUntil: "domcontentloaded", timeout: 20_000 })
     .catch((e) => {
-      if (!page.url().includes("linkedin.com")) throw e;
+      if (!isHostname(page.url(), "linkedin.com")) throw e;
     });
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
 
@@ -2457,7 +2475,7 @@ async function pushSkills(browser, skillsCsv) {
   await page
     .goto("https://www.linkedin.com/in/me/", { waitUntil: "load", timeout: 25_000 })
     .catch((e) => {
-      if (!page.url().includes("linkedin.com")) throw e;
+      if (!isHostname(page.url(), "linkedin.com")) throw e;
     });
   await page.waitForURL((u) => !u.href.includes("/in/me/"), { timeout: 8_000 }).catch(() => {});
   const urlMatch = page.url().match(/linkedin\.com\/in\/([^/?#]+)/);
@@ -2585,11 +2603,11 @@ async function pushEducationEntry(browser, entry) {
   const pages = browser.pages().filter((p) => !p.isClosed());
   const page = pages.length > 0 ? pages[pages.length - 1] : await browser.newPage();
 
-  if (!page.url().includes("linkedin.com")) {
+  if (!isHostname(page.url(), "linkedin.com")) {
     await page
       .goto("https://www.linkedin.com/in/me/", { waitUntil: "domcontentloaded", timeout: 20_000 })
       .catch((e) => {
-        if (!page.url().includes("linkedin.com")) throw e;
+        if (!isHostname(page.url(), "linkedin.com")) throw e;
       });
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   }
@@ -2689,11 +2707,11 @@ async function pushExperienceEntry(browser, entry) {
   const pages = browser.pages().filter((p) => !p.isClosed());
   const page = pages.length > 0 ? pages[pages.length - 1] : await browser.newPage();
 
-  if (!page.url().includes("linkedin.com")) {
+  if (!isHostname(page.url(), "linkedin.com")) {
     await page
       .goto("https://www.linkedin.com/in/me/", { waitUntil: "domcontentloaded", timeout: 20_000 })
       .catch((e) => {
-        if (!page.url().includes("linkedin.com")) throw e;
+        if (!isHostname(page.url(), "linkedin.com")) throw e;
       });
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   }
@@ -3163,7 +3181,7 @@ async function cmdGmailSend({ handle, to, subject, body, attachment_path }) {
     await page.goto(composeUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
     const landed = page.url();
-    if (landed.includes("accounts.google.com") || landed.includes("ServiceLogin")) {
+    if (isGmailLoginUrl(landed)) {
       return {
         sent: false,
         error:
