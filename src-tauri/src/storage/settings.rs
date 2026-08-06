@@ -132,7 +132,12 @@ pub async fn docker_worker_opt_in(pool: &SqlitePool) -> Result<bool> {
 /// Persist the Docker-worker opt-in. The live process env is updated by the
 /// command layer so the toggle takes effect without a restart.
 pub async fn set_docker_worker_opt_in(pool: &SqlitePool, enabled: bool) -> Result<()> {
-    set(pool, "use_docker_worker", if enabled { "true" } else { "false" }).await
+    set(
+        pool,
+        "use_docker_worker",
+        if enabled { "true" } else { "false" },
+    )
+    .await
 }
 
 pub async fn load(pool: &SqlitePool, paths: &AppPaths) -> Result<AppSettings> {

@@ -38,7 +38,10 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     storage::settings::ensure_defaults(&db).await?;
     // Restore the persisted Docker-worker opt-in into the process env that the
     // spawn gate (`browser::playwright::docker_worker_enabled`) reads.
-    if storage::settings::docker_worker_opt_in(&db).await.unwrap_or(false) {
+    if storage::settings::docker_worker_opt_in(&db)
+        .await
+        .unwrap_or(false)
+    {
         std::env::set_var("HIREMEOPS_USE_DOCKER", "1");
     }
     Ok(AppState {
@@ -102,13 +105,12 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         return Ok(());
     }
 
-    let mut builder =
-        WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
-            .title("Settings")
-            .inner_size(900.0, 700.0)
-            .min_inner_size(820.0, 620.0)
-            .resizable(true)
-            .visible(false);
+    let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App(url_path.into()))
+        .title("Settings")
+        .inner_size(900.0, 700.0)
+        .min_inner_size(820.0, 620.0)
+        .resizable(true)
+        .visible(false);
 
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
