@@ -2,26 +2,26 @@
 # HireMeOps — CodeQL (SAST for our own source)
 # Inspects the JS/TS in the workspace and our GitHub Actions usage for
 # security bugs. Results land under Security > Code scanning.
-# Rust is intentionally OFF — CodeQL Rust is still public-preview in 2026;
+# Rust is intentionally OFF — CodeQL Rust is still public preview;
 # Rust deps are covered by cargo-audit / cargo-deny / OSV in security.yml.
-# Pinned to codeql-action v3.37.6 (verified 2026-08-04).
+# Pinned to github/codeql-action v4.37.4.
 #
 # NOTE: CodeQL uploads results to GitHub code scanning, which a PRIVATE repo
-# only has with GitHub Advanced Security. This repo is private without GHAS, so
-# automatic push/PR/schedule runs would fail at the upload step. It's therefore
-# MANUAL-ONLY (workflow_dispatch) for now — restore the push/pull_request/schedule
-# triggers below once the repo is public or GHAS is enabled.
+# only has with GitHub Advanced Security. This repo is private without GHAS,
+# so automatic push/PR/schedule runs would fail at the upload step. It's
+# therefore MANUAL-ONLY (workflow_dispatch) for now.
 # ============================================================
+
 name: CodeQL
 
 on:
   workflow_dispatch:
   # push:
-  #   branches: [master, main]
+  #   branches: [main, master]
   # pull_request:
-  #   branches: [master, main]
+  #   branches: [main, master]
   # schedule:
-  #   - cron: "27 3 * * 1"   # weekly re-scan for newly published queries
+  #   - cron: "27 3 * * 1"
 
 permissions:
   contents: read
@@ -35,10 +35,11 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     permissions:
-      security-events: write
       actions: read
       contents: read
+      security-events: write
 
     strategy:
       fail-fast: false
@@ -50,16 +51,17 @@ jobs:
             build-mode: none
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38
         with:
           category: "/language:${{ matrix.language }}"
