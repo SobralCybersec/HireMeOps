@@ -1,7 +1,5 @@
 import { cn } from "@/lib/utils";
-import {
-  Cancel01Icon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "./platform";

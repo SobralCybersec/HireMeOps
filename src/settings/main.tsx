@@ -10,9 +10,9 @@ if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
 }
 
-ReactDOM.createRoot(
-  document.getElementById("settings-root") as HTMLElement,
-).render(<SettingsApp />);
+ReactDOM.createRoot(document.getElementById("settings-root") as HTMLElement).render(
+  <SettingsApp />,
+);
 
 // The Rust window builder creates the window hidden (visible: false) to avoid
 // a flash before React has painted. We must call show() after mount.

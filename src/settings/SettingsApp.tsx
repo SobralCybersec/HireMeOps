@@ -55,13 +55,7 @@ import { SettingRow } from "./SettingRow";
 import { WindowControls } from "./WindowControls";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
 import { IS_TAURI, IS_MAC } from "./platform";
 
@@ -336,7 +330,6 @@ export function SettingsApp() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
-
       {/* ── Drag-region header ──────────────────────────────────────────────── */}
       <header
         data-tauri-drag-region
@@ -356,7 +349,6 @@ export function SettingsApp() {
 
       {/* ── Body: nav rail + content ────────────────────────────────────────── */}
       <main className="flex min-h-0 flex-1 flex-row">
-
         {/* ── Left nav rail ──────────────────────────────────────────────────── */}
         <nav
           className="w-48 shrink-0 border-r border-border/60 bg-card/35 p-2"
@@ -542,8 +534,7 @@ export function SettingsApp() {
                         </SelectContent>
                       </Select>
                       <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-                        When enabled, adds{" "}
-                        <code className="font-mono">reduced-effects</code> to{" "}
+                        When enabled, adds <code className="font-mono">reduced-effects</code> to{" "}
                         <code className="font-mono">&lt;html&gt;</code>, suppressing all CSS
                         transitions project-wide.
                       </p>
@@ -643,7 +634,9 @@ export function SettingsApp() {
                         aria-readonly="true"
                         placeholder="Set by backend on first launch"
                         className="font-mono text-[11px]"
-                        onChange={() => {/* read-only field */}}
+                        onChange={() => {
+                          /* read-only field */
+                        }}
                       />
                       <p className="text-[10.5px] text-muted-foreground">
                         Managed by the backend. One sub-folder per profile.
@@ -682,9 +675,7 @@ export function SettingsApp() {
 
                     {/* Automation headless */}
                     <div className="space-y-3">
-                      <h2 className="text-[13px] font-semibold text-foreground/90">
-                        Automation
-                      </h2>
+                      <h2 className="text-[13px] font-semibold text-foreground/90">Automation</h2>
                       <SettingRow
                         title="Headless automation"
                         description="Hide browser windows during automation runs. The manual LinkedIn login window always opens visible."
@@ -727,9 +718,7 @@ export function SettingsApp() {
 
                     {/* AI auto-init */}
                     <div className="space-y-3">
-                      <h2 className="text-[13px] font-semibold text-foreground/90">
-                        AI Provider
-                      </h2>
+                      <h2 className="text-[13px] font-semibold text-foreground/90">AI Provider</h2>
                       <SettingRow
                         title="Auto-start AI provider on launch"
                         description="Warms up the ChatGPT browser session silently at startup so the first AI completion has no cold-start delay."
@@ -745,9 +734,7 @@ export function SettingsApp() {
 
                     {/* Extensions */}
                     <div className="space-y-3">
-                      <h2 className="text-[13px] font-semibold text-foreground/90">
-                        Extensions
-                      </h2>
+                      <h2 className="text-[13px] font-semibold text-foreground/90">Extensions</h2>
                       <BrowserExtensionsPanel />
                     </div>
                   </div>
@@ -804,9 +791,7 @@ export function SettingsApp() {
                       description="Export your data as files. Each export downloads to your default Downloads folder."
                     />
 
-                    {exportError && (
-                      <p className="text-[11px] text-destructive">{exportError}</p>
-                    )}
+                    {exportError && <p className="text-[11px] text-destructive">{exportError}</p>}
 
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {EXPORTS.map((ex) => (

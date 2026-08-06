@@ -326,7 +326,9 @@ export function SettingsLogs() {
         >
           {TAB_GROUPS.map((group, gi) => (
             <React.Fragment key={group.label}>
-              {gi > 0 && <div className="settings-shell__nav-sep" role="separator" aria-hidden="true" />}
+              {gi > 0 && (
+                <div className="settings-shell__nav-sep" role="separator" aria-hidden="true" />
+              )}
               <div className="settings-shell__nav-group">
                 <span className="settings-shell__nav-group-label">{group.label}</span>
                 {group.tabs.map((t) => {
@@ -340,7 +342,9 @@ export function SettingsLogs() {
                       aria-selected={activeTab === t.key}
                       aria-controls="settings-panel"
                       tabIndex={activeTab === t.key ? 0 : -1}
-                      className={activeTab === t.key ? "settings-tab-btn active" : "settings-tab-btn"}
+                      className={
+                        activeTab === t.key ? "settings-tab-btn active" : "settings-tab-btn"
+                      }
                       onClick={() => setActiveTab(t.key)}
                       onKeyDown={(e) => handleTabKey(e, flatIdx)}
                     >
@@ -593,10 +597,18 @@ export function SettingsLogs() {
                           so screen-reader users can discover them and hear "unavailable".
                           pointer-events:none comes from the .btn[aria-disabled] rule in
                           theme.css; no onClick needed — there is no action yet to guard. */}
-                      <Button variant="ghost" aria-disabled="true" aria-label="Check LinkedIn session health">
+                      <Button
+                        variant="ghost"
+                        aria-disabled="true"
+                        aria-label="Check LinkedIn session health"
+                      >
                         Check LinkedIn session
                       </Button>
-                      <Button variant="ghost" aria-disabled="true" aria-label="Open manual login setup">
+                      <Button
+                        variant="ghost"
+                        aria-disabled="true"
+                        aria-label="Open manual login setup"
+                      >
                         Manual login setup
                       </Button>
                       <ToolbarSep />

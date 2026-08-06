@@ -19,9 +19,7 @@ export function SettingRow({ title, description, children, className }: Props) {
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="text-[12.5px] font-medium">{title}</span>
         {description ? (
-          <span className="text-[10.5px] leading-relaxed text-muted-foreground">
-            {description}
-          </span>
+          <span className="text-[10.5px] leading-relaxed text-muted-foreground">{description}</span>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center">{children}</div>
