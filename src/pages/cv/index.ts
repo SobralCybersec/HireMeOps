@@ -8,7 +8,13 @@ export { MOCK_LIBRARY, MOCK_HISTORY, formatBytes, relativeTime } from "./mockDat
 export { defaultCvBytesLoader, PROPOSED_CV_BYTES_COMMAND } from "./pdf";
 export { loadCvLibrary, importCvDocument } from "./library";
 export { loadCvAnalysisReports, runCvAnalysis } from "./analysis";
-export { loadCvRewrites, runCvRewrite, exportCvRewrite, saveCvRewritePdf } from "./rewrite";
+export {
+  loadCvRewrites,
+  runCvRewrite,
+  runFirstTimeCvRewrite,
+  exportCvRewrite,
+  saveCvRewritePdf,
+} from "./rewrite";
 export { renderInlineBold } from "./markdown";
 export type { CvExportMode } from "./rewrite";
 export type {

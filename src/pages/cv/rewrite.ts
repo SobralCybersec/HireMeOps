@@ -47,6 +47,25 @@ export async function runCvRewrite(
 }
 
 /**
+ * Create a first-time CV rewrite without an uploaded source document. The user
+ * supplies the full source facts in `candidateContext`; backend persists it as a
+ * documentless `cv_rewrites` row so the same PDF export path can render it.
+ */
+export async function runFirstTimeCvRewrite(
+  profileId: string,
+  targetTitle: string,
+  language: CvLanguage,
+  candidateContext: string,
+): Promise<string> {
+  return invokeStrict<string>("create_first_time_cv_rewrite", {
+    profileId,
+    targetTitle: targetTitle.trim() ? targetTitle.trim() : null,
+    language,
+    candidateContext: candidateContext.trim(),
+  });
+}
+
+/**
  * How a rewrite is turned into a PDF:
  *  - `"new"`    - render a fresh single-column PDF from the structured rewrite.
  *  - `"modify"` - take the *source* document's existing PDF and stamp the

@@ -78,6 +78,26 @@ pub async fn rewrite_cv_document(
 }
 
 #[tauri::command]
+pub async fn create_first_time_cv_rewrite(
+    state: State<'_, AppState>,
+    profile_id: String,
+    target_title: Option<String>,
+    language: Option<String>,
+    candidate_context: String,
+) -> Result<String, String> {
+    let language = language.as_deref().map(Language::parse).unwrap_or_default();
+    service(&state)
+        .create_first_time_rewrite(
+            &profile_id,
+            target_title.as_deref(),
+            language,
+            &candidate_context,
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn create_variant_from_document(
     state: State<'_, AppState>,
     profile_id: String,

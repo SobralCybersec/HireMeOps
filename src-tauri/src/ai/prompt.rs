@@ -543,14 +543,17 @@ pub fn cv_rewrite_system(lang: Language) -> String {
     match lang {
         Language::En => format!(
             "You are an expert CV writer. Rewrite the candidate's CV, tailored to the \
-             target role, using ONLY real facts from the source CV — never invent \
-             employers, degrees, dates, or credentials. Respond with ONLY a single JSON \
+             target role, using ONLY real facts from the source CV and candidate-supplied \
+             additional context — never invent employers, degrees, dates, or credentials. \
+             If the source CV is empty, minimal, or says this is a first CV, create a \
+             first-time CV from the candidate-supplied context, but leave unknown fields \
+             empty instead of guessing. Respond with ONLY a single JSON \
              object (no prose, no markdown fences) of the exact shape: {REWRITE_JSON_SHAPE}. \
              \"positions\" are the target job titles. Each skill group's \"skills\" is one \
              comma-separated list string. Copy the \"contact\" block VERBATIM from the source \
-             CV — email, phone, city/location, LinkedIn, GitHub, and portfolio/website (a handle \
-             or full URL exactly as written); leave a field empty ONLY when the source CV lacks \
-             it, and NEVER invent contact details. Write ALL human-readable content — the summary, \
+             CV or candidate-supplied context — email, phone, city/location, LinkedIn, GitHub, \
+             and portfolio/website (a handle or full URL exactly as written); leave a field empty \
+             ONLY when neither source provides it, and NEVER invent contact details. Write ALL human-readable content — the summary, \
              every bullet, skills, positions, titles, and organizations — in English, \
              translating it from the source CV when the source is in another language \
              (e.g. Portuguese). Keep bullets concise, achievement-focused, and grounded in \
@@ -571,14 +574,19 @@ pub fn cv_rewrite_system(lang: Language) -> String {
         Language::Pt => format!(
             "Você é um especialista em redação de currículos. Reescreva o currículo do \
              candidato, adaptado à vaga-alvo, usando APENAS fatos reais do currículo de \
-             origem — nunca invente empregadores, formações, datas ou credenciais. Responda \
+             origem e do contexto adicional fornecido pelo candidato — nunca invente \
+             empregadores, formações, datas ou credenciais. Se o currículo de origem estiver \
+             vazio, mínimo ou indicar que este é o primeiro currículo, crie um primeiro \
+             currículo a partir do contexto adicional do candidato, mas deixe campos \
+             desconhecidos vazios em vez de chutar. Responda \
              com APENAS um único objeto JSON (sem prosa, sem cercas de markdown) exatamente \
              no formato: {REWRITE_JSON_SHAPE}. As chaves do JSON permanecem em inglês. \
              \"positions\" são os cargos-alvo. O \"skills\" de cada grupo é uma única string \
              com uma lista separada por vírgulas. Copie o bloco \"contact\" LITERALMENTE do \
-             currículo de origem — email, telefone, cidade/localização, LinkedIn, GitHub e \
-             portfólio/website (usuário ou URL completa, exatamente como escrito); deixe um campo \
-             vazio SOMENTE se o currículo não o tiver, e NUNCA invente dados de contato. \
+             currículo de origem ou do contexto adicional do candidato — email, telefone, \
+             cidade/localização, LinkedIn, GitHub e portfólio/website (usuário ou URL completa, \
+             exatamente como escrito); deixe um campo vazio SOMENTE se nenhuma fonte o tiver, \
+             e NUNCA invente dados de contato. \
              Escreva TODO o conteúdo legível — o resumo, \
              cada bullet, habilidades, cargos, títulos e organizações — em Português (pt-BR), \
              traduzindo do currículo de origem quando ele estiver em outro idioma. Mantenha os \
@@ -629,19 +637,25 @@ pub fn cv_rewrite_prompt(
         .filter(|s| !s.is_empty())
         .map(|s| match lang {
             Language::En => format!(
-                "ADDITIONAL CONTEXT FROM THE CANDIDATE (links, profiles, sites, notes) — \
-                 use it to strengthen the CV where truthful, do not invent facts:\n{}\n\n",
+                "ADDITIONAL CONTEXT FROM THE CANDIDATE (required for first-time CVs): \
+                 name/contact, target role, education, projects, work/volunteer/freelance \
+                 experience, skills/tools, languages, certifications/courses, links, \
+                 achievements/metrics, availability, and notes. Use it as source material \
+                 where truthful; do not invent facts:\n{}\n\n",
                 clip(s)
             ),
             Language::Pt => format!(
-                "CONTEXTO ADICIONAL DO CANDIDATO (links, perfis, sites, notas) — \
-                 use para fortalecer o currículo quando verdadeiro, não invente fatos:\n{}\n\n",
+                "CONTEXTO ADICIONAL DO CANDIDATO (obrigatório para primeiro currículo): \
+                 nome/contato, vaga-alvo, formação, projetos, experiência profissional/voluntária/ \
+                 freelance, habilidades/ferramentas, idiomas, certificações/cursos, links, \
+                 conquistas/métricas, disponibilidade e observações. Use como material de origem \
+                 quando verdadeiro; não invente fatos:\n{}\n\n",
                 clip(s)
             ),
         })
         .unwrap_or_default();
     format!(
-        "{target}{directive}{guidance}{extra}CV CONTENT:\n{}",
+        "{target}{directive}{guidance}{extra}CV CONTENT (may be sparse for first-time CVs):\n{}",
         clip(cv_text)
     )
 }
@@ -971,6 +985,25 @@ Note: feel free to use {curly braces} sparingly in your cover letter."#;
         assert!(p.len() < 13_000);
         let p2 = cv_analysis_prompt("short", Some("   "), Language::En);
         assert!(!p2.contains("targeting"));
+    }
+
+    #[test]
+    fn rewrite_prompt_supports_first_time_cv_context() {
+        let p = cv_rewrite_prompt(
+            "First CV",
+            Some("Junior Backend Developer"),
+            None,
+            Language::En,
+            Some("Name: Jane Doe\nProject: Rust CLI\nGitHub: https://github.com/jane"),
+        );
+        assert!(p.contains("Junior Backend Developer"));
+        assert!(p.contains("required for first-time CVs"));
+        assert!(p.contains("Name: Jane Doe"));
+        assert!(p.contains("CV CONTENT (may be sparse for first-time CVs)"));
+
+        let sys = cv_rewrite_system(Language::En);
+        assert!(sys.contains("first-time CV"));
+        assert!(sys.contains("leave unknown fields"));
     }
 
     #[test]

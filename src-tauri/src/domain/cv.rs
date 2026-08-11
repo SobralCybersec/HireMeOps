@@ -150,6 +150,81 @@ impl CvServiceImpl {
             recommendations: decode(r.6),
         }))
     }
+
+    pub async fn create_first_time_rewrite(
+        &self,
+        profile_id: &str,
+        target_title: Option<&str>,
+        language: Language,
+        candidate_context: &str,
+    ) -> DomainResult<String> {
+        let candidate_context = candidate_context.trim();
+        if candidate_context.is_empty() {
+            return Err(DomainError::InvalidInput(
+                "candidate context is required to create a first CV".into(),
+            ));
+        }
+
+        let (providers, default_index) = load_ai_providers(&self.db).await?;
+        let provider = select_provider_resolved(&providers, default_index).await;
+        if provider.is_disabled() {
+            return Err(DomainError::InvalidInput(
+                "no AI provider configured — add one in Settings".into(),
+            ));
+        }
+
+        let source_text =
+            "First-time CV request. Use the candidate context as the source of truth.";
+        let req = CompletionRequest {
+            model: provider.default_model().to_string(),
+            prompt: cv_rewrite_prompt(
+                source_text,
+                target_title,
+                None,
+                language,
+                Some(candidate_context),
+            ),
+            system: Some(cv_rewrite_system(language)),
+            input_hash: input_hash(&[
+                CV_REWRITE_PROMPT_VERSION,
+                "first-time-cv",
+                profile_id,
+                target_title.unwrap_or(""),
+                language.code(),
+                candidate_context,
+            ]),
+        };
+        let resp = complete_cached(&self.db, &provider, req).await?;
+        let mut rewrite = parse_cv_rewrite(&resp.text);
+        rewrite.language = language;
+        let metadata = rewrite.cv_metadata();
+
+        let id = Uuid::new_v4().to_string();
+        let now = now_iso();
+        let rewrite_json = serde_json::to_string(&rewrite).unwrap_or_else(|_| "{}".to_string());
+        let metadata_json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
+        sqlx::query(
+            "INSERT INTO cv_rewrites (
+                id, profile_id, cv_document_id, role_variant_id,
+                model_provider, model_name, rewrite_json, metadata_json,
+                source_text, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )
+        .bind(&id)
+        .bind(profile_id)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(provider.id())
+        .bind(provider.default_model())
+        .bind(&rewrite_json)
+        .bind(&metadata_json)
+        .bind(candidate_context)
+        .bind(&now)
+        .execute(&self.db)
+        .await?;
+
+        Ok(id)
+    }
 }
 
 impl CvService for CvServiceImpl {
@@ -607,7 +682,7 @@ impl CvService for CvServiceImpl {
                 CvRewriteReport {
                     id: r.0,
                     cv_document_id: r.1,
-                    cv_file_name: r.2.unwrap_or_default(),
+                    cv_file_name: r.2.unwrap_or_else(|| "First-time CV".to_string()),
                     role_variant_id: r.3,
                     variant_name: r.4,
                     model_provider: r.5.unwrap_or_default(),

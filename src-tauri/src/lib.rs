@@ -179,6 +179,7 @@ pub fn run() {
             commands::cv::import_cv_document,
             commands::cv::analyze_cv_document,
             commands::cv::rewrite_cv_document,
+            commands::cv::create_first_time_cv_rewrite,
             commands::cv::create_variant_from_document,
             commands::cv::delete_cv_document,
             commands::cv::cv_read_bytes,

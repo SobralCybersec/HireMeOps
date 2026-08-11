@@ -22,6 +22,7 @@ import {
   importCvDocument,
   loadCvRewrites,
   runCvRewrite,
+  runFirstTimeCvRewrite,
   renderInlineBold,
   defaultCvBytesLoader,
   formatBytes,
@@ -70,6 +71,11 @@ export function CvLibrary() {
   // Optional free-text context (links, GitHub, portfolio, notes) fed to the AI
   // for the next rewrite only. Empty = nothing sent.
   const [extraInfo, setExtraInfo] = useState("");
+  // First-CV composer: no uploaded document required, but the candidate must
+  // provide enough source facts for the model to fill a real CV without guessing.
+  const [firstCvOpen, setFirstCvOpen] = useState(false);
+  const [firstCvTarget, setFirstCvTarget] = useState("");
+  const [firstCvInfo, setFirstCvInfo] = useState("");
   // The rewrite currently shown in the before/after comparison overlay.
   const [comparing, setComparing] = useState<CvRewriteReport | null>(null);
 
@@ -132,6 +138,8 @@ export function CvLibrary() {
 
   const selected = docs.find((c) => c.id === selectedId) ?? null;
   const opened = docs.find((c) => c.id === openId) ?? null;
+  const latestFirstTimeRewrite = rewrites.find((r) => r.cvDocumentId === null) ?? null;
+  const firstCvReady = firstCvTarget.trim().length > 0 && firstCvInfo.trim().length >= 80;
 
   function toggle(id: string) {
     setSelectedId((prev) => (prev === id ? null : id));
@@ -211,6 +219,21 @@ export function CvLibrary() {
     }
   }
 
+  async function handleFirstCvRewrite() {
+    if (isRewriting || !firstCvReady || activeProfileId === null) return;
+    setIsRewriting(true);
+    setRewriteError(null);
+    try {
+      await runFirstTimeCvRewrite(activeProfileId, firstCvTarget, language, firstCvInfo);
+      setFirstCvOpen(true);
+      setReloadNonce((n) => n + 1);
+    } catch (e) {
+      setRewriteError(errMessage(e));
+    } finally {
+      setIsRewriting(false);
+    }
+  }
+
   // Inspector metadata rows -- computed once when selected changes.
   const inspectorRows = selected
     ? [
@@ -245,6 +268,13 @@ export function CvLibrary() {
           Upload DOCX
         </Button>
         <Button disabled>Import Profile</Button>
+        <Button
+          disabled={isRewriting}
+          variant={firstCvOpen ? "primary" : "ghost"}
+          onClick={() => setFirstCvOpen((open) => !open)}
+        >
+          First CV
+        </Button>
         <ToolbarSep />
         <Input
           type="search"
@@ -255,34 +285,33 @@ export function CvLibrary() {
           onChange={(e) => setQuery(e.target.value)}
         />
         <ToolbarSpacer />
+        <Button
+          size="sm"
+          variant={language === "pt" ? "primary" : "ghost"}
+          disabled={isAnalyzing || isRewriting}
+          onClick={() => setLanguage("pt")}
+          title="Generate analysis & rewrites in Portuguese (pt-BR)"
+        >
+          PT
+        </Button>
+        <Button
+          size="sm"
+          variant={language === "en" ? "primary" : "ghost"}
+          disabled={isAnalyzing || isRewriting}
+          onClick={() => setLanguage("en")}
+          title="Generate analysis & rewrites in English"
+        >
+          EN
+        </Button>
         {selected !== null && (
           <>
+            <ToolbarSep />
             <Button size="sm" onClick={() => setOpenId(selected.id)}>
               View
             </Button>
             <Button size="sm" disabled>
               Re-parse
             </Button>
-            <ToolbarSep />
-            <Button
-              size="sm"
-              variant={language === "pt" ? "primary" : "ghost"}
-              disabled={isAnalyzing || isRewriting}
-              onClick={() => setLanguage("pt")}
-              title="Generate analysis & rewrites in Portuguese (pt-BR)"
-            >
-              PT
-            </Button>
-            <Button
-              size="sm"
-              variant={language === "en" ? "primary" : "ghost"}
-              disabled={isAnalyzing || isRewriting}
-              onClick={() => setLanguage("en")}
-              title="Generate analysis & rewrites in English"
-            >
-              EN
-            </Button>
-            <ToolbarSep />
             <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
               {isAnalyzing ? "Analysing..." : "Re-analyse"}
             </Button>
@@ -364,6 +393,78 @@ export function CvLibrary() {
             <Icon icon={Cancel01Icon} size={14} />
           </button>
         </div>
+      )}
+
+      {(firstCvOpen || docs.length === 0) && (
+        <Card
+          title="Create first CV"
+          actions={
+            docs.length > 0 ? (
+              <Button size="sm" onClick={() => setFirstCvOpen(false)}>
+                Hide
+              </Button>
+            ) : null
+          }
+          className="cvx-first-cv"
+        >
+          <div className="cvx-first-cv__grid">
+            <label className="cvx-inspector__extra">
+              <span className="cvx-inspector__extra-label">Target role</span>
+              <Input
+                placeholder="Junior Backend Developer, Data Analyst Intern, UX Designer…"
+                value={firstCvTarget}
+                onChange={(e) => setFirstCvTarget(e.target.value)}
+                disabled={isRewriting}
+              />
+            </label>
+            <label className="cvx-inspector__extra cvx-first-cv__facts">
+              <span className="cvx-inspector__extra-label">Candidate facts</span>
+              <Textarea
+                rows={7}
+                placeholder="Paste everything the model should use: name/contact, city, target role, education, projects, work/volunteer/freelance experience, skills/tools, languages, courses/certs, links, achievements/metrics, availability, notes. Unknown fields stay blank."
+                value={firstCvInfo}
+                onChange={(e) => setFirstCvInfo(e.target.value)}
+                disabled={isRewriting}
+                style={{ resize: "vertical", fontSize: "var(--text-xs)" }}
+              />
+            </label>
+            <div className="cvx-first-cv__side">
+              <span className="cvx-inspector__heading">Required source facts</span>
+              <ul className="cvx-first-cv__checklist">
+                <li>Name + contact</li>
+                <li>Target role</li>
+                <li>Education + courses/certs</li>
+                <li>Projects or experience</li>
+                <li>Skills/tools + links</li>
+              </ul>
+              <Button
+                variant="primary"
+                disabled={isRewriting || !firstCvReady || activeProfileId === null}
+                onClick={handleFirstCvRewrite}
+              >
+                {isRewriting ? "Creating..." : "Create first CV with AI"}
+              </Button>
+              {!firstCvReady && (
+                <p className="cvx-first-cv__hint">
+                  Add a target role and at least 80 characters of candidate facts.
+                </p>
+              )}
+              {latestFirstTimeRewrite !== null && (
+                <div className="cvx-first-cv__result">
+                  <span className="cvx-inspector__heading">Latest first CV</span>
+                  <div className="cvx-inspector__rewrite-actions">
+                    <CvExportButton rewrite={latestFirstTimeRewrite} />
+                    {latestFirstTimeRewrite.sourceText ? (
+                      <Button size="sm" onClick={() => setComparing(latestFirstTimeRewrite)}>
+                        Review generated CV
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
       )}
 
       {/* Content area: grid-only when nothing selected, grid + inspector
@@ -493,11 +594,11 @@ export function CvLibrary() {
                   </div>
                   <label className="cvx-inspector__extra">
                     <span className="cvx-inspector__extra-label">
-                      Extra info for the AI (optional)
+                      Extra info for AI / first CV
                     </span>
                     <Textarea
                       rows={3}
-                      placeholder="Links, GitHub, portfolio, sites, notes — anything you want the AI to weave in…"
+                      placeholder="For a first CV, include: name/contact, target role, education, projects, work/volunteer/freelance experience, skills/tools, languages, courses/certs, links, achievements/metrics, availability, notes…"
                       value={extraInfo}
                       onChange={(e) => setExtraInfo(e.target.value)}
                       disabled={isRewriting}

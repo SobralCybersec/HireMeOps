@@ -140,6 +140,8 @@ export function getMockResponse<T>(command: string, args?: Record<string, unknow
       return MOCK_LIBRARY as unknown as T;
     case "list_cv_analysis_reports":
       return MOCK_HISTORY as unknown as T;
+    case "create_first_time_cv_rewrite":
+      return "mock-first-cv-rewrite" as unknown as T;
     case "cv_read_bytes": {
       const cvId = typeof args?.cvId === "string" ? args.cvId : "";
       const bytes = MOCK_CV_BYTES[cvId];
