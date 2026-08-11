@@ -593,9 +593,7 @@ export function CvLibrary() {
                     </Button>
                   </div>
                   <label className="cvx-inspector__extra">
-                    <span className="cvx-inspector__extra-label">
-                      Extra info for AI / first CV
-                    </span>
+                    <span className="cvx-inspector__extra-label">Extra info for AI / first CV</span>
                     <Textarea
                       rows={3}
                       placeholder="For a first CV, include: name/contact, target role, education, projects, work/volunteer/freelance experience, skills/tools, languages, courses/certs, links, achievements/metrics, availability, notes…"
