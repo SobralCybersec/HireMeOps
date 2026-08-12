@@ -5,13 +5,14 @@ on:
     branches: [master, main]
   pull_request:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   rust:
     name: Rust fmt · clippy · test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: src-tauri
@@ -60,8 +61,10 @@ jobs:
         run: cargo test --all-features
 
   frontend:
-    name: Frontend typecheck · lint · format · test
+    name: typecheck · lint · format · test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -78,6 +81,8 @@ jobs:
   docker:
     name: Docker worker image builds
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:

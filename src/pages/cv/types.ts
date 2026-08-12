@@ -68,6 +68,7 @@ export interface CvContact {
   location: string;
   linkedin: string;
   github: string;
+  gitlab: string;
   website: string;
 }
 

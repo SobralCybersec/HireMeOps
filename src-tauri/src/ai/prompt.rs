@@ -426,6 +426,8 @@ pub struct CvContact {
     #[serde(default)]
     pub github: String,
     #[serde(default)]
+    pub gitlab: String,
+    #[serde(default)]
     pub website: String,
 }
 
@@ -481,6 +483,7 @@ impl CvRewrite {
             location: self.contact.location.trim().to_string(),
             linkedin: self.contact.linkedin.trim().to_string(),
             github: self.contact.github.trim().to_string(),
+            gitlab: self.contact.gitlab.trim().to_string(),
             website: self.contact.website.trim().to_string(),
         };
         self.positions = clean(std::mem::take(&mut self.positions));
@@ -531,7 +534,7 @@ impl CvRewrite {
 
 const REWRITE_JSON_SHAPE: &str = "{\"name\": <string>, \
      \"contact\": {\"email\": <string>, \"phone\": <string>, \"location\": <string>, \
-     \"linkedin\": <string>, \"github\": <string>, \"website\": <string>}, \
+     \"linkedin\": <string>, \"github\": <string>, \"gitlab\": <string>, \"website\": <string>}, \
      \"positions\": [<string>], \
      \"summary\": <string>, \"skills\": [{\"category\": <string>, \"skills\": <string>}], \
      \"experience\": [{\"title\": <string>, \"organization\": <string>, \"location\": <string>, \
@@ -549,15 +552,32 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              first-time CV from the candidate-supplied context, but leave unknown fields \
              empty instead of guessing. Respond with ONLY a single JSON \
              object (no prose, no markdown fences) of the exact shape: {REWRITE_JSON_SHAPE}. \
-             \"positions\" are the target job titles. Each skill group's \"skills\" is one \
-             comma-separated list string. Copy the \"contact\" block VERBATIM from the source \
+             \"positions\" are the target job titles. Write each \"position\" as the JOB TITLE \
+             HELD BY THE PERSON — a profession noun (e.g. \"Software Engineer\", \"Backend \
+             Developer\", \"Data Analyst\") — and NEVER as the name of the field, degree, or \
+             discipline (e.g. \"Software Engineering\", \"Development\", \"Data Science\" are \
+             WRONG). Each skill group's \"skills\" is one \
+             comma-separated list string. Be COMPACT with skills: use AT MOST 4 skill \
+             groups, each with 4 to 8 items (short noun phrases: tools, technologies, \
+             concepts — no sentences or verbs). Group by affinity (e.g. Languages; Backend \
+             and Systems; Frontend and Desktop; Tooling, Quality and DevOps). Remove exact \
+             and near duplicates (e.g. \"REST APIs\" and \"REST API\"; \"TypeScript\" repeated \
+             in two groups). Prioritize the strongest skills most relevant to the target \
+             role, and merge stray items into existing groups instead of creating new ones. Copy the \"contact\" block VERBATIM from the source \
              CV or candidate-supplied context — email, phone, city/location, LinkedIn, GitHub, \
-             and portfolio/website (a handle or full URL exactly as written); leave a field empty \
-             ONLY when neither source provides it, and NEVER invent contact details. Write ALL human-readable content — the summary, \
+             GitLab, and portfolio/website (a handle or full URL exactly as written); leave a field empty \
+             ONLY when neither source provides it, and NEVER invent contact details. Fill EVERY \
+             contact field the source CV or context contains: a missing phone number, \
+             GitLab/GitHub profile, or portfolio link leaves recruiters unable to reach you. \
+             For each education entry, add 1 to 2 short bullets with REAL, widely known \
+             facts about the institution and the course (e.g. a highly ranked public \
+             university known for X research; a course with emphasis on Y) — never invent \
+             dates, honorary titles, or unverifiable specifics; if unsure, omit the bullet. Write ALL human-readable content — the summary, \
              every bullet, skills, positions, titles, and organizations — in English, \
              translating it from the source CV when the source is in another language \
              (e.g. Portuguese). Keep bullets concise, achievement-focused, and grounded in \
-             the source CV. When a PRIOR ANALYSIS block is provided, you MUST act on it: fix \
+             the source CV. EVERY experience entry MUST have 3 to 5 achievement bullets \
+             (never fewer than 3 — a role with 1 or 2 lines looks thin). When a PRIOR ANALYSIS block is provided, you MUST act on it: fix \
              every listed weakness, apply each recommendation, and weave in the missing \
              keywords wherever the source CV truthfully supports them (never fabricate \
              experience to match a keyword). Preserve the listed strengths. \
@@ -581,16 +601,37 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              desconhecidos vazios em vez de chutar. Responda \
              com APENAS um único objeto JSON (sem prosa, sem cercas de markdown) exatamente \
              no formato: {REWRITE_JSON_SHAPE}. As chaves do JSON permanecem em inglês. \
-             \"positions\" são os cargos-alvo. O \"skills\" de cada grupo é uma única string \
-             com uma lista separada por vírgulas. Copie o bloco \"contact\" LITERALMENTE do \
+             \"positions\" são os cargos-alvo. Escreva cada \"position\" como o NOME DO \
+             CARGO EXERCIDO PELA PESSOA — substantivo de profissão (ex.: \"Engenheiro de \
+             Software\", \"Desenvolvedor Backend\", \"Analista de Dados\") — e NUNCA como o \
+             nome da área, curso ou disciplina (ex.: \"Engenharia de Software\", \
+             \"Desenvolvimento\", \"Ciência de Dados\" são formas ERRADAS). O \"skills\" de \
+             cada grupo é uma única string \
+             com uma lista separada por vírgulas. Seja ENXUTO nas habilidades: use no MÁXIMO \
+             4 grupos de habilidades, cada um com 4 a 8 itens (termos curtos: ferramentas, \
+             tecnologias, conceitos — sem frases nem verbos). Agrupe por afinidade (ex.: \
+             Linguagens; Backend e Sistemas; Frontend e Desktop; Ferramentas, Qualidade e \
+             DevOps). Elimine duplicatas exatas e quase-duplicatas (ex.: \"APIs REST\" e \
+             \"REST API\"; \"TypeScript\" repetido em dois grupos). Priorize as habilidades \
+             mais fortes e mais relevantes para a vaga-alvo, e mescle itens isolados em \
+             grupos já existentes em vez de criar grupos novos. Copie o bloco \"contact\" LITERALMENTE do \
              currículo de origem ou do contexto adicional do candidato — email, telefone, \
-             cidade/localização, LinkedIn, GitHub e portfólio/website (usuário ou URL completa, \
+             cidade/localização, LinkedIn, GitHub, GitLab e portfólio/website (usuário ou URL completa, \
              exatamente como escrito); deixe um campo vazio SOMENTE se nenhuma fonte o tiver, \
-             e NUNCA invente dados de contato. \
+             e NUNCA invente dados de contato. Preencha TODO campo de contato que o currículo ou \
+             o contexto contenha: um número de telefone, perfil GitLab/GitHub ou link de \
+             portfólio ausente impede recrutadores de entrar em contato com o candidato. \
+             Para cada entrada de educação, adicione 1 a 2 bullets curtos com informações \
+             REAIS e amplamente conhecidas sobre a instituição e o curso (ex.: universidade \
+             pública federal reconhecida em pesquisa de X; curso com ênfase em Y; nota alta \
+             em avaliações oficiais conhecidas) — nunca invente datas, títulos honoríficos ou \
+             detalhes específicos não verificáveis; se não tiver certeza, omita o bullet.
              Escreva TODO o conteúdo legível — o resumo, \
              cada bullet, habilidades, cargos, títulos e organizações — em Português (pt-BR), \
              traduzindo do currículo de origem quando ele estiver em outro idioma. Mantenha os \
              bullets concisos, focados em conquistas e fundamentados no currículo de origem. \
+             CADA entrada de experiência DEVE ter entre 3 e 5 bullets de conquistas (nunca \
+             menos de 3 — o currículo fica pobre com 1 ou 2 linhas). \
              Quando um bloco PRIOR ANALYSIS for fornecido, você DEVE agir sobre ele: corrija \
              cada fraqueza listada, aplique cada recomendação e incorpore as palavras-chave \
              ausentes onde o currículo de origem realmente as sustente (nunca fabrique \

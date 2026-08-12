@@ -23,8 +23,7 @@ concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   # ── 1. Secret scanning ────────────────────────────────────
@@ -53,6 +52,8 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -87,6 +88,8 @@ jobs:
     name: MIT license present
     runs-on: ubuntu-24.04
     timeout-minutes: 3
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: LICENSE exists and references MIT

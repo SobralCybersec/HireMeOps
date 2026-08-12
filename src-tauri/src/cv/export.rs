@@ -200,10 +200,16 @@ pub fn build_pdf_tex(
         .canonicalize()
         .map_err(|e| format!("resolve fontdir: {e}"))?;
 
+    // Latin Modern (+ Math) lives in fontdir; hyperref hardcodes a `\font pzdr`
+    // (= Zapf Dingbats) under xelatex, so bundle pzdr.tfm/pzdr.otf in a texmf
+    // tree too — TeX Live 2024+ dropped both families system-wide.
+    let texmfhome = cvtex_dir.join("texmf");
+
     for pass in 1..=2 {
         let output = std::process::Command::new("xelatex")
             .current_dir(work)
             .env("OSFONTDIR", &osfontdir)
+            .env("TEXMFHOME", &texmfhome)
             .arg("-interaction=nonstopmode")
             .arg("-halt-on-error")
             .arg("resume.tex")

@@ -90,6 +90,13 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
         ));
         has_social = true;
     }
+    if !c.gitlab.trim().is_empty() {
+        out.push_str(&format!(
+            "\\gitlab{{{}}}\n",
+            strip_handle(&c.gitlab, "gitlab.com")
+        ));
+        has_social = true;
+    }
     if !c.linkedin.trim().is_empty() {
         out.push_str(&format!(
             "\\linkedin{{{}}}\n",
@@ -317,6 +324,7 @@ mod tests {
                 location: "Rio de Janeiro".to_string(),
                 linkedin: "https://linkedin.com/in/anasobral".to_string(),
                 github: "AnaGH".to_string(),
+                gitlab: "https://gitlab.com/anasobral".to_string(),
                 website: "https://ana.dev".to_string(),
             },
             positions: vec!["Backend Engineer".to_string(), "Rust Developer".to_string()],
@@ -397,6 +405,7 @@ mod tests {
         assert!(tex.contains("\\address{Rio de Janeiro}"));
         assert!(tex.contains("\\homepage{https://ana.dev}"));
         assert!(tex.contains("\\github{AnaGH}"));
+        assert!(tex.contains("\\gitlab{anasobral}"), "tex: {tex}");
         assert!(tex.contains("\\linkedin{anasobral}"), "tex: {tex}");
         assert!(tex.contains("\\name{Ana}{Sobral}"));
         assert!(tex.contains("\\cvskill\n    {Database \\& Cache}"));

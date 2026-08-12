@@ -24,8 +24,7 @@ concurrency:
   group: worker-image-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   build:
@@ -34,7 +33,8 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: write # push to GHCR
+      packages: write
+      id-token: write # push to GHCR
     strategy:
       fail-fast: false
       matrix:

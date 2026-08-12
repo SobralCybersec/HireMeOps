@@ -23,10 +23,15 @@ fn service(state: &AppState) -> CvServiceImpl {
 
 fn resolve_cvtex_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
+    // Manifest copy first: in dev (`tauri dev` / cargo run) Tauri's resource_dir
+    // holds a COPY of bundle.resources synced only on full launches — an
+    // incremental rebuild of one .rs file leaves it stale, so the manifest copy
+    // (always current) must win. In a packaged build the manifest path doesn't
+    // exist and the bundled resource copy is used instead.
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/cvtex"));
     if let Ok(base) = app.path().resource_dir() {
         candidates.push(base.join("resources/cvtex"));
     }
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/cvtex"));
     candidates
         .into_iter()
         .find(|p| p.join("curriculo.cls").is_file())

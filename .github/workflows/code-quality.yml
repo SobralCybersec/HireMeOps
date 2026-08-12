@@ -24,8 +24,7 @@ concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
-permissions:
-  contents: read
+permissions: {}
 
 # The three real shell scripts in this repo (no install.sh / lib/ here).
 env:
@@ -35,7 +34,9 @@ jobs:
   # ── 1. Workflow syntax + embedded-shell linting ───────────
   actionlint:
     name: actionlint
-    runs-on: ubuntu-24.04
+    runs-on:
+    permissions:
+      contents: read ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,6 +59,8 @@ jobs:
     name: zizmor (Actions security · advisory)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install zizmor
@@ -73,6 +76,8 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -87,6 +92,8 @@ jobs:
     name: shfmt
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

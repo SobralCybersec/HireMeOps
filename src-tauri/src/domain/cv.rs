@@ -197,6 +197,7 @@ impl CvServiceImpl {
         let resp = complete_cached(&self.db, &provider, req).await?;
         let mut rewrite = parse_cv_rewrite(&resp.text);
         rewrite.language = language;
+        backfill_contact(candidate_context, &mut rewrite.contact);
         let metadata = rewrite.cv_metadata();
 
         let id = Uuid::new_v4().to_string();
@@ -616,6 +617,7 @@ impl CvService for CvServiceImpl {
         let resp = complete_cached(&self.db, &provider, req).await?;
         let mut rewrite = parse_cv_rewrite(&resp.text);
         rewrite.language = language;
+        backfill_contact(&parsed.text, &mut rewrite.contact);
         let metadata = rewrite.cv_metadata();
 
         let id = Uuid::new_v4().to_string();
@@ -744,9 +746,104 @@ fn analysis_fingerprint(analysis: Option<&CvAnalysis>) -> String {
     }
 }
 
+/// Deterministic safety net for contact extraction: the model is told to copy
+/// every contact field, but when it leaves one empty (or the JSON shape was
+/// missing a channel, e.g. gitlab on old prompts) we recover it straight from
+/// the source text. Fills ONLY empty fields; never invents anything not
+/// literally present in `src`.
+fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
+    let take = |s: &str, start: usize, end: usize| {
+        let token = s[start..end].trim().trim_end_matches(['/', '.', ',', ';', ')', '?', '>']);
+        if token.contains(char::is_whitespace) {
+            String::new()
+        } else {
+            token.to_string()
+        }
+    };
+
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i] as char;
+        if b == '@' {
+            let mut j = i + 1;
+            while j < bytes.len() && !(bytes[j] as char).is_whitespace() {
+                let c = bytes[j] as char;
+                if matches!(c, ',' | ';' | '<' | '>' | '"' | '(' | ')') {
+                    break;
+                }
+                j += 1;
+            }
+            let token = take(src, i + 1, j);
+            if contact.email.is_empty()
+                && token.len() > 2
+                && token.contains('.')
+                && !token.ends_with('.')
+            {
+                let mut k = i;
+                while k > 0 {
+                    let c = bytes[k - 1] as char;
+                    if c.is_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-') {
+                        k -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                contact.email = format!("{}{}", &src[k..i], token);
+            }
+            i = j;
+            continue;
+        }
+        for (needle, slot) in [
+            ("github.com/", &mut contact.github),
+            ("gitlab.com/", &mut contact.gitlab),
+            ("linkedin.com/in/", &mut contact.linkedin),
+        ] {
+            if src[i..].len() >= needle.len() && src[i..].starts_with(needle) {
+                let mut j = i + needle.len();
+                while j < bytes.len()
+                    && !(bytes[j] as char).is_whitespace()
+                    && !matches!(bytes[j] as char, '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"')
+                {
+                    j += 1;
+                }
+                let token = take(src, i + needle.len(), j);
+                if !token.is_empty() && slot.is_empty() {
+                    *slot = token;
+                }
+                i = j;
+                break;
+            }
+        }
+        i += 1;
+    }
+
+    if contact.phone.is_empty() {
+        let mut scratch: Vec<char> = Vec::new();
+        let mut digit_count = 0;
+        for c in src.chars() {
+            let keep = c.is_ascii_digit() || matches!(c, '+' | '(' | ')' | '.' | '-' | ' ');
+            if keep {
+                scratch.push(c);
+                if c.is_ascii_digit() {
+                    digit_count += 1;
+                }
+                if digit_count >= 10 && scratch.len() <= 24 {
+                    contact.phone = scratch.iter().collect::<String>().trim().to_string();
+                    break;
+                }
+            } else {
+                scratch.clear();
+                digit_count = 0;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::prompt::CvContact;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::str::FromStr;
 
@@ -774,6 +871,30 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn backfill_fills_only_empty_fields_from_source_text() {
+        let mut contact = CvContact::default();
+        backfill_contact(
+            "João Silva\njoao.silva@email.com\n+55 11 91234-5678\n\
+             https://github.com/joaosilva  gitlab.com/joao-dev\n\
+             https://linkedin.com/in/joao-silva",
+            &mut contact,
+        );
+        assert_eq!(contact.email, "joao.silva@email.com");
+        assert_eq!(contact.phone, "+55 11 91234-5678");
+        assert_eq!(contact.github, "joaosilva");
+        assert_eq!(contact.gitlab, "joao-dev");
+        assert_eq!(contact.linkedin, "joao-silva");
+        assert!(contact.website.is_empty(), "website must stay empty");
+
+        let mut prefilled = CvContact {
+            email: "kept@mail.com".to_string(),
+            ..Default::default()
+        };
+        backfill_contact("other@mail.com", &mut prefilled);
+        assert_eq!(prefilled.email, "kept@mail.com");
     }
 
     fn unique_tmp_dir() -> PathBuf {
