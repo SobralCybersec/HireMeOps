@@ -753,7 +753,9 @@ fn analysis_fingerprint(analysis: Option<&CvAnalysis>) -> String {
 /// literally present in `src`.
 fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
     let take = |s: &str, start: usize, end: usize| {
-        let token = s[start..end].trim().trim_end_matches(['/', '.', ',', ';', ')', '?', '>']);
+        let token = s[start..end]
+            .trim()
+            .trim_end_matches(['/', '.', ',', ';', ')', '?', '>']);
         if token.contains(char::is_whitespace) {
             String::new()
         } else {
@@ -803,7 +805,10 @@ fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
                 let mut j = i + needle.len();
                 while j < bytes.len()
                     && !(bytes[j] as char).is_whitespace()
-                    && !matches!(bytes[j] as char, '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"')
+                    && !matches!(
+                        bytes[j] as char,
+                        '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"'
+                    )
                 {
                     j += 1;
                 }
