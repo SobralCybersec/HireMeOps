@@ -375,7 +375,7 @@ where
     })
 }
 
-pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v7";
+pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v8";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CvSkillGroup {
@@ -552,15 +552,21 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              first-time CV from the candidate-supplied context, but leave unknown fields \
              empty instead of guessing. Respond with ONLY a single JSON \
              object (no prose, no markdown fences) of the exact shape: {REWRITE_JSON_SHAPE}. \
-             \"positions\" are the target job titles. Write each \"position\" as the JOB TITLE \
+             \"positions\" are the target job titles. Return AT LEAST 3 distinct, recruiter-facing \
+             headline options grounded in the source, such as \"Software Engineer\", \
+             \"Backend Software Engineer\", and \"Rust Software Engineer\"; keep every option as \
+             a professional role title, not a technology list or academic field. Write each \
+             \"position\" as the JOB TITLE \
              HELD BY THE PERSON — a profession noun (e.g. \"Software Engineer\", \"Backend \
              Developer\", \"Data Analyst\") — and NEVER as the name of the field, degree, or \
              discipline (e.g. \"Software Engineering\", \"Development\", \"Data Science\" are \
              WRONG). Each skill group's \"skills\" is one \
-             comma-separated list string. Be COMPACT with skills: use AT MOST 4 skill \
+             comma-separated list string. Be COMPACT with skills: use AT MOST 8 skill \
              groups, each with 4 to 8 items (short noun phrases: tools, technologies, \
-             concepts — no sentences or verbs). Group by affinity (e.g. Languages; Backend \
-             and Systems; Frontend and Desktop; Tooling, Quality and DevOps). Remove exact \
+             concepts — no sentences or verbs). Use up to 8 useful groups when the source \
+             supports them, covering categories such as Languages; Backend and Systems; \
+             Frontend; Desktop and Automation; Security; Data and Serialization; Observability \
+             and Operations; and Quality and DevOps. Remove exact \
              and near duplicates (e.g. \"REST APIs\" and \"REST API\"; \"TypeScript\" repeated \
              in two groups). Prioritize the strongest skills most relevant to the target \
              role, and merge stray items into existing groups instead of creating new ones. Copy the \"contact\" block VERBATIM from the source \
@@ -572,7 +578,13 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              For each education entry, add 1 to 2 short bullets with REAL, widely known \
              facts about the institution and the course (e.g. a highly ranked public \
              university known for X research; a course with emphasis on Y) — never invent \
-             dates, honorary titles, or unverifiable specifics; if unsure, omit the bullet. Write ALL human-readable content — the summary, \
+             dates, honorary titles, or unverifiable specifics; if unsure, omit the bullet. \
+             Expand education bullets beyond the degree name: explain the relevant curriculum \
+             focus, practical benefit, or market orientation only when supported by the source \
+             or reliable candidate context. Mention named AI tools such as Claude Code, Cursor, \
+             Gemini, or Codex ONLY when the candidate explicitly says they use them, and connect \
+             each tool to a real workflow or shipped outcome; never add a trending tool as \
+             decoration. Write ALL human-readable content — the summary, \
              every bullet, skills, positions, titles, and organizations — in English, \
              translating it from the source CV when the source is in another language \
              (e.g. Portuguese). Keep bullets concise, achievement-focused, and grounded in \
@@ -586,6 +598,13 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              \"cut p99 latency by **40%**\" or \"led a team of **8 engineers**\". Favor metrics, \
              technologies, scope, and outcomes. Never bold whole sentences, and only use bold \
              inside the summary and the bullets — never in names, titles, dates, or skills. \
+             Write the professional summary in a human-centered CV voice: begin with a \
+             professional title (for example, \"Software Engineer\"), then state experience, \
+             focus, and value. Do not begin the summary with an abstract area noun such as \
+             \"Software Engineering\" or \"Systems Development\". Keep it to 2 to 4 sentences. \
+             Use quantified metrics only when present in the source or candidate context; \
+             preserve the exact unit and meaning (for example, **100% free**, **80%**, \
+             **1,100 downloads**, **2 years**). Never fabricate, inflate, or round metrics. \
              Write bullets in implied first person led by strong past-tense action verbs \
              (Developed, Led, Built, Implemented, Optimized) — never third-person narration like \
              \"He developed\" or \"She led\". Vary the opening verb across bullets so they don't \
@@ -601,17 +620,22 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              desconhecidos vazios em vez de chutar. Responda \
              com APENAS um único objeto JSON (sem prosa, sem cercas de markdown) exatamente \
              no formato: {REWRITE_JSON_SHAPE}. As chaves do JSON permanecem em inglês. \
-             \"positions\" são os cargos-alvo. Escreva cada \"position\" como o NOME DO \
+             \"positions\" são os cargos-alvo. Retorne PELO MENOS 3 opções distintas de título \
+             profissional, quando a fonte permitir, como \"Engenheiro de Software\", \
+             \"Engenheiro de Software Backend\" e \"Engenheiro de Software Rust\"; mantenha cada \
+             opção como um cargo profissional, não como uma lista de tecnologias ou área \
+             acadêmica. Escreva cada \"position\" como o NOME DO \
              CARGO EXERCIDO PELA PESSOA — substantivo de profissão (ex.: \"Engenheiro de \
              Software\", \"Desenvolvedor Backend\", \"Analista de Dados\") — e NUNCA como o \
              nome da área, curso ou disciplina (ex.: \"Engenharia de Software\", \
              \"Desenvolvimento\", \"Ciência de Dados\" são formas ERRADAS). O \"skills\" de \
              cada grupo é uma única string \
              com uma lista separada por vírgulas. Seja ENXUTO nas habilidades: use no MÁXIMO \
-             4 grupos de habilidades, cada um com 4 a 8 itens (termos curtos: ferramentas, \
-             tecnologias, conceitos — sem frases nem verbos). Agrupe por afinidade (ex.: \
-             Linguagens; Backend e Sistemas; Frontend e Desktop; Ferramentas, Qualidade e \
-             DevOps). Elimine duplicatas exatas e quase-duplicatas (ex.: \"APIs REST\" e \
+             8 grupos, cada um com 4 a 8 itens (termos curtos: ferramentas, tecnologias, \
+             conceitos — sem frases nem verbos). Agrupe por afinidade (ex.: Linguagens; \
+             Backend e Sistemas; Frontend; Desktop e Automação; Segurança; Dados e \
+             Serialização; Observabilidade e Operação; Qualidade e DevOps). Elimine duplicatas \
+             exatas e quase-duplicatas (ex.: \"APIs REST\" e \
              \"REST API\"; \"TypeScript\" repetido em dois grupos). Priorize as habilidades \
              mais fortes e mais relevantes para a vaga-alvo, e mescle itens isolados em \
              grupos já existentes em vez de criar grupos novos. Copie o bloco \"contact\" LITERALMENTE do \
@@ -625,7 +649,13 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              REAIS e amplamente conhecidas sobre a instituição e o curso (ex.: universidade \
              pública federal reconhecida em pesquisa de X; curso com ênfase em Y; nota alta \
              em avaliações oficiais conhecidas) — nunca invente datas, títulos honoríficos ou \
-             detalhes específicos não verificáveis; se não tiver certeza, omita o bullet.
+             detalhes específicos não verificáveis; se não tiver certeza, omita o bullet. \
+             Expanda os bullets de educação além do nome do curso: explique o foco curricular, \
+             o benefício prático ou a orientação para o mercado somente quando isso estiver \
+             sustentado pela fonte ou pelo contexto confiável do candidato. Mencione ferramentas \
+             de IA nomeadas, como Claude Code, Cursor, Gemini ou Codex, SOMENTE quando o \
+             candidato afirmar que as utiliza, conectando cada ferramenta a um fluxo de trabalho \
+             ou resultado entregue; nunca adicione uma ferramenta apenas por estar em alta. \
              Escreva TODO o conteúdo legível — o resumo, \
              cada bullet, habilidades, cargos, títulos e organizações — em Português (pt-BR), \
              traduzindo do currículo de origem quando ele estiver em outro idioma. Mantenha os \
@@ -647,8 +677,14 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              \"Integração de …\", \"Criação de …\", \"Gestão de …\" — e NUNCA com verbos conjugados \
              na 3ª pessoa (\"Desenvolveu\", \"Implementou\", \"Liderou\"), que soam como se outra \
              pessoa estivesse descrevendo o candidato. Varie o substantivo inicial entre os \
-             bullets para não repetir. O resumo também deve ser impessoal, sem narração em 3ª \
-             pessoa."
+             bullets para não repetir. O resumo deve ser centrado no profissional: comece com um \
+             título profissional (por exemplo, \"Engenheiro de Software\"), depois informe \
+             experiência, foco e valor. Não comece o resumo com um substantivo abstrato de área, \
+             como \"Engenharia de Software\" ou \"Desenvolvimento de Sistemas\". Mantenha-o entre 2 \
+             e 4 frases. Use métricas somente quando estiverem presentes na fonte ou no contexto \
+             do candidato, preservando exatamente a unidade e o sentido (por exemplo, \
+             **100% gratuito**, **80%**, **1.100 downloads**, **2 anos**). Nunca fabrique, infle ou \
+             arredonde métricas."
         ),
     }
 }

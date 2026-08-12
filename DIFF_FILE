@@ -1,0 +1,10 @@
+--- src-tauri/src/ai/prompt.rs
++++ src-tauri/src/ai/prompt.rs
+@@
+-CV_REWRITE_PROMPT_VERSION = cv-rewrite-v7
++CV_REWRITE_PROMPT_VERSION = cv-rewrite-v8
+@@
+-Abstract/impersonal summary; max 4 skill groups.
++Professional-centered summary; at least 3 grounded role headlines; up to 8 skill groups.
+@@
++Require real-source metrics with exact units; mention named AI tools only when candidate supplied and tied to outcomes; expand education bullets with supported curriculum/market value.

@@ -1,0 +1,42 @@
+Changed branch/field:
+src-tauri/src/ai/prompt.rs — cv_rewrite_system(Language::Pt/En) and CV_REWRITE_PROMPT_VERSION.
+- Summary now starts from professional identity, not abstract nouns.
+- Positions require at least 3 grounded recruiter-facing role headlines.
+- Skills support up to 8 source-backed groups.
+- Metrics preserve exact source units and forbid fabrication.
+- Named AI tools (Claude Code, Cursor, Gemini, Codex) require candidate evidence and a real outcome.
+- Education bullets explain supported curriculum/practical/market value.
+
+Artifacts:
+MODIFIED_FILE: /home/satu/Documents/HireMeOps/src-tauri/src/ai/prompt.rs
+DIFF_FILE: /home/satu/Documents/HireMeOps/DIFF_FILE
+VERIFICATION.txt: /home/satu/Documents/HireMeOps/VERIFICATION.txt
+ROLLBACK.sh: /home/satu/Documents/HireMeOps/ROLLBACK.sh
+
+Original hash:
+7fb013358fcef3cf916822dc1e425df181787587b784aa61d4f1479896dc3979  /tmp/hiremeops-cv-transaction/prompt.rs.original
+Modified hash:
+3eeaaf742dabdcfa08d60d40982d7ffb8e448c3310817ea777322ad46764cf3b  /home/satu/Documents/HireMeOps/src-tauri/src/ai/prompt.rs
+
+BASELINE command:
+cargo test --manifest-path src-tauri/Cargo.toml ai::prompt::tests --lib
+BASELINE input: original src-tauri/src/ai/prompt.rs
+BASELINE literal result: running 20 tests; test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 0.00s
+BASELINE exit status: 0
+
+MODIFIED command:
+/tmp/hiremeops-cv-transaction/test_prompt.sh
+MODIFIED input: changed src-tauri/src/ai/prompt.rs
+MODIFIED literal result: running 20 tests; test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 170 filtered out; finished in 0.00s
+MODIFIED exit status: 0
+
+ROLLBACK command:
+./ROLLBACK.sh /tmp/hiremeops-cv-transaction/rollback-copy.rs /tmp/hiremeops-cv-transaction/prompt.rs.original
+ROLLBACK input: modified copy at /tmp/hiremeops-cv-transaction/rollback-copy.rs
+ROLLBACK literal result: 7fb013358fcef3cf916822dc1e425df181787587b784aa61d4f1479896dc3979  /tmp/hiremeops-cv-transaction/rollback-copy.rs; ROLLBACK_COPY_RESTORED=1
+ROLLBACK exit status: 0
+Restored behavior/status: rollback copy byte-equal to original; live MODIFIED_FILE remains changed.
+
+Additional validation:
+git diff --check — exit 0.
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check — skipped as a gate because it reports an unrelated pre-existing formatting difference in src-tauri/src/domain/cv.rs:808.
