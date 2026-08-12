@@ -763,64 +763,65 @@ fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
         }
     };
 
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i] as char;
-        if b == '@' {
-            let mut j = i + 1;
-            while j < bytes.len() && !(bytes[j] as char).is_whitespace() {
-                let c = bytes[j] as char;
-                if matches!(c, ',' | ';' | '<' | '>' | '"' | '(' | ')') {
+    if contact.email.is_empty() {
+        for (at, _) in src.match_indices('@') {
+            let domain_start = at + 1;
+            let mut domain_end = src.len();
+            for (offset, c) in src[domain_start..].char_indices() {
+                if c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>' | '"' | '(' | ')') {
+                    domain_end = domain_start + offset;
                     break;
                 }
-                j += 1;
             }
-            let token = take(src, i + 1, j);
-            if contact.email.is_empty()
-                && token.len() > 2
-                && token.contains('.')
-                && !token.ends_with('.')
-            {
-                let mut k = i;
-                while k > 0 {
-                    let c = bytes[k - 1] as char;
-                    if c.is_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-') {
-                        k -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                contact.email = format!("{}{}", &src[k..i], token);
+
+            let domain = take(src, domain_start, domain_end);
+            if domain.len() <= 2 || !domain.contains('.') || domain.ends_with('.') {
+                continue;
             }
-            i = j;
-            continue;
-        }
-        for (needle, slot) in [
-            ("github.com/", &mut contact.github),
-            ("gitlab.com/", &mut contact.gitlab),
-            ("linkedin.com/in/", &mut contact.linkedin),
-        ] {
-            if src[i..].len() >= needle.len() && src[i..].starts_with(needle) {
-                let mut j = i + needle.len();
-                while j < bytes.len()
-                    && !(bytes[j] as char).is_whitespace()
-                    && !matches!(
-                        bytes[j] as char,
-                        '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"'
-                    )
-                {
-                    j += 1;
+
+            let mut local_start = at;
+            for (idx, c) in src[..at].char_indices().rev() {
+                if c.is_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-') {
+                    local_start = idx;
+                } else {
+                    break;
                 }
-                let token = take(src, i + needle.len(), j);
-                if !token.is_empty() && slot.is_empty() {
-                    *slot = token;
-                }
-                i = j;
+            }
+
+            if local_start < at {
+                contact.email = format!("{}@{}", &src[local_start..at], domain);
                 break;
             }
         }
-        i += 1;
+    }
+
+    for (needle, slot) in [
+        ("github.com/", &mut contact.github),
+        ("gitlab.com/", &mut contact.gitlab),
+        ("linkedin.com/in/", &mut contact.linkedin),
+    ] {
+        if !slot.is_empty() {
+            continue;
+        }
+
+        for (start, _) in src.match_indices(needle) {
+            let value_start = start + needle.len();
+            let mut value_end = src.len();
+            for (offset, c) in src[value_start..].char_indices() {
+                if c.is_whitespace()
+                    || matches!(c, '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"')
+                {
+                    value_end = value_start + offset;
+                    break;
+                }
+            }
+
+            let token = take(src, value_start, value_end);
+            if !token.is_empty() {
+                *slot = token;
+                break;
+            }
+        }
     }
 
     if contact.phone.is_empty() {
@@ -900,6 +901,18 @@ mod tests {
         };
         backfill_contact("other@mail.com", &mut prefilled);
         assert_eq!(prefilled.email, "kept@mail.com");
+    }
+
+    #[test]
+    fn backfill_handles_utf8_before_contact_links_without_panicking() {
+        let mut contact = CvContact::default();
+        backfill_contact(
+            "Óscar João — óscar.joao@example.com — https://github.com/oscarjoao",
+            &mut contact,
+        );
+
+        assert_eq!(contact.email, "óscar.joao@example.com");
+        assert_eq!(contact.github, "oscarjoao");
     }
 
     fn unique_tmp_dir() -> PathBuf {
