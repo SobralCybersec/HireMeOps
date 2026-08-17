@@ -808,8 +808,7 @@ fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
             let value_start = start + needle.len();
             let mut value_end = src.len();
             for (offset, c) in src[value_start..].char_indices() {
-                if c.is_whitespace()
-                    || matches!(c, '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"')
+                if c.is_whitespace() || matches!(c, '/' | '\\' | '?' | '#' | ',' | ';' | ')' | '"')
                 {
                     value_end = value_start + offset;
                     break;
@@ -827,18 +826,18 @@ fn backfill_contact(src: &str, contact: &mut crate::ai::prompt::CvContact) {
     if contact.phone.is_empty() {
         let mut scratch: Vec<char> = Vec::new();
         let mut digit_count = 0;
-        for c in src.chars() {
+        for c in src.chars().chain(std::iter::once('\0')) {
             let keep = c.is_ascii_digit() || matches!(c, '+' | '(' | ')' | '.' | '-' | ' ');
             if keep {
                 scratch.push(c);
                 if c.is_ascii_digit() {
                     digit_count += 1;
                 }
+            } else {
                 if digit_count >= 10 && scratch.len() <= 24 {
                     contact.phone = scratch.iter().collect::<String>().trim().to_string();
                     break;
                 }
-            } else {
                 scratch.clear();
                 digit_count = 0;
             }

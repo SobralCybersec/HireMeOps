@@ -375,7 +375,7 @@ where
     })
 }
 
-pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v8";
+pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v10";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CvSkillGroup {
@@ -598,6 +598,30 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              \"cut p99 latency by **40%**\" or \"led a team of **8 engineers**\". Favor metrics, \
              technologies, scope, and outcomes. Never bold whole sentences, and only use bold \
              inside the summary and the bullets — never in names, titles, dates, or skills. \
+             Make quantified impact a priority across the entire work history, not only the \
+             strongest or most recent project: actively look for truthful, source-backed \
+             numbers in every relevant project and role, including performance improvements, \
+             scale or volume, time or cost reduction, reliability, adoption, revenue, and team \
+             scope. If a number is not explicitly supported, describe the outcome qualitatively \
+             instead of inventing one. \
+             Prefer ONE primary metric or defensible scope signal per bullet, using this impact \
+             taxonomy when supported by the source: money (revenue, budget, cost saved or \
+             avoided spend, licensing cost — \"100% free\" describes pricing, while savings \
+             requires evidence of spend avoided); time (hours, days, cycle time, turnaround); \
+             performance (latency, throughput, speed, efficiency); scale (users, accounts, \
+             volume, markets, team size, scope); reliability and quality (errors, defects, \
+             downtime, accuracy, SLA/SLO, complaints); adoption and usage (activation, \
+             retention, rollout coverage, repeat use); customer and business outcomes \
+             (conversion, CSAT/NPS, renewals, churn, expansion, response time); management and \
+             process (hiring, mentoring, training, coordination, SOP/process adoption); and \
+             risk/compliance (incidents, audit results, control coverage, policy adherence). \
+             Prefer the structure action → what changed → metric/result → baseline or end state \
+             → scope. Preserve approximate language such as \"about\" or \"roughly\" when the \
+             source uses it; do not add precision. When no hard metric exists, use truthful scope \
+             signals such as frequency, markets, artifacts shipped, or process adoption. Claim \
+             personal contribution only; do not attribute team-wide outcomes without evidence. \
+             Do not stop at an activity, technology, or responsibility: state the resulting value \
+             when the source supports it. \
              Write the professional summary in a human-centered CV voice: begin with a \
              professional title (for example, \"Software Engineer\"), then state experience, \
              focus, and value. Do not begin the summary with an abstract area noun such as \
@@ -669,7 +693,31 @@ pub fn cv_rewrite_system(lang: Language) -> String {
              listados. Para tornar o currículo escaneável e envolvente, destaque as 1–3 frases \
              de maior impacto no resumo e em CADA bullet com negrito markdown usando asteriscos \
              duplos — ex.: \"reduziu a latência p99 em **40%**\" ou \"liderou uma equipe de \
-             **8 engenheiros**\". Priorize métricas, tecnologias, escopo e resultados. Nunca \
+             **8 engenheiros**\". Priorize métricas, tecnologias, escopo e resultados. Trate a \
+             inclusão de impactos quantificados como prioridade em TODO o histórico profissional, \
+             não apenas no projeto mais forte ou recente: procure ativamente números verdadeiros \
+             e sustentados pela fonte em cada projeto e cargo relevante, incluindo ganhos de \
+             performance, escala ou volume, redução de tempo ou custo, confiabilidade, adoção, \
+             receita e tamanho do time/escopo. Se um número não estiver explicitamente sustentado, \
+             descreva o resultado qualitativamente em vez de inventá-lo. \
+             Prefira UM indicador principal de impacto ou sinal de escopo defensável por bullet, \
+             usando esta taxonomia quando houver suporte na fonte: dinheiro (receita, orçamento, \
+             custo economizado ou despesa evitada, custo de licenças — \"100% gratuito\" descreve \
+             preço, enquanto economia exige evidência de despesa evitada); tempo (horas, dias, \
+             tempo de ciclo, prazo de entrega); performance (latência, throughput, velocidade, \
+             eficiência); escala (usuários, contas, volume, mercados, tamanho do time, escopo); \
+             confiabilidade e qualidade (erros, defeitos, indisponibilidade, precisão, SLA/SLO, \
+             reclamações); adoção e uso (ativação, retenção, cobertura do rollout, uso recorrente); \
+             resultados de cliente e negócio (conversão, CSAT/NPS, renovações, churn, expansão, \
+             tempo de resposta); gestão e processos (contratações, mentoria, treinamento, \
+             coordenação, adoção de SOP/processo); e risco/compliance (incidentes, auditorias, \
+             cobertura de controles, aderência a políticas). Prefira a estrutura ação → mudança → \
+             métrica/resultado → linha de base ou estado final → escopo. Preserve qualificadores \
+             aproximados como \"cerca de\" quando a fonte os usar; não adicione precisão. Sem métrica \
+             concreta, use sinais de escopo verdadeiros, como frequência, mercados, entregas ou \
+             adoção de processos. Atribua apenas a contribuição pessoal; não atribua resultados de \
+             todo o time sem evidência. Não pare na atividade, tecnologia ou responsabilidade: \
+             informe o valor gerado quando a fonte o sustentar. Nunca \
              coloque frases inteiras em negrito, e use negrito apenas dentro do resumo e dos \
              bullets — nunca em nomes, títulos, datas ou habilidades. Escreva os bullets de \
              forma IMPESSOAL, começando por SUBSTANTIVOS de ação — ex.: \"Desenvolvimento de …\", \
@@ -1066,6 +1114,7 @@ Note: feel free to use {curly braces} sparingly in your cover letter."#;
 
     #[test]
     fn rewrite_prompt_supports_first_time_cv_context() {
+        assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v10");
         let p = cv_rewrite_prompt(
             "First CV",
             Some("Junior Backend Developer"),
@@ -1081,6 +1130,20 @@ Note: feel free to use {curly braces} sparingly in your cover letter."#;
         let sys = cv_rewrite_system(Language::En);
         assert!(sys.contains("first-time CV"));
         assert!(sys.contains("leave unknown fields"));
+        assert!(sys.contains("across the entire work history"));
+        assert!(sys.contains("performance improvements"));
+        assert!(sys.contains("money (revenue"));
+        assert!(sys.contains("100% free"));
+        assert!(sys.contains("management and process"));
+        assert!(sys.contains("action → what changed"));
+
+        let sys_pt = cv_rewrite_system(Language::Pt);
+        assert!(sys_pt.contains("TODO o histórico profissional"));
+        assert!(sys_pt.contains("redução de tempo ou custo"));
+        assert!(sys_pt.contains("dinheiro (receita"));
+        assert!(sys_pt.contains("100% gratuito"));
+        assert!(sys_pt.contains("gestão e processos"));
+        assert!(sys_pt.contains("ação → mudança"));
     }
 
     #[test]

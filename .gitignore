@@ -37,3 +37,7 @@ docs
 # Timestamped source backups — never track or index
 src.backup-*/
 src.zip
+AGENTS.md
+REVIEW.md
+.gitignore
+jscpd.json
