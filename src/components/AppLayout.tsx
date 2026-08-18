@@ -2,13 +2,12 @@ import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 import { TopNav } from "./TopNav";
 import { OnboardingOverlay } from "./OnboardingOverlay";
-import { GlobalLivePreview } from "./GlobalLivePreview";
 
 export function AppLayout() {
   const isDesktopRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   return (
-    <div className="app-shell app-shell--full">
+    <div className="app-shell">
       <OnboardingOverlay />
       {/* Skip link - first focusable element; jumps past the nav */}
       <a className="skip-link" href="#main-content">
@@ -16,9 +15,6 @@ export function AppLayout() {
       </a>
 
       <TopNav />
-
-      {/* One shared live-automation preview, watchable from any page. */}
-      <GlobalLivePreview />
 
       <div className="app-main">
         {!isDesktopRuntime && (

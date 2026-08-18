@@ -434,7 +434,7 @@ export function SettingsApp() {
                         </span>
                         <Select
                           value={settings?.appLanguage ?? "en"}
-                          onValueChange={(v) => void updateSettings({ appLanguage: v })}
+                          onValueChange={(v) => void updateSettings({ appLanguage: v ?? "en" })}
                         >
                           <SelectTrigger className="w-full">
                             <SelectValue />

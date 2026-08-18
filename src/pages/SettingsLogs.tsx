@@ -497,7 +497,7 @@ export function SettingsLogs() {
                   >
                     When enabled, adds <code className="code">reduced-effects</code> to{" "}
                     <code className="code">&lt;html&gt;</code>, suppressing all CSS transitions and
-                    animations project-wide. HireMeOps ships one dark-blue HUD theme.
+                    animations project-wide. HireMeOps ships one dark neutral HUD theme.
                   </p>
                 </div>
               )}

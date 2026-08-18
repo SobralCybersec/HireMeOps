@@ -34,6 +34,8 @@ reports/quality/
 *.sln
 *.sw?
 .frontend-slides/
+ctf
+.impeccable
 
 # Timestamped source backups — never track or index
 src.backup-*/

@@ -1,11 +1,20 @@
-# Build-speed config for `tauri dev`. The dominant cost in the edit→run loop is
-# *linking* the dev binary, not compiling changed code. Switching from the
-# default GNU `bfd` linker to LLVM `lld` (via clang) cuts link time massively
-# (typically 5–10×), which is the biggest single win for `tauri dev` latency.
+# Build-speed config for `tauri dev`.
 #
-# `lld` is used here (LLD 22 is installed) rather than `mold` only because mold
-# isn't on this machine; if you `sudo pacman -S mold`, swap the link-arg below
-# to `-fuse-ld=mold` for a further link-time reduction.
+# The dominant cost in the edit → run loop is often linking the dev binary.
+# Using LLVM's `lld` through clang can significantly reduce link times compared
+# with the default GNU `bfd` linker.
+#
+# Requirements on Arch Linux:
+#   sudo pacman -S clang lld
+#
+# If `mold` is installed instead:
+#   sudo pacman -S mold
+#
+# you can replace:
+#   -fuse-ld=lld
+# with:
+#   -fuse-ld=mold
+
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]

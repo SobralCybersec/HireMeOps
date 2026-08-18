@@ -103,7 +103,7 @@ export default function BrowserPreview({ handle = null, className }: Props) {
           width: "100%",
           height: "auto",
           display: "block",
-          background: "#0b0b0d",
+          background: "var(--color-surface-sunken)",
           borderRadius: 8,
         }}
       />
@@ -116,7 +116,7 @@ export default function BrowserPreview({ handle = null, className }: Props) {
             alignItems: "center",
             justifyContent: "center",
             fontSize: 13,
-            color: "#8a8a94",
+            color: "var(--color-text-muted)",
             textAlign: "center",
             padding: 12,
           }}

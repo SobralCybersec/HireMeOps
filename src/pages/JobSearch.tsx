@@ -63,6 +63,7 @@ import {
   matchScoreVariant,
   humanizeStatus,
 } from "../components/ui";
+import "./JobSearch.css";
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
@@ -163,6 +164,7 @@ export function JobSearch() {
   // togglable panel — the filters it edits already drive this page's searches.
   const [showPreferences, setShowPreferences] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobilePane, setMobilePane] = useState<"filters" | "jobs" | "detail">("jobs");
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   // id of the query currently being deleted — null when idle
@@ -236,6 +238,11 @@ export function JobSearch() {
     setSelectedSkills((prev) =>
       prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill],
     );
+
+  const selectJob = (id: string) => {
+    setSelectedId(id);
+    setMobilePane("detail");
+  };
 
   // Build the generator input from the shared job-filters working set. Returns
   // null when no profile is active. targetRoles must be non-empty for a
@@ -704,7 +711,7 @@ export function JobSearch() {
         }
         if (scraped.blocked) {
           setSearchMsg(
-            `Google blocked the request after ${i} dork${i === 1 ? "" : "s"} — try again later or solve the captcha.`,
+            `Google blocked the request after ${i} dork${i === 1 ? "" : "s"}. Try again later or solve the captcha.`,
           );
           break;
         }
@@ -739,7 +746,7 @@ export function JobSearch() {
     ] as const;
     let done = 0;
     for (const p of platforms) {
-      setSearchMsg(`Running searches… (${done}/${platforms.length}) — ${p}`);
+      setSearchMsg(`Running searches… (${done}/${platforms.length}) - ${p}`);
       try {
         await handleRunSearch(p);
       } catch {
@@ -862,6 +869,7 @@ export function JobSearch() {
   const hiddenDupeCount = hideDuplicates
     ? jobs.filter((j) => j.status === "skipped_duplicate_url").length
     : 0;
+  const queuedCount = jobs.filter((j) => j.status === "queued").length;
 
   const selected = jobs.find((j) => j.id === selectedId) ?? null;
   const selectedMatchScore = selected !== null ? matchScoreFor(selected.id) : null;
@@ -1031,7 +1039,7 @@ export function JobSearch() {
     if (selected === null || activeProfileId === null || isApplying) return;
     const matchId = matches.find((m) => m.jobId === selected.id)?.id;
     if (matchId === undefined) {
-      setSearchMsg("Score this job first — the application is drafted from its match.");
+      setSearchMsg("Score this job first. The application is drafted from its match.");
       return;
     }
     setIsApplying(true);
@@ -1047,7 +1055,7 @@ export function JobSearch() {
         if (st === "NeedsReview") {
           setLinkedinParked(true);
           setSearchMsg(
-            `Easy Apply form filled & AI-answered for "${selected.title}" — review it in the window, then submit or discard.`,
+            `Easy Apply form filled & AI-answered for "${selected.title}". Review it in the window, then submit or discard.`,
           );
           break;
         }
@@ -1056,7 +1064,7 @@ export function JobSearch() {
           break;
         }
         if (Date.now() > deadline) {
-          setSearchMsg("LinkedIn apply timed out — check the Applications queue.");
+          setSearchMsg("LinkedIn apply timed out. Check the Applications queue.");
           break;
         }
       }
@@ -1107,7 +1115,36 @@ export function JobSearch() {
   };
 
   return (
-    <div className="page page--fill">
+    <div
+      className={`page page--fill job-search-page${showPreferences ? " job-search-page--preferences" : ""}`}
+    >
+      <header className="job-search__masthead">
+        <div>
+          <div className="job-search__eyebrow">
+            Sourcing workspace / {activeProfileId === null ? "No profile" : "Profile ready"}
+          </div>
+          <h1 className="job-search__title">Job search</h1>
+          <p className="job-search__subtitle">
+            Search connected sources, compare fit, and move strong roles into your queue.
+          </p>
+        </div>
+        <div className="job-search__signal" aria-label={`${filtered.length} visible jobs`}>
+          <span>Visible now</span>
+          <strong>{filtered.length}</strong>
+        </div>
+        <div className="job-search__metrics" aria-label="Job search summary">
+          <span>
+            <b>{jobs.length}</b> total
+          </span>
+          <span>
+            <b>{matches.length}</b> scored
+          </span>
+          <span>
+            <b>{queuedCount}</b> queued
+          </span>
+        </div>
+      </header>
+
       {/* Error banner */}
       {bannerError !== null && (
         <div className="banner banner--error" role="alert">
@@ -1121,7 +1158,7 @@ export function JobSearch() {
       {/* Toolbar */}
       {/* Per-site login buttons removed — the Command Center's Universal Login
           opens every site (and ChatGPT) in one window. */}
-      <Toolbar border>
+      <Toolbar border className="job-search__toolbar" aria-label="Job search actions">
         <Button
           variant="primary"
           disabled={!canSearch || runningAll}
@@ -1270,7 +1307,7 @@ export function JobSearch() {
         <Button
           variant="primary"
           disabled={activeProfileId === null || isApplying}
-          title="Submit an application to every queued job — Catho, InfoJobs, Indeed, LinkedIn (visible windows)"
+          title="Submit an application to every queued job. Catho, InfoJobs, Indeed, and LinkedIn use visible windows."
           onClick={() => void handleAutoApply()}
         >
           {isApplying ? "Auto-applying…" : "Auto-apply all"}
@@ -1282,6 +1319,7 @@ export function JobSearch() {
         <ToolbarSpacer />
         {searchMsg !== null && (
           <span
+            aria-live="polite"
             style={{
               fontSize: "var(--text-xs)",
               color: "var(--color-text-2)",
@@ -1292,12 +1330,13 @@ export function JobSearch() {
         )}
         {isLoading && (
           <span
+            aria-live="polite"
             style={{
               fontSize: "var(--text-xs)",
               color: "var(--color-text-muted)",
             }}
           >
-            Loading...
+            Loading…
           </span>
         )}
         <span
@@ -1311,25 +1350,57 @@ export function JobSearch() {
         </span>
       </Toolbar>
 
+      <nav className="job-search__mobile-tabs" aria-label="Search workspace sections">
+        <button
+          type="button"
+          className={mobilePane === "filters" ? "is-active" : undefined}
+          aria-pressed={mobilePane === "filters"}
+          onClick={() => setMobilePane("filters")}
+        >
+          Filters
+        </button>
+        <button
+          type="button"
+          className={mobilePane === "jobs" ? "is-active" : undefined}
+          aria-pressed={mobilePane === "jobs"}
+          onClick={() => setMobilePane("jobs")}
+        >
+          Jobs <span>{filtered.length}</span>
+        </button>
+        <button
+          type="button"
+          className={mobilePane === "detail" ? "is-active" : undefined}
+          aria-pressed={mobilePane === "detail"}
+          onClick={() => setMobilePane("detail")}
+        >
+          Detail
+        </button>
+      </nav>
+
       {/* Calibration bench (former Job Preferences) — shown in place of the
           results when toggled. Editing here updates the shared filters store
           that this page's searches + scoring read. */}
       {showPreferences && (
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div className="job-search__preferences">
           <JobCalibrationPanel />
         </div>
       )}
 
       {/* Three-pane */}
-      <div className="three-pane" hidden={showPreferences}>
+      <div className="three-pane job-search__panes" hidden={showPreferences}>
         {/* ── Filters panel ──────────────────────────────────────── */}
-        <div className="three-pane__panel">
-          <div className="panel-header">
+        <div
+          className="three-pane__panel job-search__filters"
+          data-mobile-active={mobilePane === "filters"}
+        >
+          <div className="panel-header job-search__panel-header">
             <h2 className="panel-header__title">Filters</h2>
           </div>
           <div className="section-group" style={{ padding: "var(--sp-3)" }}>
             <Field label="Platform">
               <Select
+                name="platform"
+                autoComplete="off"
                 value={platformFilter}
                 options={platformOptions}
                 onChange={(e) => setPlatformFilter(e.target.value)}
@@ -1338,17 +1409,21 @@ export function JobSearch() {
 
             <Field label="Keywords" helper="Every word must appear in the job. Blank shows all.">
               <Input
+                name="keywords"
+                autoComplete="off"
                 value={wordsFilter}
                 onChange={(e) => setWordsFilter(e.target.value)}
-                placeholder="e.g. react java remote"
+                placeholder="e.g. react, java, remote…"
               />
             </Field>
 
             <Field label="Location" helper="City, region, or 'remote'/'hybrid'. Blank shows all.">
               <Input
+                name="location"
+                autoComplete="off"
                 value={locationFilter}
                 onChange={(e) => setLocationFilter(e.target.value)}
-                placeholder="e.g. São Paulo, Remote"
+                placeholder="e.g. São Paulo, Remote…"
               />
             </Field>
 
@@ -1380,6 +1455,8 @@ export function JobSearch() {
             <Field label="Min match score" helper="0 - 100. Blank shows every job.">
               <Input
                 type="number"
+                name="min-score"
+                autoComplete="off"
                 min={0}
                 max={100}
                 step={5}
@@ -1395,7 +1472,7 @@ export function JobSearch() {
                     setMinScore(Math.max(0, Math.min(100, n)));
                   }
                 }}
-                placeholder="0"
+                placeholder="e.g. 70…"
               />
             </Field>
 
@@ -1480,8 +1557,11 @@ export function JobSearch() {
         </div>
 
         {/* ── Job list ────────────────────────────────────────────── */}
-        <div className="three-pane__panel">
-          <div className="panel-header">
+        <div
+          className="three-pane__panel job-search__results"
+          data-mobile-active={mobilePane === "jobs"}
+        >
+          <div className="panel-header job-search__panel-header">
             <h2 className="panel-header__title">Jobs</h2>
             <Badge variant="neutral">{filtered.length}</Badge>
           </div>
@@ -1493,7 +1573,7 @@ export function JobSearch() {
               body="Select a profile to load jobs."
             />
           ) : isLoading ? (
-            <EmptyState title="Loading..." />
+            <EmptyState title="Loading…" />
           ) : filtered.length === 0 ? (
             <EmptyState
               label="Empty"
@@ -1501,58 +1581,49 @@ export function JobSearch() {
               body="Adjust filters or run a search."
             />
           ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            <ul className="job-search__result-list" aria-label="Job results">
               {filtered.map((job) => {
                 const score = matchScoreFor(job.id);
                 return (
                   <li
                     key={job.id}
-                    className={selectedId === job.id ? "list-item selected" : "list-item"}
-                    onClick={() => setSelectedId(job.id)}
-                    tabIndex={0}
-                    role="button"
-                    aria-pressed={selectedId === job.id}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedId(job.id)}
+                    className={
+                      selectedId === job.id
+                        ? "list-item job-search__result selected"
+                        : "list-item job-search__result"
+                    }
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--sp-2)",
-                        minWidth: 0,
-                      }}
+                    <button
+                      type="button"
+                      className="job-search__result-button"
+                      aria-pressed={selectedId === job.id}
+                      onClick={() => selectJob(job.id)}
                     >
-                      {PLATFORM_ICONS[job.platform] && (
-                        <img
-                          src={PLATFORM_ICONS[job.platform]}
-                          alt={PLATFORM_LABELS[job.platform] ?? job.platform}
-                          title={PLATFORM_LABELS[job.platform] ?? job.platform}
-                          width={22}
-                          height={22}
-                          style={{ borderRadius: 5, flexShrink: 0 }}
-                        />
-                      )}
-                      <div style={{ minWidth: 0 }}>
-                        <div className="list-item__name">{job.title}</div>
-                        <div className="list-item__meta">
-                          {job.company} · {job.location ?? "Remote"}
+                      <div className="job-search__result-main">
+                        {PLATFORM_ICONS[job.platform] && (
+                          <img
+                            src={PLATFORM_ICONS[job.platform]}
+                            alt={PLATFORM_LABELS[job.platform] ?? job.platform}
+                            title={PLATFORM_LABELS[job.platform] ?? job.platform}
+                            width={22}
+                            height={22}
+                            style={{ borderRadius: 5, flexShrink: 0 }}
+                          />
+                        )}
+                        <div className="job-search__result-copy">
+                          <div className="list-item__name">{job.title}</div>
+                          <div className="list-item__meta">
+                            {job.company} · {job.location ?? "Remote"}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-end",
-                        gap: "var(--sp-1)",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Badge variant={jobStatusVariant(job.status)}>
-                        {humanizeStatus(job.status)}
-                      </Badge>
-                      {score !== null && <MatchScoreBadge score={score} />}
-                    </div>
+                      <div className="job-search__result-state">
+                        <Badge variant={jobStatusVariant(job.status)}>
+                          {humanizeStatus(job.status)}
+                        </Badge>
+                        {score !== null && <MatchScoreBadge score={score} />}
+                      </div>
+                    </button>
                   </li>
                 );
               })}
@@ -1561,8 +1632,11 @@ export function JobSearch() {
         </div>
 
         {/* ── Job detail ─────────────────────────────────────────── */}
-        <div className="three-pane__panel">
-          <div className="panel-header">
+        <div
+          className="three-pane__panel job-search__detail"
+          data-mobile-active={mobilePane === "detail"}
+        >
+          <div className="panel-header job-search__panel-header">
             <h2 className="panel-header__title">Detail</h2>
           </div>
 
@@ -1573,14 +1647,7 @@ export function JobSearch() {
               body="Click a job from the list to see details and match explanation."
             />
           ) : (
-            <div
-              style={{
-                padding: "var(--sp-4)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--sp-4)",
-              }}
-            >
+            <div className="job-search__detail-content">
               {/* Header */}
               <div>
                 <h3
@@ -1692,7 +1759,7 @@ export function JobSearch() {
                   {(() => {
                     const subject =
                       extractAssunto(selected.description) ??
-                      (selected.title ? `Candidatura — ${selected.title}` : "Candidatura");
+                      (selected.title ? `Candidatura - ${selected.title}` : "Candidatura");
                     const body =
                       "Olá,\n\nTenho interesse na vaga. Segue meu currículo em anexo.\n\nAtenciosamente,";
                     const href = `mailto:${selected.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -1756,7 +1823,7 @@ export function JobSearch() {
                                 await runGmailApply(activeProfileId, email, subject, body, cvId);
                                 setSearchMsg(
                                   cvId === null
-                                    ? `Application sent to ${email} (no CV attached — upload one in CV Library).`
+                                    ? `Application sent to ${email}. No CV attached. Upload one in CV Library.`
                                     : `Application sent to ${email}`,
                                 );
                               } catch (e) {
@@ -1767,7 +1834,7 @@ export function JobSearch() {
                             })();
                           }}
                         >
-                          {isApplying ? "Sending..." : "Auto-apply via Gmail"}
+                          {isApplying ? "Sending…" : "Auto-apply via Gmail"}
                         </Button>
                       </>
                     );
@@ -1856,7 +1923,7 @@ export function JobSearch() {
                               ? `Applied to "${selected.title}" on Catho.`
                               : res.status === "submitted"
                                 ? `Submitted to "${selected.title}" (confirm in the window).`
-                                : `Catho apply: ${res.status}${res.reason ? ` — ${res.reason}` : ""}`,
+                                : `Catho apply: ${res.status}${res.reason ? ` (${res.reason})` : ""}`,
                           );
                         } catch (e) {
                           setSearchMsg(errMessage(e));
@@ -1866,7 +1933,7 @@ export function JobSearch() {
                       })();
                     }}
                   >
-                    {isApplying ? "Applying..." : "Apply on Catho"}
+                    {isApplying ? "Applying…" : "Apply on Catho"}
                   </Button>
                 )}
                 {selected.platform === "infojobs" && (
@@ -1898,7 +1965,7 @@ export function JobSearch() {
                                 ? `Already applied to "${selected.title}".`
                                 : res.status === "submitted"
                                   ? `Submitted "${selected.title}" (finish in the window if it asks questions).`
-                                  : `InfoJobs apply: ${res.status}${res.reason ? ` — ${res.reason}` : ""}`,
+                                  : `InfoJobs apply: ${res.status}${res.reason ? ` (${res.reason})` : ""}`,
                           );
                         } catch (e) {
                           setSearchMsg(errMessage(e));
@@ -1908,7 +1975,7 @@ export function JobSearch() {
                       })();
                     }}
                   >
-                    {isApplying ? "Applying..." : "Apply on InfoJobs"}
+                    {isApplying ? "Applying…" : "Apply on InfoJobs"}
                   </Button>
                 )}
                 {selected.platform === "indeed" &&
@@ -1942,7 +2009,7 @@ export function JobSearch() {
                           })();
                         }}
                       >
-                        {isApplying ? "Submitting..." : "Submit Indeed application"}
+                        {isApplying ? "Submitting…" : "Submit Indeed application"}
                       </Button>
                       <Button
                         size="sm"
@@ -1970,7 +2037,7 @@ export function JobSearch() {
                       size="sm"
                       variant="primary"
                       disabled={isApplying || activeProfileId === null}
-                      title="Fills the Indeed SmartApply form and parks it for your review — does not submit"
+                      title="Fills the Indeed SmartApply form and parks it for review. It does not submit."
                       onClick={() => {
                         if (activeProfileId === null) return;
                         void (async () => {
@@ -1979,7 +2046,7 @@ export function JobSearch() {
                             await startIndeedApply(selected.url, activeProfileId);
                             setIndeedParked(true);
                             setSearchMsg(
-                              `SmartApply form ready for "${selected.title}" — review it in the window, then submit or discard.`,
+                              `SmartApply form ready for "${selected.title}". Review it in the window, then submit or discard.`,
                             );
                           } catch (e) {
                             setSearchMsg(errMessage(e));
@@ -1989,7 +2056,7 @@ export function JobSearch() {
                         })();
                       }}
                     >
-                      {isApplying ? "Preparing..." : "Apply on Indeed"}
+                      {isApplying ? "Preparing…" : "Apply on Indeed"}
                     </Button>
                   ))}
                 {selected.platform === "linkedin" &&
@@ -2024,7 +2091,7 @@ export function JobSearch() {
                           })();
                         }}
                       >
-                        {isApplying ? "Submitting..." : "Submit LinkedIn application"}
+                        {isApplying ? "Submitting…" : "Submit LinkedIn application"}
                       </Button>
                       <Button
                         size="sm"
@@ -2052,10 +2119,10 @@ export function JobSearch() {
                       size="sm"
                       variant="primary"
                       disabled={isApplying || activeProfileId === null}
-                      title="Fills + AI-answers the Easy Apply form and parks it for your review — does not submit"
+                      title="Fills and answers the Easy Apply form, then parks it for review. It does not submit."
                       onClick={() => void handleApplyLinkedIn()}
                     >
-                      {isApplying ? "Preparing..." : "Apply on LinkedIn"}
+                      {isApplying ? "Preparing…" : "Apply on LinkedIn"}
                     </Button>
                   ))}
                 <Button size="sm" onClick={() => void handleSkipSelected()}>

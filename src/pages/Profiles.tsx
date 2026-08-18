@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Tick01Icon } from "@hugeicons/core-free-icons";
 import { safeInvoke, invokeStrict } from "../lib/tauriInvoke";
 import { useProfileStore } from "../stores/useProfileStore";
-import { Badge, Button, Dropdown, Field, FormRow, Icon, Input, Select } from "../components/ui";
+import { Badge, Button, Field, FormRow, Icon, Input, Select } from "../components/ui";
 import type { Profile } from "../types/domain";
+import "./Profiles.css";
 
 // ---------------------------------------------------------------------------
 // Local profile facts - persisted to backend once connection is wired (Phase 2)
@@ -74,6 +75,15 @@ function splitFacts(all: FactMap): { facts: ProfileFacts; links: ProfileLinks } 
 }
 // ---------------------------------------------------------------------------
 
+function profileInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return (
+    words.length > 1
+      ? `${words[0][0]}${words[words.length - 1][0]}`
+      : (words[0]?.slice(0, 2) ?? "P")
+  ).toUpperCase();
+}
+
 export function Profiles() {
   const profiles = useProfileStore((s) => s.profiles);
   const activeProfileId = useProfileStore((s) => s.activeProfileId);
@@ -107,70 +117,89 @@ export function Profiles() {
   const selected: Profile | null = profiles.find((p) => p.id === selectedId) ?? profiles[0] ?? null;
 
   return (
-    <div className="page page--fill" style={{ padding: 0 }}>
-      {/* ── Page header ── */}
-      <div
-        style={{
-          padding: "var(--sp-4)",
-          borderBottom: "1px solid var(--color-border)",
-          background: "var(--color-surface)",
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "var(--sp-3)",
-          flexShrink: 0,
-        }}
-      >
-        <h1 className="page-title">Profiles</h1>
-        <span className="page-subtitle">
-          {profiles.length} profile{profiles.length !== 1 ? "s" : ""}
-        </span>
-        {profiles.length > 0 && (
-          <Dropdown
-            aria-label="Select profile"
-            title="Profiles"
-            value={selected?.id ?? ""}
-            onChange={(id) => setSelectedId(id)}
-            style={{ flex: "1 1 12rem", minWidth: 0 }}
-            options={profiles.map((p) => ({
-              value: p.id,
-              label: p.id === activeProfileId ? `${p.name} (active)` : p.name,
-            }))}
-          />
-        )}
-        <div className="toolbar-spacer" />
-        <Button variant="primary" size="sm" onClick={() => void handleCreate()} disabled={creating}>
-          {creating ? "Creating…" : "+ New Profile"}
-        </Button>
-      </div>
+    <div className="page page--fill profiles-page">
+      <header className="profiles-hero">
+        <div>
+          <p className="profiles-eyebrow">PROFILE WORKSPACE / 01</p>
+          <h1 className="profiles-hero__title">Profile workspace</h1>
+          <p className="profiles-hero__lede">
+            Build focused identities for every kind of opportunity. Keep your answers, links, and
+            browser sessions ready to reuse.
+          </p>
+        </div>
+        <div className="profiles-hero__actions">
+          <div className="profiles-hero__metric">
+            <strong>{profiles.length.toString().padStart(2, "0")}</strong>
+            <span>saved profiles</span>
+          </div>
+          <Button variant="primary" onClick={() => void handleCreate()} disabled={creating}>
+            {creating ? "Creating…" : "+ New profile"}
+          </Button>
+        </div>
+      </header>
 
       {isLoading ? (
-        <div className="empty-state" style={{ flex: 1 }}>
-          <p className="empty-state__title">Loading profiles...</p>
+        <div className="profiles-loading" role="status">
+          <span className="profiles-loading__line" />
+          <p>Loading profile workspace…</p>
         </div>
       ) : (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: "column",
-            borderTop: "1px solid var(--color-border)",
-          }}
-        >
-          {/* ── Profile detail (full-width; profile picked from the header dropdown) ── */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-            {selected === null ? (
-              <div className="empty-state">
-                <div className="empty-state__label">Select</div>
-                <p className="empty-state__title">No profile selected</p>
-                <p className="empty-state__body">
-                  Pick a profile from the list, or create a new one.
-                </p>
+        <div className="profiles-layout">
+          <aside className="profiles-rail" aria-label="Saved profiles">
+            <div className="profiles-rail__head">
+              <div>
+                <p className="profiles-eyebrow">IDENTITIES</p>
+                <h2>Saved profiles</h2>
+              </div>
+              <span className="profiles-rail__count">{profiles.length}</span>
+            </div>
+            {profiles.length > 0 ? (
+              <div className="profile-list">
+                {profiles.map((profile) => {
+                  const isSelected = profile.id === selected?.id;
+                  const isActive = profile.id === activeProfileId;
+                  return (
+                    <button
+                      className={`profile-list__item${isSelected ? " is-selected" : ""}`}
+                      key={profile.id}
+                      type="button"
+                      onClick={() => setSelectedId(profile.id)}
+                      aria-pressed={isSelected}
+                    >
+                      <span className="profile-list__avatar">{profileInitials(profile.name)}</span>
+                      <span className="profile-list__copy">
+                        <strong>{profile.name}</strong>
+                        <span>{isActive ? "Active for automation" : "Ready to configure"}</span>
+                      </span>
+                      {isActive && <span className="profile-list__dot" aria-label="Active" />}
+                    </button>
+                  );
+                })}
               </div>
             ) : (
-              // Keyed by profile id: switching profile remounts this subtree,
-              // which resets its local form state - no reset effect required.
+              <div className="profiles-rail__empty">
+                <span>01</span>
+                <p>Your first profile becomes your default automation identity.</p>
+              </div>
+            )}
+            <div className="profiles-rail__note">
+              <span className="profiles-rail__note-mark">↗</span>
+              <p>One profile per job-search direction keeps applications consistent.</p>
+            </div>
+          </aside>
+
+          <main className="profiles-detail">
+            {selected === null ? (
+              <div className="profiles-empty">
+                <div className="profiles-empty__orb">+</div>
+                <p className="profiles-eyebrow">NO PROFILE SELECTED</p>
+                <h2>Start with a focused identity</h2>
+                <p>Choose a profile from the rail, or create your first one to begin.</p>
+                <Button variant="primary" onClick={() => void handleCreate()} disabled={creating}>
+                  {creating ? "Creating…" : "Create profile"}
+                </Button>
+              </div>
+            ) : (
               <ProfileDetail
                 key={selected.id}
                 profile={selected}
@@ -179,7 +208,7 @@ export function Profiles() {
                 onRename={renameProfile}
               />
             )}
-          </div>
+          </main>
         </div>
       )}
     </div>
@@ -251,399 +280,418 @@ function ProfileDetail({
   }
 
   return (
-    <>
-      {/* ── §1 Identity ── */}
-      <div className="section-group">
-        <h2 className="section-title">Identity</h2>
-        <FormRow>
-          <Field label="Name" htmlFor="prof-name" helper="Rename this profile.">
-            <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-              <Input
-                id="prof-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <Button
-                size="sm"
-                disabled={savingName || !name.trim() || name.trim() === profile.name}
-                onClick={() => {
-                  void (async () => {
-                    setSavingName(true);
-                    try {
-                      await onRename(profile.id, name.trim());
-                    } finally {
-                      setSavingName(false);
-                    }
-                  })();
+    <div className="profile-detail__inner">
+      <header className="profile-detail__header">
+        <div className="profile-detail__identity">
+          <div className="profile-detail__avatar">{profileInitials(profile.name)}</div>
+          <div>
+            <p className="profiles-eyebrow">CANDIDATE PROFILE</p>
+            <h2>{profile.name}</h2>
+            <p className="profile-detail__id">ID / {profile.id.slice(0, 12)}</p>
+          </div>
+        </div>
+        <div
+          className={`profile-detail__status${profile.id === activeProfileId ? " is-active" : ""}`}
+        >
+          <span className="profile-detail__status-dot" />
+          <span>{profile.id === activeProfileId ? "Active profile" : "Inactive profile"}</span>
+        </div>
+      </header>
+
+      <div className="profile-detail__body">
+        {/* ── §1 Identity ── */}
+        <div className="section-group">
+          <h2 className="section-title">Identity</h2>
+          <FormRow>
+            <Field label="Name" htmlFor="prof-name" helper="Rename this profile.">
+              <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+                <Input
+                  id="prof-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  size="sm"
+                  disabled={savingName || !name.trim() || name.trim() === profile.name}
+                  onClick={() => {
+                    void (async () => {
+                      setSavingName(true);
+                      try {
+                        await onRename(profile.id, name.trim());
+                      } finally {
+                        setSavingName(false);
+                      }
+                    })();
+                  }}
+                >
+                  {savingName ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </Field>
+            <Field label="Profile ID">
+              <code
+                style={{
+                  display: "block",
+                  padding: "var(--sp-2) var(--sp-3)",
+                  background: "var(--color-surface-2)",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "var(--text-xs)",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text-2)",
+                  wordBreak: "break-all",
                 }}
               >
-                {savingName ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </Field>
-          <Field label="Profile ID">
-            <code
-              style={{
-                display: "block",
-                padding: "var(--sp-2) var(--sp-3)",
-                background: "var(--color-surface-2)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "var(--text-xs)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--color-text-2)",
-                wordBreak: "break-all",
-              }}
-            >
-              {profile.id}
-            </code>
-          </Field>
-        </FormRow>
-      </div>
-
-      {/* ── §2 Status ── */}
-      <div className="section-group">
-        <h2 className="section-title">Status</h2>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "var(--sp-3) var(--sp-4)",
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-md)",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: "var(--text-sm)",
-                color: "var(--color-text)",
-                fontWeight: "var(--fw-medium)",
-              }}
-            >
-              {profile.id === activeProfileId ? "Active profile" : "Inactive"}
-            </div>
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
-              {profile.id === activeProfileId
-                ? "This profile is used for all automation runs."
-                : "Activate to use this profile in automation."}
-            </div>
-          </div>
-          {profile.id !== activeProfileId ? (
-            <Button variant="primary" size="sm" onClick={() => void onSetActive(profile.id)}>
-              Set Active
-            </Button>
-          ) : (
-            <Badge variant="success">
-              <Icon icon={Tick01Icon} size={12} /> Active
-            </Badge>
-          )}
+                {profile.id}
+              </code>
+            </Field>
+          </FormRow>
         </div>
-      </div>
 
-      {/* ── §3 Profile Facts ── */}
-      <div className="section-group">
-        <h2 className="section-title">Profile Facts</h2>
-
-        {/* Salary trio */}
-        <FormRow cols={3}>
-          <Field label="Salary Minimum" htmlFor="prof-salary-min">
-            <Input
-              id="prof-salary-min"
-              type="number"
-              min={0}
-              step={1000}
-              value={facts.salaryMin}
-              onChange={(e) => patchFact("salaryMin", e.target.value)}
-              placeholder="e.g. 120000"
-            />
-          </Field>
-          <Field label="Currency" htmlFor="prof-currency">
-            <Select
-              id="prof-currency"
-              value={facts.salaryCurrency}
-              options={["USD", "EUR", "BRL", "GBP", "CAD", "AUD"].map((c) => ({
-                value: c,
-                label: c,
-              }))}
-              onChange={(e) => patchFact("salaryCurrency", e.target.value)}
-            />
-          </Field>
-          <Field label="Period" htmlFor="prof-period">
-            <Select
-              id="prof-period"
-              value={facts.salaryPeriod}
-              options={[
-                { value: "Annual", label: "Annual" },
-                { value: "Monthly", label: "Monthly" },
-                { value: "Hourly", label: "Hourly" },
-              ]}
-              onChange={(e) => patchFact("salaryPeriod", e.target.value)}
-            />
-          </Field>
-        </FormRow>
-
-        {/* Work authorization trio */}
-        <FormRow cols={3}>
-          <Field label="Brazil Work Authorization" htmlFor="prof-br-auth">
-            <Select
-              id="prof-br-auth"
-              value={facts.brazilWorkAuth}
-              placeholder="- select -"
-              options={[
-                { value: "citizen", label: "Brazilian Citizen" },
-                { value: "permanent_resident", label: "Permanent Resident" },
-                { value: "work_visa", label: "Work Visa" },
-                { value: "not_authorized", label: "Not Authorized" },
-              ]}
-              onChange={(e) => patchFact("brazilWorkAuth", e.target.value)}
-            />
-          </Field>
-          <Field label="EU Work Authorization" htmlFor="prof-eu-auth">
-            <Select
-              id="prof-eu-auth"
-              value={facts.euWorkAuth}
-              placeholder="- select -"
-              options={[
-                { value: "eu_citizen", label: "EU Citizen" },
-                { value: "eu_resident", label: "EU Resident Permit" },
-                { value: "work_visa", label: "Work Visa Required" },
-                { value: "not_authorized", label: "Not Authorized" },
-              ]}
-              onChange={(e) => patchFact("euWorkAuth", e.target.value)}
-            />
-          </Field>
-          <Field label="Visa Sponsorship" htmlFor="prof-visa">
-            <Select
-              id="prof-visa"
-              value={facts.visaSponsorship}
-              placeholder="- select -"
-              options={[
-                { value: "not_required", label: "Not Required" },
-                { value: "required", label: "Required" },
-                { value: "open", label: "Open to Sponsorship" },
-              ]}
-              onChange={(e) => patchFact("visaSponsorship", e.target.value)}
-            />
-          </Field>
-        </FormRow>
-
-        {/* Logistics trio */}
-        <FormRow cols={3}>
-          <Field label="Available Start Date" htmlFor="prof-start">
-            <Input
-              id="prof-start"
-              type="date"
-              value={facts.startDate}
-              onChange={(e) => patchFact("startDate", e.target.value)}
-            />
-          </Field>
-          <Field label="Relocation" htmlFor="prof-relocation">
-            <Select
-              id="prof-relocation"
-              value={facts.relocation}
-              placeholder="- select -"
-              options={[
-                { value: "no", label: "Not open to relocation" },
-                { value: "yes", label: "Open to relocation" },
-                { value: "domestic", label: "Domestic only" },
-                { value: "international", label: "International" },
-              ]}
-              onChange={(e) => patchFact("relocation", e.target.value)}
-            />
-          </Field>
-          <Field label="English Level" htmlFor="prof-english">
-            <Select
-              id="prof-english"
-              value={facts.englishLevel}
-              placeholder="- select -"
-              options={[
-                { value: "native", label: "Native" },
-                { value: "fluent", label: "Fluent" },
-                { value: "advanced", label: "Advanced (C1)" },
-                {
-                  value: "upper_intermediate",
-                  label: "Upper Intermediate (B2)",
-                },
-                { value: "intermediate", label: "Intermediate (B1)" },
-                { value: "basic", label: "Basic" },
-              ]}
-              onChange={(e) => patchFact("englishLevel", e.target.value)}
-            />
-          </Field>
-        </FormRow>
-
-        {/* Location + experience — fill "current location" and years-of-experience
-            / skill questions during Easy Apply. */}
-        <FormRow cols={3}>
-          <Field label="Location (city)" htmlFor="prof-location">
-            <Input
-              id="prof-location"
-              placeholder="e.g. Rio de Janeiro, Brazil"
-              value={facts.location}
-              onChange={(e) => patchFact("location", e.target.value)}
-            />
-          </Field>
-          <Field label="Years of experience" htmlFor="prof-years">
-            <Input
-              id="prof-years"
-              type="number"
-              min="0"
-              placeholder="e.g. 2"
-              value={facts.yearsExperience}
-              onChange={(e) => patchFact("yearsExperience", e.target.value)}
-            />
-          </Field>
-        </FormRow>
-
-        <p
-          style={{
-            margin: "var(--sp-3) 0 0",
-            fontSize: "var(--text-xs)",
-            color: "var(--color-text-muted)",
-          }}
-        >
-          Facts are per-profile and used as answers during Easy Apply automation (phone, salary,
-          links fill the form). Click Save below to persist.
-        </p>
-      </div>
-
-      {/* ── §4 Links ── */}
-      <div className="section-group">
-        <h2 className="section-title">Links &amp; Contact</h2>
-        <FormRow cols={3}>
-          <Field
-            label="Phone"
-            htmlFor="prof-phone"
-            helper="Used to fill the Easy Apply contact page."
-          >
-            <Input
-              id="prof-phone"
-              type="tel"
-              value={links.phone}
-              onChange={(e) => patchLink("phone", e.target.value)}
-              placeholder="+55 21 91234-5678"
-            />
-          </Field>
-          <Field label="LinkedIn" htmlFor="prof-linkedin">
-            <Input
-              id="prof-linkedin"
-              type="url"
-              value={links.linkedin}
-              onChange={(e) => patchLink("linkedin", e.target.value)}
-              placeholder="https://linkedin.com/in/username"
-            />
-          </Field>
-          <Field label="GitHub" htmlFor="prof-github">
-            <Input
-              id="prof-github"
-              type="url"
-              value={links.github}
-              onChange={(e) => patchLink("github", e.target.value)}
-              placeholder="https://github.com/username"
-            />
-          </Field>
-          <Field label="Portfolio" htmlFor="prof-portfolio">
-            <Input
-              id="prof-portfolio"
-              type="url"
-              value={links.portfolio}
-              onChange={(e) => patchLink("portfolio", e.target.value)}
-              placeholder="https://yoursite.com"
-            />
-          </Field>
-        </FormRow>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--sp-3)",
-            marginTop: "var(--sp-3)",
-          }}
-        >
-          <Button size="sm" disabled={savingFacts} onClick={() => void saveFacts()}>
-            {savingFacts ? "Saving…" : "Save facts & links"}
-          </Button>
-          {factsMsg && (
-            <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
-              {factsMsg}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* ── §5 Browser Session ── */}
-      <div className="section-group">
-        <h2 className="section-title">Browser Session</h2>
-        <FormRow>
-          <Field
-            label="Browser Profile Folder"
-            span="full"
-            helper="Each profile has its own isolated browser session. The folder is deleted when the profile is deleted."
-          >
-            <code
-              style={{
-                display: "block",
-                padding: "var(--sp-2) var(--sp-3)",
-                background: "var(--color-surface-2)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "var(--text-xs)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--color-text-2)",
-                wordBreak: "break-all",
-              }}
-            >
-              {`~/.hiremeops/profiles/${profile.id}/browser`}
-            </code>
-          </Field>
-        </FormRow>
-      </div>
-
-      {/* ── §6 Danger Zone ── */}
-      <div className="danger-zone">
-        <p className="danger-zone__title">Danger Zone</p>
-        <p className="danger-zone__body">
-          Deleting this profile permanently removes all associated database rows, copied CVs,
-          evidence files, and the browser profile folder. This cannot be undone.
-        </p>
-        {!confirmDelete ? (
-          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
-            Delete Profile
-          </Button>
-        ) : (
+        {/* ── §2 Status ── */}
+        <div className="section-group">
+          <h2 className="section-title">Status</h2>
           <div
             style={{
               display: "flex",
-              gap: "var(--sp-2)",
               alignItems: "center",
-              flexWrap: "wrap",
+              justifyContent: "space-between",
+              padding: "var(--sp-3) var(--sp-4)",
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
             }}
           >
-            <Button
-              variant="danger"
-              size="sm"
-              disabled
-              aria-label="Confirm delete - backend connection required"
+            <div>
+              <div
+                style={{
+                  fontSize: "var(--text-sm)",
+                  color: "var(--color-text)",
+                  fontWeight: "var(--fw-medium)",
+                }}
+              >
+                {profile.id === activeProfileId ? "Active profile" : "Inactive"}
+              </div>
+              <div style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                {profile.id === activeProfileId
+                  ? "This profile is used for all automation runs."
+                  : "Activate to use this profile in automation."}
+              </div>
+            </div>
+            {profile.id !== activeProfileId ? (
+              <Button variant="primary" size="sm" onClick={() => void onSetActive(profile.id)}>
+                Set Active
+              </Button>
+            ) : (
+              <Badge variant="success">
+                <Icon icon={Tick01Icon} size={12} /> Active
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* ── §3 Profile Facts ── */}
+        <div className="section-group">
+          <h2 className="section-title">Profile Facts</h2>
+
+          {/* Salary trio */}
+          <FormRow cols={3}>
+            <Field label="Salary Minimum" htmlFor="prof-salary-min">
+              <Input
+                id="prof-salary-min"
+                type="number"
+                min={0}
+                step={1000}
+                value={facts.salaryMin}
+                onChange={(e) => patchFact("salaryMin", e.target.value)}
+                placeholder="e.g. 120000"
+              />
+            </Field>
+            <Field label="Currency" htmlFor="prof-currency">
+              <Select
+                id="prof-currency"
+                value={facts.salaryCurrency}
+                options={["USD", "EUR", "BRL", "GBP", "CAD", "AUD"].map((c) => ({
+                  value: c,
+                  label: c,
+                }))}
+                onChange={(e) => patchFact("salaryCurrency", e.target.value)}
+              />
+            </Field>
+            <Field label="Period" htmlFor="prof-period">
+              <Select
+                id="prof-period"
+                value={facts.salaryPeriod}
+                options={[
+                  { value: "Annual", label: "Annual" },
+                  { value: "Monthly", label: "Monthly" },
+                  { value: "Hourly", label: "Hourly" },
+                ]}
+                onChange={(e) => patchFact("salaryPeriod", e.target.value)}
+              />
+            </Field>
+          </FormRow>
+
+          {/* Work authorization trio */}
+          <FormRow cols={3}>
+            <Field label="Brazil Work Authorization" htmlFor="prof-br-auth">
+              <Select
+                id="prof-br-auth"
+                value={facts.brazilWorkAuth}
+                placeholder="- select -"
+                options={[
+                  { value: "citizen", label: "Brazilian Citizen" },
+                  { value: "permanent_resident", label: "Permanent Resident" },
+                  { value: "work_visa", label: "Work Visa" },
+                  { value: "not_authorized", label: "Not Authorized" },
+                ]}
+                onChange={(e) => patchFact("brazilWorkAuth", e.target.value)}
+              />
+            </Field>
+            <Field label="EU Work Authorization" htmlFor="prof-eu-auth">
+              <Select
+                id="prof-eu-auth"
+                value={facts.euWorkAuth}
+                placeholder="- select -"
+                options={[
+                  { value: "eu_citizen", label: "EU Citizen" },
+                  { value: "eu_resident", label: "EU Resident Permit" },
+                  { value: "work_visa", label: "Work Visa Required" },
+                  { value: "not_authorized", label: "Not Authorized" },
+                ]}
+                onChange={(e) => patchFact("euWorkAuth", e.target.value)}
+              />
+            </Field>
+            <Field label="Visa Sponsorship" htmlFor="prof-visa">
+              <Select
+                id="prof-visa"
+                value={facts.visaSponsorship}
+                placeholder="- select -"
+                options={[
+                  { value: "not_required", label: "Not Required" },
+                  { value: "required", label: "Required" },
+                  { value: "open", label: "Open to Sponsorship" },
+                ]}
+                onChange={(e) => patchFact("visaSponsorship", e.target.value)}
+              />
+            </Field>
+          </FormRow>
+
+          {/* Logistics trio */}
+          <FormRow cols={3}>
+            <Field label="Available Start Date" htmlFor="prof-start">
+              <Input
+                id="prof-start"
+                type="date"
+                value={facts.startDate}
+                onChange={(e) => patchFact("startDate", e.target.value)}
+              />
+            </Field>
+            <Field label="Relocation" htmlFor="prof-relocation">
+              <Select
+                id="prof-relocation"
+                value={facts.relocation}
+                placeholder="- select -"
+                options={[
+                  { value: "no", label: "Not open to relocation" },
+                  { value: "yes", label: "Open to relocation" },
+                  { value: "domestic", label: "Domestic only" },
+                  { value: "international", label: "International" },
+                ]}
+                onChange={(e) => patchFact("relocation", e.target.value)}
+              />
+            </Field>
+            <Field label="English Level" htmlFor="prof-english">
+              <Select
+                id="prof-english"
+                value={facts.englishLevel}
+                placeholder="- select -"
+                options={[
+                  { value: "native", label: "Native" },
+                  { value: "fluent", label: "Fluent" },
+                  { value: "advanced", label: "Advanced (C1)" },
+                  {
+                    value: "upper_intermediate",
+                    label: "Upper Intermediate (B2)",
+                  },
+                  { value: "intermediate", label: "Intermediate (B1)" },
+                  { value: "basic", label: "Basic" },
+                ]}
+                onChange={(e) => patchFact("englishLevel", e.target.value)}
+              />
+            </Field>
+          </FormRow>
+
+          {/* Location + experience — fill "current location" and years-of-experience
+            / skill questions during Easy Apply. */}
+          <FormRow cols={3}>
+            <Field label="Location (city)" htmlFor="prof-location">
+              <Input
+                id="prof-location"
+                placeholder="e.g. Rio de Janeiro, Brazil"
+                value={facts.location}
+                onChange={(e) => patchFact("location", e.target.value)}
+              />
+            </Field>
+            <Field label="Years of experience" htmlFor="prof-years">
+              <Input
+                id="prof-years"
+                type="number"
+                min="0"
+                placeholder="e.g. 2"
+                value={facts.yearsExperience}
+                onChange={(e) => patchFact("yearsExperience", e.target.value)}
+              />
+            </Field>
+          </FormRow>
+
+          <p
+            style={{
+              margin: "var(--sp-3) 0 0",
+              fontSize: "var(--text-xs)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            Facts are per-profile and used as answers during Easy Apply automation (phone, salary,
+            links fill the form). Click Save below to persist.
+          </p>
+        </div>
+
+        {/* ── §4 Links ── */}
+        <div className="section-group">
+          <h2 className="section-title">Links &amp; Contact</h2>
+          <FormRow cols={3}>
+            <Field
+              label="Phone"
+              htmlFor="prof-phone"
+              helper="Used to fill the Easy Apply contact page."
             >
-              Confirm Delete
+              <Input
+                id="prof-phone"
+                type="tel"
+                value={links.phone}
+                onChange={(e) => patchLink("phone", e.target.value)}
+                placeholder="+55 21 91234-5678"
+              />
+            </Field>
+            <Field label="LinkedIn" htmlFor="prof-linkedin">
+              <Input
+                id="prof-linkedin"
+                type="url"
+                value={links.linkedin}
+                onChange={(e) => patchLink("linkedin", e.target.value)}
+                placeholder="https://linkedin.com/in/username"
+              />
+            </Field>
+            <Field label="GitHub" htmlFor="prof-github">
+              <Input
+                id="prof-github"
+                type="url"
+                value={links.github}
+                onChange={(e) => patchLink("github", e.target.value)}
+                placeholder="https://github.com/username"
+              />
+            </Field>
+            <Field label="Portfolio" htmlFor="prof-portfolio">
+              <Input
+                id="prof-portfolio"
+                type="url"
+                value={links.portfolio}
+                onChange={(e) => patchLink("portfolio", e.target.value)}
+                placeholder="https://yoursite.com"
+              />
+            </Field>
+          </FormRow>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--sp-3)",
+              marginTop: "var(--sp-3)",
+            }}
+          >
+            <Button size="sm" disabled={savingFacts} onClick={() => void saveFacts()}>
+              {savingFacts ? "Saving…" : "Save facts & links"}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
-              Cancel
+            {factsMsg && (
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                {factsMsg}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ── §5 Browser Session ── */}
+        <div className="section-group">
+          <h2 className="section-title">Browser Session</h2>
+          <FormRow>
+            <Field
+              label="Browser Profile Folder"
+              span="full"
+              helper="Each profile has its own isolated browser session. The folder is deleted when the profile is deleted."
+            >
+              <code
+                style={{
+                  display: "block",
+                  padding: "var(--sp-2) var(--sp-3)",
+                  background: "var(--color-surface-2)",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "var(--text-xs)",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text-2)",
+                  wordBreak: "break-all",
+                }}
+              >
+                {`~/.hiremeops/profiles/${profile.id}/browser`}
+              </code>
+            </Field>
+          </FormRow>
+        </div>
+
+        {/* ── §6 Danger Zone ── */}
+        <div className="danger-zone">
+          <p className="danger-zone__title">Danger Zone</p>
+          <p className="danger-zone__body">
+            Deleting this profile permanently removes all associated database rows, copied CVs,
+            evidence files, and the browser profile folder. This cannot be undone.
+          </p>
+          {!confirmDelete ? (
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
+              Delete Profile
             </Button>
-            <span
+          ) : (
+            <div
               style={{
-                fontSize: "var(--text-xs)",
-                color: "var(--color-text-muted)",
+                display: "flex",
+                gap: "var(--sp-2)",
+                alignItems: "center",
+                flexWrap: "wrap",
               }}
             >
-              Backend connection required to delete.
-            </span>
-          </div>
-        )}
+              <Button
+                variant="danger"
+                size="sm"
+                disabled
+                aria-label="Confirm delete - backend connection required"
+              >
+                Confirm Delete
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+              <span
+                style={{
+                  fontSize: "var(--text-xs)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                Backend connection required to delete.
+              </span>
+            </div>
+          )}
+        </div>
       </div>
-    </>
+    </div>
   );
 }

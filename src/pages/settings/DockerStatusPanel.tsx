@@ -6,9 +6,9 @@ import type { DockerStatus } from "../../types/domain";
 /** Dot colour keyed to how ready the container runtime is. */
 function tone(s: DockerStatus): string {
   if (s.optIn && s.imageBuilt) return "var(--color-status-running-text, #4ade80)";
-  if (s.daemonRunning) return "var(--color-accent, #38bdf8)";
+  if (s.daemonRunning) return "var(--color-accent, #c8c8c8)";
   if (s.installed) return "var(--color-warning, #fbbf24)";
-  return "var(--color-text-muted, #7a8aa0)";
+  return "var(--color-text-muted, #858585)";
 }
 
 /**

@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { PlayIcon } from "@hugeicons/core-free-icons";
 import {
   Badge,
   Button,
   Card,
   DataTable,
-  EmptyState,
   Field,
   Icon,
   KpiCard,
   ScoreBar,
   Select,
-  Toolbar,
   ToolbarSep,
   matchScoreVariant,
   type Column,
@@ -23,6 +22,7 @@ import type { CvAnalysisReport, CvLibraryDoc } from "./cv";
 import { useSettingsStore } from "../stores/useSettingsStore";
 import { errMessage } from "../lib/tauriInvoke";
 import "./cv/cv.css";
+import "./cv/analysis.css";
 
 // Match the KpiCard tone palette to the score-band variant so the tile border
 // and the fill of the score bar under it read as one signal. `matchScoreVariant`
@@ -36,6 +36,7 @@ function kpiTone(v: StatusVariant): KpiTone {
 }
 
 export function CvAnalysis() {
+  const navigate = useNavigate();
   const activeProfileId = useSettingsStore((s) => s.settings?.activeProfileId ?? null);
 
   const [reports, setReports] = useState<CvAnalysisReport[]>([]);
@@ -157,87 +158,125 @@ export function CvAnalysis() {
   ];
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">CV Analysis</h1>
-        <span className="page-subtitle">AI-powered match analysis</span>
-      </div>
+    <div className="page cv-analysis-page">
+      <header className="cv-analysis-hero">
+        <div className="cv-analysis-hero__copy">
+          <div className="cv-analysis-kicker">
+            <span className="cv-analysis-kicker__signal" />
+            <span>AI WORKBENCH</span>
+            <span className="cv-analysis-kicker__slash">/</span>
+            <span>CV ANALYSIS</span>
+          </div>
+          <h1>
+            Make every line
+            <em>earn its place.</em>
+          </h1>
+          <p>
+            Turn your stored CV into a focused match report. See what lands, what is missing, and
+            what to improve before you apply.
+          </p>
+        </div>
+        <div className="cv-analysis-hero__mark" aria-hidden="true">
+          <span className="cv-analysis-hero__mark-core">CV</span>
+        </div>
+      </header>
 
       {loading ? (
-        <EmptyState
-          label="..."
-          title="Loading analyses..."
-          body="Reading this profile's saved analysis reports."
-        />
+        <div className="cv-analysis-loading" role="status">
+          <span className="cv-analysis-loading__bar" />
+          <span>Reading analysis workspace…</span>
+        </div>
       ) : loadError !== null ? (
-        <EmptyState
-          label="Error"
-          title="Couldn't load your analysis history"
-          body={`The report store returned an error, so your analyses aren't shown. This does not mean they were deleted. ${loadError}`}
-          action={
-            <Button variant="primary" onClick={() => setReloadNonce((n) => n + 1)}>
-              Retry
-            </Button>
-          }
-        />
+        <div className="cv-analysis-state cv-analysis-state--error" role="alert">
+          <span className="cv-analysis-state__code">ERR / REPORT_STORE</span>
+          <h2>Analysis history is unavailable</h2>
+          <p>
+            Saved reports are still safe. The report store returned: <strong>{loadError}</strong>
+          </p>
+          <Button variant="primary" onClick={() => setReloadNonce((n) => n + 1)}>
+            Retry connection
+          </Button>
+        </div>
       ) : docs.length === 0 && reports.length === 0 ? (
-        <EmptyState
-          label="Empty"
-          title="No CVs to analyse yet"
-          body="Upload a CV in the Library first. Analyses run against a stored document and appear here."
-        />
+        <div className="cv-analysis-state">
+          <span className="cv-analysis-state__orb">+</span>
+          <span className="cv-analysis-state__code">READY / AWAITING SOURCE</span>
+          <h2>Start with a stored CV</h2>
+          <p>Upload a document in CV Library first. Your analysis history will appear here.</p>
+          <Button variant="primary" onClick={() => navigate("/cv-library")}>
+            Open CV Library
+          </Button>
+        </div>
       ) : (
         <>
-          <Toolbar>
-            <Field label="CV" htmlFor="cv-sel" className="cvx-picker">
-              <Select
-                id="cv-sel"
-                value={cvValue}
-                onChange={(e) => setSelectedCvId(e.target.value)}
-                options={docs.map((d) => ({ value: d.id, label: d.fileName }))}
-                placeholder={docs.length === 0 ? "No CVs available" : undefined}
-              />
-            </Field>
-            <ToolbarSep />
-            <Button
-              variant="primary"
-              disabled={running || cvValue === ""}
-              icon={<Icon icon={PlayIcon} size={14} />}
-              onClick={handleRun}
-            >
-              {running ? "Running..." : "Run Analysis"}
-            </Button>
-          </Toolbar>
+          <section className="cv-analysis-runbar" aria-label="Run a new analysis">
+            <div className="cv-analysis-runbar__copy">
+              <span className="cv-analysis-section-label">NEW ANALYSIS</span>
+              <h2>Choose a source CV</h2>
+              <p>Run a fresh match report against your current application target.</p>
+            </div>
+            <div className="cv-analysis-runbar__form">
+              <Field label="Source document" htmlFor="cv-sel" className="cv-analysis-picker">
+                <Select
+                  id="cv-sel"
+                  value={cvValue}
+                  onChange={(e) => setSelectedCvId(e.target.value)}
+                  options={docs.map((d) => ({ value: d.id, label: d.fileName }))}
+                  placeholder={docs.length === 0 ? "No CVs available" : undefined}
+                />
+              </Field>
+              <ToolbarSep />
+              <Button
+                variant="primary"
+                disabled={running || cvValue === ""}
+                icon={<Icon icon={PlayIcon} size={14} />}
+                onClick={handleRun}
+              >
+                {running ? "Analysing…" : "Run analysis"}
+              </Button>
+            </div>
+          </section>
 
           {runError !== null && (
-            <div className="inline-warning inline-warning--danger" role="alert">
-              <div className="inline-warning__body">
-                <div>Analysis failed. Your history is unchanged.</div>
-                <div className="inline-warning__url">{runError}</div>
+            <div className="cv-analysis-alert" role="alert">
+              <span className="cv-analysis-alert__icon">!</span>
+              <div>
+                <strong>Analysis failed. History is unchanged.</strong>
+                <span>{runError}</span>
               </div>
             </div>
           )}
 
           {selectedReport === null ? (
-            <EmptyState
-              label="No analysis"
-              title="Run your first analysis"
-              body="Pick a CV above and press Run Analysis. The result is saved to your history."
-            />
+            <div className="cv-analysis-state cv-analysis-state--inline">
+              <span className="cv-analysis-state__code">NO REPORT / READY</span>
+              <h2>Run your first analysis</h2>
+              <p>
+                Pick a CV above and press Run analysis. The result will be saved to your history.
+              </p>
+            </div>
           ) : (
             <ReportDetail report={selectedReport} />
           )}
 
           {reports.length > 1 && (
-            <div className="section-group">
-              <h2 className="section-title">Analysis History</h2>
+            <section className="cv-analysis-history">
+              <div className="cv-analysis-section-head">
+                <div>
+                  <span className="cv-analysis-section-label">ARCHIVE</span>
+                  <h2>Analysis history</h2>
+                </div>
+                <span className="cv-analysis-section-head__count">
+                  {reports.length.toString().padStart(2, "0")} runs
+                </span>
+              </div>
               <DataTable
                 columns={historyCols}
                 rows={reports}
                 getRowKey={(r) => r.id}
                 onRowClick={(r) => setSelectedReportId(r.id)}
               />
-            </div>
+            </section>
           )}
         </>
       )}
@@ -255,55 +294,67 @@ function ReportDetail({ report }: { report: CvAnalysisReport }) {
     report.score !== null ? matchScoreVariant(report.score) : "neutral";
 
   return (
-    <>
-      {/* Score + count tiles. The score tile's tone flips with the match band
-          so a red tile never sits next to a green ScoreBar. */}
-      <div className="stat-grid">
+    <section className="cv-analysis-report" aria-label="Selected analysis report">
+      <header className="cv-analysis-report__head">
+        <div>
+          <span className="cv-analysis-section-label">LATEST REPORT</span>
+          <h2>{report.cvFileName}</h2>
+          <p>
+            {report.variantName ?? "General profile"} ·{" "}
+            {new Date(report.createdAt).toLocaleDateString()}
+          </p>
+        </div>
+        <div className={`cv-analysis-score cv-analysis-score--${scoreVariant}`}>
+          <span>match score</span>
+          <strong>{report.score !== null ? report.score : "—"}</strong>
+          <small>{report.score !== null ? "/ 100" : "not scored"}</small>
+        </div>
+      </header>
+
+      <div className="cv-analysis-kpis">
         <KpiCard
-          label="Match Score"
+          label="Match score"
           tone={kpiTone(scoreVariant)}
           accessibleValue={report.score !== null ? `${report.score} percent` : "not scored"}
-          value={
-            report.score !== null ? (
-              <>
-                {report.score}
-                <span
-                  style={{
-                    fontSize: "var(--text-md)",
-                    fontWeight: "var(--fw-regular)",
-                    marginLeft: 1,
-                  }}
-                >
-                  %
-                </span>
-              </>
-            ) : (
-              "n/a"
-            )
-          }
+          value={report.score !== null ? `${report.score}%` : "n/a"}
+          meta="overall signal"
         />
         <KpiCard
-          label="Missing Keywords"
+          label="Missing keywords"
           value={report.missingKeywords.length}
           tone={report.missingKeywords.length > 0 ? "danger" : "success"}
+          meta={report.missingKeywords.length > 0 ? "worth adding" : "none flagged"}
         />
-        <KpiCard label="Recommendations" value={report.recommendations.length} />
+        <KpiCard
+          label="Recommendations"
+          value={report.recommendations.length}
+          tone="accent"
+          meta="next actions"
+        />
       </div>
 
       {report.score !== null && (
-        <Card compact>
-          <div className="cvx-scorebars">
-            <ScoreBar
-              label="Match"
-              value={report.score}
-              variant={matchScoreVariant(report.score)}
-            />
+        <div className="cv-analysis-scorecard">
+          <div className="cv-analysis-scorecard__head">
+            <div>
+              <span className="cv-analysis-section-label">SIGNAL STRENGTH</span>
+              <strong>
+                {report.score >= 80
+                  ? "Strong alignment"
+                  : report.score >= 60
+                    ? "Promising alignment"
+                    : "Room to improve"}
+              </strong>
+            </div>
+            <span>{report.score}%</span>
           </div>
-        </Card>
+          <ScoreBar label="Match" value={report.score} variant={matchScoreVariant(report.score)} />
+        </div>
       )}
 
       <Card
-        title="Summary"
+        className="cv-analysis-summary"
+        title="Executive read"
         actions={
           report.optimizationNeeded ? (
             <Badge variant="review">Optimization needed</Badge>
@@ -315,30 +366,28 @@ function ReportDetail({ report }: { report: CvAnalysisReport }) {
         <p className="cvx-summary-text">{report.summary}</p>
       </Card>
 
-      {/* Run metadata strip -- monospace, wraps on narrow. */}
-      <div className="cvx-runmeta" aria-label="Analysis metadata">
+      <div className="cv-analysis-meta" aria-label="Analysis metadata">
         <span>
-          <span className="cvx-runmeta__k">CV</span>
+          <small>DOCUMENT</small>
           <strong>{report.cvFileName}</strong>
         </span>
         <span>
-          <span className="cvx-runmeta__k">Variant</span>
+          <small>VARIANT</small>
           <strong>{report.variantName ?? "General"}</strong>
         </span>
         <span>
-          <span className="cvx-runmeta__k">Model</span>
+          <small>MODEL</small>
           <strong>
             {report.modelProvider} / {report.modelName}
           </strong>
         </span>
         <span>
-          <span className="cvx-runmeta__k">Run</span>
+          <small>RUN AT</small>
           <time dateTime={report.createdAt}>{new Date(report.createdAt).toLocaleString()}</time>
         </span>
       </div>
 
-      {/* Detail grid -- 2 columns on desktop, collapses to 1 on narrow. */}
-      <div className="cvx-detail-grid">
+      <div className="cv-analysis-detail-grid">
         <Card
           title="Strengths"
           actions={<Badge variant="success">{report.strengths.length}</Badge>}
@@ -401,6 +450,6 @@ function ReportDetail({ report }: { report: CvAnalysisReport }) {
           )}
         </Card>
       </div>
-    </>
+    </section>
   );
 }

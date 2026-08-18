@@ -2,8 +2,8 @@
  *
  * Re-skins the whole app to terax-ai's look by REMAPPING our existing design tokens to terax's
  * values — so every component (which reads the --color- / --font- / --radius- tokens) adopts the new
- * style with no rewrite. terax = ember/red primary on a warm near-black, monospace UI (Share Tech Mono +
- * JetBrains Mono), Space Grotesk display, sharp corners, and a grid-glow background.
+ * style with no rewrite. Neutral graphite primary on a warm near-black, monospace UI (Share Tech Mono +
+ * JetBrains Mono), Space Grotesk display, measured corners, and a quiet panel background.
  *
  * Imported AFTER theme.css so these overrides win (same specificity, later cascade).
  */
@@ -18,53 +18,52 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "IBM Plex Mono", monospace;
   --font-data: var(--font-mono);
 
-  /* terax base radius is 0 (buttons are rounded-none); cards/inputs keep a hair of rounding. */
-  --radius: 0px;
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 
-  --tx-primary: oklch(0.6 0.17 258);
-  --ember: oklch(0.6 0.17 258);
-  --ember-dim: oklch(0.46 0.12 258);
+  --tx-primary: oklch(0.78 0 0);
+  --ember: oklch(0.78 0 0);
+  --ember-dim: oklch(0.34 0 0);
   --tx-primary-8: color-mix(in oklab, var(--tx-primary) 8%, transparent);
 }
 
-/* terax palette (ember on dark) — applied to dark/unset only; light theme uses theme.css tokens. */
+/* Neutral graphite palette — applied to dark/unset only. */
 :root,
 [data-theme="dark"],
 html:not([data-theme]) {
-  --color-bg: oklch(0.14 0.028 258);
-  --color-surface: oklch(0.17 0.03 258);
-  --color-surface-2: oklch(0.2 0.032 258);
-  --color-surface-3: oklch(0.18 0.03 258);
-  --color-surface-hover: oklch(0.24 0.035 258);
-  --color-surface-raised: oklch(0.19 0.03 258);
-  --color-surface-sunken: oklch(0.16 0.028 258);
+  --color-bg: oklch(0.12 0 0);
+  --color-surface: oklch(0.16 0 0);
+  --color-surface-2: oklch(0.2 0 0);
+  --color-surface-3: oklch(0.18 0 0);
+  --color-surface-hover: oklch(0.24 0 0);
+  --color-surface-raised: oklch(0.19 0 0);
+  --color-surface-sunken: oklch(0.1 0 0);
 
-  --color-border: oklch(0.36 0.04 258);
-  --color-border-strong: oklch(0.44 0.05 258);
-  --color-border-subtle: color-mix(in oklab, oklch(0.36 0.04 258) 55%, transparent);
+  --color-border: oklch(0.3 0 0);
+  --color-border-strong: oklch(0.42 0 0);
+  --color-border-subtle: color-mix(in oklab, oklch(0.3 0 0) 70%, transparent);
 
-  --color-text: oklch(0.95 0.01 250);
-  --color-text-2: color-mix(in oklab, oklch(0.95 0.01 250) 86%, transparent);
-  --color-text-muted: oklch(0.68 0.03 250);
-  --color-text-inverse: oklch(0.14 0.028 258);
+  --color-text: oklch(0.95 0 0);
+  --color-text-2: oklch(0.78 0 0);
+  --color-text-muted: oklch(0.58 0 0);
+  --color-text-inverse: oklch(0.12 0 0);
 
   --color-accent: var(--tx-primary);
-  --color-accent-hover: oklch(0.68 0.17 255);
+  --color-accent-hover: oklch(0.86 0 0);
   --color-accent-dim: var(--ember-dim);
-  --color-accent-text: oklch(0.98 0.01 250);
+  --color-accent-text: oklch(0.95 0 0);
 
   --color-danger: oklch(0.63 0.2 24);
   --color-danger-hover: oklch(0.68 0.21 24);
   --color-danger-dim: oklch(0.46 0.13 24);
   --color-success: oklch(0.64 0.1 150);
   --color-warning: oklch(0.76 0.12 70);
-  --color-info: oklch(0.7 0.07 245);
+  --color-info: oklch(0.72 0 0);
 }
 
-/* Body: Inter on a flat dark-blue background — no grid. */
+/* Body: Inter on a flat graphite background — no grid. */
 body {
   font-family: var(--font-body);
   background-color: var(--color-bg);
@@ -100,7 +99,7 @@ body {
   border-color: var(--color-border-subtle);
   position: relative;
 }
-/* faint blue accent line along the top edge of every panel */
+/* faint accent line along the top edge of every panel */
 .card::after {
   content: "";
   position: absolute;
@@ -256,6 +255,37 @@ body {
   }
 }
 
+/* Light mode keeps same graphite language. */
+[data-theme="light"] {
+  --color-bg: #f3f3f2;
+  --color-surface: #fafafa;
+  --color-surface-2: #ececea;
+  --color-surface-3: #e1e1df;
+  --color-surface-hover: #d8d8d6;
+  --color-surface-sunken: #e8e8e6;
+  --color-surface-raised: #ffffff;
+  --color-border: #cfcfcb;
+  --color-border-strong: #a8a8a4;
+  --color-border-subtle: #ddddda;
+  --color-text: #171716;
+  --color-text-2: #4a4a48;
+  --color-text-muted: #6b6b68;
+  --color-text-inverse: #f3f3f2;
+  --color-accent: #50504d;
+  --color-accent-dim: #e5e5e3;
+  --color-accent-text: #30302e;
+  --color-accent-hover: #333331;
+  --color-info: #5a5a57;
+  --status-queued-bg: #e8e8e6;
+  --status-queued-text: #5a5a57;
+  --status-running-bg: #e8e8e6;
+  --status-running-text: #4a4a48;
+  --status-paused-bg: #e8e8e6;
+  --status-paused-text: #5a5a57;
+  --status-neutral-bg: #e8e8e6;
+  --status-neutral-text: #5a5a57;
+}
+
 /* WayneTech scrollbars — thin, dark, accent on hover. */
 * {
   scrollbar-width: thin;
@@ -341,7 +371,7 @@ select {
   box-sizing: border-box;
   height: 32px;
   padding: 0 12px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   gap: 6px;
@@ -362,7 +392,7 @@ select {
 }
 .btn--primary {
   background: var(--color-accent);
-  color: var(--color-accent-text);
+  color: var(--color-text-inverse);
   border-color: transparent;
 }
 .btn--primary:hover {
@@ -378,59 +408,6 @@ select {
   background: var(--color-surface-3);
   border-color: var(--color-accent);
   color: var(--color-text);
-}
-
-/* ── Global live-automation preview (FAB + floating pane) ─────────────────── */
-.glp-fab {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 61;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s,
-    color 0.15s;
-}
-.glp-fab:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 4px 20px color-mix(in oklch, var(--color-accent) 35%, transparent);
-}
-.glp-fab--active {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.glp-fab__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: var(--color-accent);
-  box-shadow: 0 0 8px var(--color-accent);
-  animation: glp-pulse 1.8s ease-in-out infinite;
-}
-@keyframes glp-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
 }
 
 .glp-panel {
@@ -528,11 +505,7 @@ select:focus-visible {
   outline-offset: 1px;
 }
 
-/* ── Light-mode btn--primary contrast fixes ───────────────────────────────────
-   The terax .btn--primary rule uses --color-accent-text for text (correct in dark:
-   near-white on blue). In light, --color-accent-text is #004e80 — dark blue on
-   --color-accent #0068ac — giving only 1.62:1. Use --color-text-inverse (#edf2f9)
-   instead; gives 5.22:1. Hover darkens via --color-accent-hover; 6.99:1. */
+/* ── Light-mode btn--primary contrast fixes ─────────────────────────────────── */
 [data-theme="light"] .btn--primary {
   color: var(--color-text-inverse);
 }

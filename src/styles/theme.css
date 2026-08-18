@@ -103,56 +103,55 @@
 }
 
 /* ---- HUD command-center palette (the only theme) ---------------
-   Deep blue-black instrument field lit by a single cyan HUD accent. macOS
-   hairline borders, cyan edge-glow on interactive surfaces. Danger stays a
+   Graphite instrument field lit by a neutral HUD accent. macOS
+   hairline borders, restrained edge contrast on interactive surfaces. Danger stays a
    warm vermilion on its own hue lane so E-STOP never blends into accent
    chrome; success stays green — meaning outranks palette. */
 [data-theme="dark"],
 html:not([data-theme]) {
   color-scheme: dark;
 
-  --color-bg: #05080f;
-  --color-surface: #0a0f1b;
-  --color-surface-2: #0f1626;
-  --color-surface-3: #152034;
-  --color-surface-hover: #1a2942;
-  --color-surface-sunken: #04070d;
-  --color-surface-raised: #121b2d;
+  --color-bg: #121212;
+  --color-surface: #1a1a1a;
+  --color-surface-2: #202020;
+  --color-surface-3: #242424;
+  --color-surface-hover: #2c2c2c;
+  --color-surface-sunken: #0d0d0d;
+  --color-surface-raised: #262626;
 
-  --color-border: #1d2c46;
-  --color-border-strong: #2c405f;
+  --color-border: #343434;
+  --color-border-strong: #4a4a4a;
 
-  --color-text: #dbe7f5;
-  --color-text-2: #7f97b8;
-  --color-text-muted: #465b7c;
-  --color-text-inverse: #05080f;
+  --color-text: #ededed;
+  --color-text-2: #b6b6b6;
+  --color-text-muted: #858585;
+  --color-text-inverse: #121212;
 
-  --color-accent: #38bdf8;
-  --color-accent-dim: #08263a;
-  --color-accent-text: #7fd8ff;
-  --color-accent-hover: #5fd0ff;
+  --color-accent: #c8c8c8;
+  --color-accent-dim: #2a2a2a;
+  --color-accent-text: #ededed;
+  --color-accent-hover: #e0e0e0;
 
   --color-danger: #ef4444;
   --color-danger-dim: #300c0c;
   --color-danger-hover: #f75858;
 
-  /* Elevation - overlays/menus float above the instrument field, cyan-tinted */
+  /* Elevation - overlays/menus float above the instrument field. */
   --shadow-1: 0 1px 2px rgba(0, 4, 12, 0.5);
   --shadow-2: 0 6px 18px rgba(0, 6, 18, 0.55);
   --shadow-3: 0 16px 40px rgba(0, 8, 24, 0.62);
   --shadow-inset: inset 0 1px 2px rgba(0, 4, 14, 0.45);
 
-  /* Cyan glow used sparingly on the HUD signature frame + active nav */
-  --hud-glow: 0 0 0 1px rgba(56, 189, 248, 0.25), 0 0 12px -2px rgba(56, 189, 248, 0.35);
+  --hud-glow: 0 0 0 1px rgba(200, 200, 200, 0.2), 0 0 12px -2px rgba(200, 200, 200, 0.16);
 
   /* Internal dividers - lighter than structural --color-border */
-  --color-border-subtle: #142033;
+  --color-border-subtle: #2a2a2a;
 
   /* Semantic status tokens */
-  --status-queued-bg: #142033;
-  --status-queued-text: #7f97b8;
-  --status-running-bg: #08263a;
-  --status-running-text: #38bdf8;
+  --status-queued-bg: #2a2a2a;
+  --status-queued-text: #a0a0a0;
+  --status-running-bg: #2a2a2a;
+  --status-running-text: #c8c8c8;
   --status-success-bg: #072318;
   --status-success-text: #22c55e;
   --status-failed-bg: #300c0c;
@@ -161,66 +160,62 @@ html:not([data-theme]) {
   --status-review-text: #eab308;
   --status-stopped-bg: #300c0c;
   --status-stopped-text: #b91c1c;
-  --status-paused-bg: #16233a;
-  --status-paused-text: #6b83a8;
-  --status-neutral-bg: #0f1626;
-  --status-neutral-text: #5c7196;
+  --status-paused-bg: #2a2a2a;
+  --status-paused-text: #a0a0a0;
+  --status-neutral-bg: #202020;
+  --status-neutral-text: #8f8f8f;
 
   --color-success: var(--status-success-text);
   --color-warning: var(--status-review-text);
   --color-info: var(--status-running-text);
 }
 
-/* ---- Light palette — WayneTech daylight ops ----------------------
-   Cool slate-blue base (not cream/warm): the command-center aesthetic
-   in full ambient light. Cyan accent deepened for WCAG AA on white.
+/* ---- Light palette — daylight ops ----------------------
+   Neutral graphite base and accent.
    Every token that the dark block defines is mirrored here. */
 [data-theme="light"] {
   color-scheme: light;
 
-  --color-bg: #edf2f9;
-  --color-surface: #f4f7fc;
-  --color-surface-2: #eaeff8;
-  --color-surface-3: #e0eaf4;
-  --color-surface-hover: #d8e6f2;
-  --color-surface-sunken: #e6edf6;
-  --color-surface-raised: #fafcff;
+  --color-bg: #f3f3f2;
+  --color-surface: #fafafa;
+  --color-surface-2: #ececea;
+  --color-surface-3: #e1e1df;
+  --color-surface-hover: #d8d8d6;
+  --color-surface-sunken: #e8e8e6;
+  --color-surface-raised: #ffffff;
 
-  --color-border: #c0cfe6;
-  --color-border-strong: #93b0d0;
+  --color-border: #cfcfcb;
+  --color-border-strong: #a8a8a4;
 
-  --color-text: #0c1a2e;
-  --color-text-2: #2c4a6a;
-  --color-text-muted: #486680; /* was #5c7a9a — darkened: 5.35:1 on bg, 5.61:1 on surface (WCAG AA) */
-  --color-text-inverse: #edf2f9;
+  --color-text: #171716;
+  --color-text-2: #4a4a48;
+  --color-text-muted: #6b6b68;
+  --color-text-inverse: #f3f3f2;
 
-  /* Accent: 1 shade darker than original #006eb5 so it clears 4.5:1 on --color-accent-dim */
-  --color-accent: #0068ac;
-  --color-accent-dim: #d8eef8;
-  --color-accent-text: #004e80;
-  /* Hover darkens (not lightens) in light context so text-inverse stays ≥6.9:1 */
-  --color-accent-hover: #005490;
+  --color-accent: #50504d;
+  --color-accent-dim: #e5e5e3;
+  --color-accent-text: #30302e;
+  --color-accent-hover: #333331;
 
   --color-danger: #b91c1c;
   --color-danger-dim: #fde8e8;
   --color-danger-hover: #cc2424;
 
   /* Elevation — softer on light; no heavy black bleeds */
-  --shadow-1: 0 1px 3px rgba(10, 30, 60, 0.1);
-  --shadow-2: 0 4px 14px rgba(10, 30, 60, 0.12);
-  --shadow-3: 0 12px 32px rgba(10, 30, 60, 0.14);
-  --shadow-inset: inset 0 1px 2px rgba(10, 30, 60, 0.08);
+  --shadow-1: 0 1px 3px rgba(20, 20, 20, 0.1);
+  --shadow-2: 0 4px 14px rgba(20, 20, 20, 0.12);
+  --shadow-3: 0 12px 32px rgba(20, 20, 20, 0.14);
+  --shadow-inset: inset 0 1px 2px rgba(20, 20, 20, 0.08);
 
-  /* HUD glow in daylight: subtler, blue-tinted */
-  --hud-glow: 0 0 0 1px rgba(0, 110, 181, 0.2), 0 0 10px -2px rgba(0, 110, 181, 0.22);
+  --hud-glow: 0 0 0 1px rgba(80, 80, 77, 0.2), 0 0 10px -2px rgba(80, 80, 77, 0.14);
 
-  --color-border-subtle: #d2dff0;
+  --color-border-subtle: #ddddda;
 
   /* Status tokens — saturated enough to read on a light field */
-  --status-queued-bg: #e4ecf6;
-  --status-queued-text: #3a5c84;
-  --status-running-bg: #d8eef8;
-  --status-running-text: #0068ac; /* tracks --color-accent; gives 4.90:1 on dim bg */
+  --status-queued-bg: #e8e8e6;
+  --status-queued-text: #5a5a57;
+  --status-running-bg: #e8e8e6;
+  --status-running-text: #4a4a48;
   --status-success-bg: #e0f4ea;
   --status-success-text: #166534;
   --status-failed-bg: #fde8e8;
@@ -229,10 +224,10 @@ html:not([data-theme]) {
   --status-review-text: #92400e;
   --status-stopped-bg: #fde8e8;
   --status-stopped-text: #7f1d1d;
-  --status-paused-bg: #e8eef6;
-  --status-paused-text: #4a6680;
-  --status-neutral-bg: #eaeff8;
-  --status-neutral-text: #4a6080;
+  --status-paused-bg: #e8e8e6;
+  --status-paused-text: #5a5a57;
+  --status-neutral-bg: #e8e8e6;
+  --status-neutral-text: #5a5a57;
 
   --color-success: var(--status-success-text);
   --color-warning: var(--status-review-text);
