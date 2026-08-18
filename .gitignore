@@ -19,6 +19,7 @@ docs
 
 # TypeScript / build artifacts
 *.tsbuildinfo
+reports/quality/
 
 # Editor directories and files
 .vscode/*
@@ -40,4 +41,3 @@ src.zip
 AGENTS.md
 REVIEW.md
 .gitignore
-jscpd.json
