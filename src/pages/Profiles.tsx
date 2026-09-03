@@ -4,6 +4,8 @@ import { safeInvoke, invokeStrict } from "../lib/tauriInvoke";
 import { useProfileStore } from "../stores/useProfileStore";
 import { Badge, Button, Field, FormRow, Icon, Input, Select } from "../components/ui";
 import type { Profile } from "../types/domain";
+import { ProfileRail } from "./ProfileRail";
+import { ProfilesPageHeader } from "./ProfilesPageHeader";
 import "./Profiles.css";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +51,15 @@ const BLANK_LINKS: ProfileLinks = { phone: "", linkedin: "", github: "", portfol
 // The Profiles form is one flat key→value store (profile_facts). Facts + links
 // live under the SAME keys the Easy Apply injector reads (see contact_fact_answers).
 type FactMap = Record<string, string>;
+function profileInitials(name: string): string {
+  const words = name.trim().split(new RegExp("\\s+")).filter(Boolean);
+  return (
+    words.length > 1
+      ? `${words[0][0]}${words[words.length - 1][0]}`
+      : (words[0]?.slice(0, 2) ?? "P")
+  ).toUpperCase();
+}
+
 function splitFacts(all: FactMap): { facts: ProfileFacts; links: ProfileLinks } {
   const g = (k: string, d = "") => all[k] ?? d;
   return {
@@ -74,15 +85,6 @@ function splitFacts(all: FactMap): { facts: ProfileFacts; links: ProfileLinks } 
   };
 }
 // ---------------------------------------------------------------------------
-
-function profileInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  return (
-    words.length > 1
-      ? `${words[0][0]}${words[words.length - 1][0]}`
-      : (words[0]?.slice(0, 2) ?? "P")
-  ).toUpperCase();
-}
 
 export function Profiles() {
   const profiles = useProfileStore((s) => s.profiles);
@@ -111,32 +113,11 @@ export function Profiles() {
     void loadProfiles();
   }, [loadProfiles]);
 
-  // Effective selection: honour an explicit pick while it still exists,
-  // otherwise fall back to the first profile. Derived during render, so no
-  // auto-select effect (and no setState-in-effect) is needed.
   const selected: Profile | null = profiles.find((p) => p.id === selectedId) ?? profiles[0] ?? null;
 
   return (
     <div className="page page--fill profiles-page">
-      <header className="profiles-hero">
-        <div>
-          <p className="profiles-eyebrow">PROFILE WORKSPACE / 01</p>
-          <h1 className="profiles-hero__title">Profile workspace</h1>
-          <p className="profiles-hero__lede">
-            Build focused identities for every kind of opportunity. Keep your answers, links, and
-            browser sessions ready to reuse.
-          </p>
-        </div>
-        <div className="profiles-hero__actions">
-          <div className="profiles-hero__metric">
-            <strong>{profiles.length.toString().padStart(2, "0")}</strong>
-            <span>saved profiles</span>
-          </div>
-          <Button variant="primary" onClick={() => void handleCreate()} disabled={creating}>
-            {creating ? "Creating…" : "+ New profile"}
-          </Button>
-        </div>
-      </header>
+      <ProfilesPageHeader count={profiles.length} creating={creating} onCreate={handleCreate} />
 
       {isLoading ? (
         <div className="profiles-loading" role="status">
@@ -145,48 +126,12 @@ export function Profiles() {
         </div>
       ) : (
         <div className="profiles-layout">
-          <aside className="profiles-rail" aria-label="Saved profiles">
-            <div className="profiles-rail__head">
-              <div>
-                <p className="profiles-eyebrow">IDENTITIES</p>
-                <h2>Saved profiles</h2>
-              </div>
-              <span className="profiles-rail__count">{profiles.length}</span>
-            </div>
-            {profiles.length > 0 ? (
-              <div className="profile-list">
-                {profiles.map((profile) => {
-                  const isSelected = profile.id === selected?.id;
-                  const isActive = profile.id === activeProfileId;
-                  return (
-                    <button
-                      className={`profile-list__item${isSelected ? " is-selected" : ""}`}
-                      key={profile.id}
-                      type="button"
-                      onClick={() => setSelectedId(profile.id)}
-                      aria-pressed={isSelected}
-                    >
-                      <span className="profile-list__avatar">{profileInitials(profile.name)}</span>
-                      <span className="profile-list__copy">
-                        <strong>{profile.name}</strong>
-                        <span>{isActive ? "Active for automation" : "Ready to configure"}</span>
-                      </span>
-                      {isActive && <span className="profile-list__dot" aria-label="Active" />}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="profiles-rail__empty">
-                <span>01</span>
-                <p>Your first profile becomes your default automation identity.</p>
-              </div>
-            )}
-            <div className="profiles-rail__note">
-              <span className="profiles-rail__note-mark">↗</span>
-              <p>One profile per job-search direction keeps applications consistent.</p>
-            </div>
-          </aside>
+          <ProfileRail
+            profiles={profiles}
+            selected={selected}
+            activeProfileId={activeProfileId}
+            onSelect={setSelectedId}
+          />
 
           <main className="profiles-detail">
             {selected === null ? (

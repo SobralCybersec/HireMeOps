@@ -47,48 +47,18 @@ interface FieldProps extends HTMLAttributes<HTMLDivElement> {
  * through every call site. If you *do* pass `htmlFor`, it wins and no
  * mutation of children is attempted.
  */
-export function Field({
-  label,
-  htmlFor,
-  helper,
-  error,
-  required,
-  span,
-  className,
-  children,
-  ...rest
-}: FieldProps) {
+export function Field(props: FieldProps) {
+  const { label, htmlFor, helper, error, required, span, className, children, ...rest } = props;
   const autoId = useId();
   const controlId = htmlFor ?? autoId;
   const helperId = `${controlId}-helper`;
   const errorId = `${controlId}-error`;
-
-  // Auto-wire id + aria-describedby + aria-invalid onto the first eligible
-  // child. We only mutate when the caller didn't hand-set the prop - this
-  // keeps <Field> a zero-surprise wrapper.
-  let wired = false;
-  const wiredChildren = Children.map(children, (child) => {
-    if (wired || !isValidElement(child)) return child;
-    // Skip non-form elements (icons, text nodes, buttons within compound rows)
-    const type = (child as ReactElement).type;
-    const isForm =
-      typeof type === "string" ? ["input", "select", "textarea", "button"].includes(type) : true;
-    if (!isForm) return child;
-
-    const props = (child as ReactElement<Record<string, unknown>>).props;
-    const nextProps: Record<string, unknown> = {};
-    if (!props.id) nextProps.id = controlId;
-    if (error != null && props["aria-invalid"] === undefined) nextProps["aria-invalid"] = true;
-    const describedBy = [
-      props["aria-describedby"] as string | undefined,
-      error != null ? errorId : helper != null ? helperId : null,
-    ]
-      .filter(Boolean)
-      .join(" ");
-    if (describedBy) nextProps["aria-describedby"] = describedBy;
-
-    wired = true;
-    return cloneElement(child, nextProps);
+  const wiredChildren = wireFieldChildren(children, {
+    controlId,
+    error,
+    errorId,
+    helper,
+    helperId,
   });
 
   const spanCls = span === "full" ? "field--span-full" : span === 2 ? "field--span-2" : null;
@@ -116,6 +86,57 @@ export function Field({
       ) : null}
     </div>
   );
+}
+
+function fieldControlType(child: ReactElement) {
+  const type = child.type;
+  return typeof type === "string" ? ["input", "select", "textarea", "button"].includes(type) : true;
+}
+
+function wireFieldChild(
+  child: ReactNode,
+  context: {
+    controlId: string;
+    error: ReactNode;
+    errorId: string;
+    helper: ReactNode;
+    helperId: string;
+  },
+) {
+  if (!isValidElement(child) || !fieldControlType(child as ReactElement))
+    return { child, wired: false };
+  const props = (child as ReactElement<Record<string, unknown>>).props;
+  const nextProps: Record<string, unknown> = {};
+  if (!props.id) nextProps.id = context.controlId;
+  if (context.error != null && props["aria-invalid"] === undefined)
+    nextProps["aria-invalid"] = true;
+  const describedBy = [
+    props["aria-describedby"] as string | undefined,
+    context.error != null ? context.errorId : context.helper != null ? context.helperId : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (describedBy) nextProps["aria-describedby"] = describedBy;
+  return { child: cloneElement(child, nextProps), wired: true };
+}
+
+function wireFieldChildren(
+  children: ReactNode,
+  context: {
+    controlId: string;
+    error: ReactNode;
+    errorId: string;
+    helper: ReactNode;
+    helperId: string;
+  },
+) {
+  let wired = false;
+  return Children.map(children, (child) => {
+    if (wired) return child;
+    const result = wireFieldChild(child, context);
+    wired ||= result.wired;
+    return result.child;
+  });
 }
 
 interface FormRowProps extends HTMLAttributes<HTMLDivElement> {

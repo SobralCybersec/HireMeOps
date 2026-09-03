@@ -121,32 +121,12 @@ export function managerialLevelValue(role) {
 }
 
 export function bestCourseMatch(degree, options) {
-  const strip = (s) =>
-    String(s ?? "")
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  const STOP = new Set([
-    "bacharelado", "licenciatura", "tecnologo", "em", "de", "da", "do", "das", "dos",
-    "e", "curso", "superior", "graduacao", "pos", "mba", "especializacao", "mestrado",
-    "doutorado", "ensino", "grau",
-  ]);
-  const stem = (w) => (w.length > 4 ? w.replace(/s$/, "") : w);
-  const toks = (s) =>
-    strip(s)
-      .split(" ")
-      .filter((w) => w && !STOP.has(w))
-      .map(stem);
-
-  const dTok = new Set(toks(degree));
+  const dTok = new Set(courseTokens(degree));
   if (!dTok.size) return null;
 
   let best = null;
   for (const opt of options || []) {
-    const oTok = toks(opt.label);
+    const oTok = courseTokens(opt.label);
     if (!oTok.length) continue;
     const inter = oTok.filter((w) => dTok.has(w)).length;
     if (!inter) continue;
@@ -156,4 +136,27 @@ export function bestCourseMatch(degree, options) {
     if (!best || score > best.score) best = { value: opt.value, label: opt.label, score };
   }
   return best;
+}
+
+const COURSE_STOP_WORDS = new Set([
+  "bacharelado", "licenciatura", "tecnologo", "em", "de", "da", "do", "das", "dos",
+  "e", "curso", "superior", "graduacao", "pos", "mba", "especializacao", "mestrado",
+  "doutorado", "ensino", "grau",
+]);
+
+function courseTokens(value) {
+  return normalizeCourseText(value)
+    .split(" ")
+    .filter((word) => word && !COURSE_STOP_WORDS.has(word))
+    .map((word) => (word.length > 4 ? word.replace(/s$/, "") : word));
+}
+
+function normalizeCourseText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

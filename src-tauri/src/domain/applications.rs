@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+use self::applications_answers::{contact_fact_answers, map_answers};
 use super::{DomainError, DomainResult};
+
+#[path = "applications_answers.rs"]
+mod applications_answers;
 use crate::ai::prompt::{
     draft_prompt, draft_system, parse_draft, DraftInput, DRAFT_PROMPT_VERSION,
 };
@@ -64,94 +68,558 @@ impl ApplicationServiceImpl {
             .map_err(|e| DomainError::InvalidInput(format!("parse cv document: {e}")))?;
         Ok((parsed.text, file_hash))
     }
-}
 
-impl ApplicationService for ApplicationServiceImpl {
-    async fn draft(&self, job_match_id: &str) -> DomainResult<String> {
-        let (job_id, profile_id, cv_document_id, role_variant_id): (
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT job_id, profile_id, cv_document_id, role_variant_id
-             FROM job_matches WHERE id = ?1",
-        )
-        .bind(job_match_id)
-        .fetch_optional(&self.db)
-        .await?
-        .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_match: {job_match_id}")))?;
-
-        let (title, company, location, description, content_hash): (
-            String,
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT title, company, location, description, content_hash
-             FROM job_posts WHERE id = ?1",
-        )
-        .bind(&job_id)
-        .fetch_optional(&self.db)
-        .await?
-        .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_post: {job_id}")))?;
-
-        let (display_name, profile_summary): (String, Option<String>) =
-            sqlx::query_as("SELECT display_name, summary FROM profiles WHERE id = ?1")
-                .bind(&profile_id)
-                .fetch_optional(&self.db)
-                .await?
-                .ok_or_else(|| {
-                    DomainError::InvalidInput(format!("unknown profile: {profile_id}"))
-                })?;
-
-        let variant: Option<(String, Option<String>, Option<String>)> =
-            match &role_variant_id {
-                Some(vid) => sqlx::query_as(
-                    "SELECT target_title, headline, summary FROM profile_variants WHERE id = ?1",
-                )
-                .bind(vid)
-                .fetch_optional(&self.db)
-                .await?,
-                None => None,
-            };
-        let variant_target: Option<String> = variant.as_ref().map(|(target, headline, _)| {
-            headline
-                .as_deref()
-                .filter(|h| !h.trim().is_empty())
-                .unwrap_or(target)
-                .to_string()
-        });
-        let candidate_summary: Option<String> = variant
-            .as_ref()
-            .and_then(|(_, _, s)| s.clone())
-            .or(profile_summary);
-
-        let (cv_text, cv_hash): (Option<String>, Option<String>) = match &cv_document_id {
-            Some(cid) => {
-                let (text, hash) = self.cv_text(cid).await?;
+    async fn draft_context(&self, job_match_id: &str) -> DomainResult<DraftContext> {
+        let (job_id, profile_id, cv_document_id, role_variant_id) =
+            load_draft_match(&self.db, job_match_id).await?;
+        let (title, company, location, description, content_hash) =
+            load_draft_job(&self.db, &job_id).await?;
+        let (display_name, profile_summary) = load_draft_profile(&self.db, &profile_id).await?;
+        let (variant_target, candidate_summary) =
+            load_draft_variant(&self.db, &role_variant_id, profile_summary).await?;
+        let (cv_text, cv_hash) = match &cv_document_id {
+            Some(document_id) => {
+                let (text, hash) = self.cv_text(document_id).await?;
                 (Some(text), Some(hash))
             }
             None => (None, None),
         };
+        let (hr_name, hr_link) = load_draft_hr(&self.db, &job_id, &profile_id).await?;
+        Ok(DraftContext {
+            job_id,
+            profile_id,
+            cv_document_id,
+            role_variant_id,
+            title,
+            company,
+            location,
+            description,
+            content_hash,
+            display_name,
+            variant_target,
+            candidate_summary,
+            cv_text,
+            cv_hash,
+            hr_name,
+            hr_link,
+        })
+    }
+}
 
-        let (hr_name_owned, hr_link_owned): (Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT hr_name, hr_link
-             FROM automation_tasks
-             WHERE task_type = 'apply_job'
-               AND target_id  = ?1
-               AND profile_id = ?2
-               AND hr_name IS NOT NULL
-             ORDER BY updated_at DESC
-             LIMIT 1",
-        )
-        .bind(&job_id)
-        .bind(&profile_id)
-        .fetch_optional(&self.db)
+struct DraftContext {
+    job_id: String,
+    profile_id: String,
+    cv_document_id: Option<String>,
+    role_variant_id: Option<String>,
+    title: String,
+    company: String,
+    location: Option<String>,
+    description: String,
+    content_hash: Option<String>,
+    display_name: String,
+    variant_target: Option<String>,
+    candidate_summary: Option<String>,
+    cv_text: Option<String>,
+    cv_hash: Option<String>,
+    hr_name: Option<String>,
+    hr_link: Option<String>,
+}
+
+async fn load_draft_match(
+    db: &SqlitePool,
+    job_match_id: &str,
+) -> DomainResult<(String, String, Option<String>, Option<String>)> {
+    sqlx::query_as(
+        "SELECT job_id, profile_id, cv_document_id, role_variant_id
+         FROM job_matches WHERE id = ?1",
+    )
+    .bind(job_match_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_match: {job_match_id}")))
+}
+
+async fn load_draft_job(
+    db: &SqlitePool,
+    job_id: &str,
+) -> DomainResult<(String, String, Option<String>, String, Option<String>)> {
+    sqlx::query_as(
+        "SELECT title, company, location, description, content_hash
+         FROM job_posts WHERE id = ?1",
+    )
+    .bind(job_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| DomainError::InvalidInput(format!("unknown job_post: {job_id}")))
+}
+
+async fn load_draft_profile(
+    db: &SqlitePool,
+    profile_id: &str,
+) -> DomainResult<(String, Option<String>)> {
+    sqlx::query_as("SELECT display_name, summary FROM profiles WHERE id = ?1")
+        .bind(profile_id)
+        .fetch_optional(db)
         .await?
-        .unwrap_or((None, None));
+        .ok_or_else(|| DomainError::InvalidInput(format!("unknown profile: {profile_id}")))
+}
 
+async fn load_draft_variant(
+    db: &SqlitePool,
+    role_variant_id: &Option<String>,
+    profile_summary: Option<String>,
+) -> DomainResult<(Option<String>, Option<String>)> {
+    let variant: Option<(String, Option<String>, Option<String>)> = match role_variant_id {
+        Some(variant_id) => {
+            sqlx::query_as(
+                "SELECT target_title, headline, summary FROM profile_variants WHERE id = ?1",
+            )
+            .bind(variant_id)
+            .fetch_optional(db)
+            .await?
+        }
+        None => None,
+    };
+    let variant_target = variant.as_ref().map(|(target, headline, _)| {
+        headline
+            .as_deref()
+            .filter(|headline| !headline.trim().is_empty())
+            .unwrap_or(target)
+            .to_string()
+    });
+    let candidate_summary = variant
+        .as_ref()
+        .and_then(|(_, _, summary)| summary.clone())
+        .or(profile_summary);
+    Ok((variant_target, candidate_summary))
+}
+
+async fn load_draft_hr(
+    db: &SqlitePool,
+    job_id: &str,
+    profile_id: &str,
+) -> DomainResult<(Option<String>, Option<String>)> {
+    Ok(sqlx::query_as(
+        "SELECT hr_name, hr_link
+         FROM automation_tasks
+         WHERE task_type = 'apply_job'
+           AND target_id = ?1
+           AND profile_id = ?2
+           AND hr_name IS NOT NULL
+         ORDER BY updated_at DESC
+         LIMIT 1",
+    )
+    .bind(job_id)
+    .bind(profile_id)
+    .fetch_optional(db)
+    .await?
+    .unwrap_or((None, None)))
+}
+
+struct DraftRecord<'a> {
+    id: &'a str,
+    job_id: &'a str,
+    profile_id: &'a str,
+    match_id: &'a str,
+    cv_document_id: &'a Option<String>,
+    role_variant_id: &'a Option<String>,
+    cover_letter: &'a str,
+    form_answers_json: &'a str,
+    summary: &'a str,
+    optimization_notes: &'a str,
+    now: &'a str,
+}
+
+async fn persist_draft(db: &SqlitePool, record: DraftRecord<'_>) -> DomainResult<()> {
+    sqlx::query(
+        "INSERT INTO application_drafts (
+            id, job_id, profile_id, match_id, cv_document_id, role_variant_id,
+            cover_letter, form_answers_json, generated_summary, optimization_notes,
+            status, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'draft', ?11, ?11)",
+    )
+    .bind(record.id)
+    .bind(record.job_id)
+    .bind(record.profile_id)
+    .bind(record.match_id)
+    .bind(record.cv_document_id)
+    .bind(record.role_variant_id)
+    .bind(record.cover_letter)
+    .bind(record.form_answers_json)
+    .bind(record.summary)
+    .bind(record.optimization_notes)
+    .bind(record.now)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+#[derive(Clone)]
+struct SubmissionDraft {
+    job_id: String,
+    profile_id: String,
+    cover_letter: Option<String>,
+    form_answers_json: Option<String>,
+    role_variant_id: Option<String>,
+    cv_document_id: Option<String>,
+}
+
+#[derive(Clone)]
+struct SubmissionJob {
+    platform: String,
+    canonical_url: String,
+}
+
+async fn load_submission_draft(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+) -> DomainResult<SubmissionDraft> {
+    let row: (String, String, Option<String>, Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as(
+        "SELECT job_id, profile_id, cover_letter, form_answers_json, role_variant_id, cv_document_id
+         FROM application_drafts WHERE id = ?1",
+        )
+        .bind(draft_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| DomainError::InvalidInput(format!("unknown application_draft: {draft_id}")))?;
+    Ok(SubmissionDraft {
+        job_id: row.0,
+        profile_id: row.1,
+        cover_letter: row.2,
+        form_answers_json: row.3,
+        role_variant_id: row.4,
+        cv_document_id: row.5,
+    })
+}
+
+async fn existing_submission(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+) -> DomainResult<Option<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT id FROM application_runs WHERE draft_id = ?1 ORDER BY started_at LIMIT 1",
+    )
+    .bind(draft_id)
+    .fetch_optional(&mut **tx)
+    .await?)
+}
+
+async fn load_submission_job(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    job_id: &str,
+) -> DomainResult<SubmissionJob> {
+    let row: (String, String, Option<String>) =
+        sqlx::query_as("SELECT platform, url, canonical_url FROM job_posts WHERE id = ?1")
+            .bind(job_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| {
+                DomainError::InvalidInput(format!("draft references unknown job: {job_id}"))
+            })?;
+    Ok(SubmissionJob {
+        platform: row.0,
+        canonical_url: row.2.unwrap_or(row.1),
+    })
+}
+
+async fn existing_url_lock(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+) -> DomainResult<bool> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT id FROM application_url_locks
+         WHERE profile_id = ?1 AND platform = ?2 AND canonical_url = ?3",
+    )
+    .bind(&draft.profile_id)
+    .bind(&job.platform)
+    .bind(&job.canonical_url)
+    .fetch_optional(&mut **tx)
+    .await?
+    .is_some())
+}
+
+async fn record_duplicate_submission(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+    now: &str,
+) -> DomainResult<String> {
+    let run_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO application_runs
+           (id, draft_id, job_id, profile_id, platform, mode, status, attempt,
+            started_at, finished_at, failure_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'skipped_duplicate_url', 1,
+                 ?6, ?6, 'duplicate application URL for this profile')",
+    )
+    .bind(&run_id)
+    .bind(draft_id)
+    .bind(&draft.job_id)
+    .bind(&draft.profile_id)
+    .bind(&job.platform)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(draft_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
+        .bind(&draft.job_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(run_id)
+}
+
+async fn start_submission(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+    now: &str,
+) -> DomainResult<String> {
+    let run_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO application_runs
+           (id, draft_id, job_id, profile_id, platform, mode, status, attempt, started_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'started', 1, ?6)",
+    )
+    .bind(&run_id)
+    .bind(draft_id)
+    .bind(&draft.job_id)
+    .bind(&draft.profile_id)
+    .bind(&job.platform)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    Ok(run_id)
+}
+
+async fn acquire_submission_lock(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+    run_id: &str,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO application_url_locks
+           (id, profile_id, platform, canonical_url, first_job_id, first_application_run_id, locked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&draft.profile_id)
+    .bind(&job.platform)
+    .bind(&job.canonical_url)
+    .bind(&draft.job_id)
+    .bind(run_id)
+    .bind(now)
+    .execute(&mut **tx)
+    .await
+    .map(|_| ())
+}
+
+async fn mark_lock_conflict(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+    job_id: &str,
+    run_id: &str,
+    now: &str,
+) -> DomainResult<()> {
+    sqlx::query(
+        "UPDATE application_runs
+         SET status = 'skipped_duplicate_url', finished_at = ?1,
+             failure_reason = 'duplicate application URL for this profile'
+         WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(run_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(draft_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn submission_payload(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+) -> String {
+    let mut answers = contact_fact_answers(tx, &draft.profile_id, draft.role_variant_id.as_deref())
+        .await
+        .unwrap_or_default();
+    if let serde_json::Value::Array(ai) = map_answers(draft.form_answers_json.as_deref()) {
+        answers.extend(ai);
+    }
+    let cv_path = match draft.cv_document_id.as_deref() {
+        Some(document_id) => {
+            sqlx::query_scalar::<_, String>("SELECT stored_path FROM cv_documents WHERE id = ?1")
+                .bind(document_id)
+                .fetch_optional(&mut **tx)
+                .await
+                .ok()
+                .flatten()
+        }
+        None => None,
+    };
+    serde_json::json!({
+        "url": job.canonical_url,
+        "platform": job.platform,
+        "cover_letter": draft.cover_letter,
+        "cv_path": cv_path,
+        "answers": serde_json::Value::Array(answers),
+    })
+    .to_string()
+}
+
+async fn enqueue_submission(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft: &SubmissionDraft,
+    run_id: &str,
+    payload: &str,
+    now: &str,
+) -> DomainResult<()> {
+    sqlx::query(
+        "INSERT INTO automation_tasks
+           (id, profile_id, task_type, target_id, status, payload_json, created_at, updated_at)
+         VALUES (?1, ?2, 'apply_job', ?3, 'queued', ?4, ?5, ?5)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&draft.profile_id)
+    .bind(run_id)
+    .bind(payload)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn mark_submission_queued(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+    job_id: &str,
+    now: &str,
+) -> DomainResult<()> {
+    sqlx::query(
+        "UPDATE application_drafts SET status = 'submitting', updated_at = ?1 WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(draft_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE job_posts SET status = 'queued' WHERE id = ?1")
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn prepare_submission(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+    draft: &SubmissionDraft,
+    job: &SubmissionJob,
+    now: &str,
+) -> DomainResult<PreparedSubmission> {
+    if existing_url_lock(tx, draft, job).await? {
+        let run_id = record_duplicate_submission(tx, draft_id, draft, job, now).await?;
+        return Ok(PreparedSubmission::Existing(run_id));
+    }
+    let run_id = start_submission(tx, draft_id, draft, job, now).await?;
+    if !(lock_or_mark_duplicate(
+        tx,
+        LockContext {
+            draft_id,
+            draft,
+            job,
+            run_id: &run_id,
+            now,
+        },
+    )
+    .await?)
+    {
+        return Ok(PreparedSubmission::Existing(run_id));
+    }
+    Ok(PreparedSubmission::New {
+        draft: draft.clone(),
+        job: job.clone(),
+        now: now.to_string(),
+        run_id,
+    })
+}
+
+struct LockContext<'a> {
+    draft_id: &'a str,
+    draft: &'a SubmissionDraft,
+    job: &'a SubmissionJob,
+    run_id: &'a str,
+    now: &'a str,
+}
+
+async fn lock_or_mark_duplicate(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    context: LockContext<'_>,
+) -> DomainResult<bool> {
+    match acquire_submission_lock(tx, context.draft, context.job, context.run_id, context.now).await
+    {
+        Ok(()) => Ok(true),
+        Err(error) if is_unique_violation(&error) => {
+            mark_lock_conflict(
+                tx,
+                context.draft_id,
+                &context.draft.job_id,
+                context.run_id,
+                context.now,
+            )
+            .await?;
+            Ok(false)
+        }
+        Err(error) => Err(DomainError::Storage(error)),
+    }
+}
+
+enum PreparedSubmission {
+    Existing(String),
+    New {
+        draft: SubmissionDraft,
+        job: SubmissionJob,
+        now: String,
+        run_id: String,
+    },
+}
+
+async fn prepare_submission_transaction(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    draft_id: &str,
+) -> DomainResult<PreparedSubmission> {
+    let draft = load_submission_draft(tx, draft_id).await?;
+    if let Some(run_id) = existing_submission(tx, draft_id).await? {
+        return Ok(PreparedSubmission::Existing(run_id));
+    }
+    let job = load_submission_job(tx, &draft.job_id).await?;
+    let now = now_iso();
+    prepare_submission(tx, draft_id, &draft, &job, &now).await
+}
+
+impl ApplicationService for ApplicationServiceImpl {
+    async fn draft(&self, job_match_id: &str) -> DomainResult<String> {
+        let context = self.draft_context(job_match_id).await?;
         let (providers, default_index) = load_ai_providers(&self.db).await?;
         let provider = select_provider_resolved(&providers, default_index).await;
         if provider.is_disabled() {
@@ -159,373 +627,80 @@ impl ApplicationService for ApplicationServiceImpl {
                 "no AI provider configured — add one in Settings".into(),
             ));
         }
-
         let input = DraftInput {
-            job_title: &title,
-            company: &company,
-            job_location: location.as_deref(),
-            job_description: &description,
-            candidate_name: &display_name,
-            candidate_summary: candidate_summary.as_deref(),
-            cv_text: cv_text.as_deref(),
-            variant_target: variant_target.as_deref(),
-            hr_name: hr_name_owned.as_deref(),
-            hr_link: hr_link_owned.as_deref(),
+            job_title: &context.title,
+            company: &context.company,
+            job_location: context.location.as_deref(),
+            job_description: &context.description,
+            candidate_name: &context.display_name,
+            candidate_summary: context.candidate_summary.as_deref(),
+            cv_text: context.cv_text.as_deref(),
+            variant_target: context.variant_target.as_deref(),
+            hr_name: context.hr_name.as_deref(),
+            hr_link: context.hr_link.as_deref(),
         };
-
         let req = CompletionRequest {
             model: provider.default_model().to_string(),
             prompt: draft_prompt(&input),
             system: Some(draft_system()),
             input_hash: input_hash(&[
                 DRAFT_PROMPT_VERSION,
-                &job_id,
-                content_hash.as_deref().unwrap_or(""),
-                cv_hash.as_deref().unwrap_or(""),
-                role_variant_id.as_deref().unwrap_or(""),
+                &context.job_id,
+                context.content_hash.as_deref().unwrap_or(""),
+                context.cv_hash.as_deref().unwrap_or(""),
+                context.role_variant_id.as_deref().unwrap_or(""),
             ]),
         };
-        let resp = complete_cached(&self.db, &provider, req).await?;
-        let content = parse_draft(&resp.text);
-
+        let content = parse_draft(&complete_cached(&self.db, &provider, req).await?.text);
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
         let form_answers_json =
             serde_json::to_string(&content.form_answers).unwrap_or_else(|_| "[]".to_string());
-        sqlx::query(
-            "INSERT INTO application_drafts (
-                id, job_id, profile_id, match_id, cv_document_id, role_variant_id,
-                cover_letter, form_answers_json, generated_summary, optimization_notes,
-                status, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'draft', ?11, ?11)",
+        persist_draft(
+            &self.db,
+            DraftRecord {
+                id: &id,
+                job_id: &context.job_id,
+                profile_id: &context.profile_id,
+                match_id: job_match_id,
+                cv_document_id: &context.cv_document_id,
+                role_variant_id: &context.role_variant_id,
+                cover_letter: &content.cover_letter,
+                form_answers_json: &form_answers_json,
+                summary: &content.summary,
+                optimization_notes: &content.optimization_notes,
+                now: &now,
+            },
         )
-        .bind(&id)
-        .bind(&job_id)
-        .bind(&profile_id)
-        .bind(job_match_id)
-        .bind(&cv_document_id)
-        .bind(&role_variant_id)
-        .bind(&content.cover_letter)
-        .bind(&form_answers_json)
-        .bind(&content.summary)
-        .bind(&content.optimization_notes)
-        .bind(&now)
-        .execute(&self.db)
         .await?;
-
         Ok(id)
     }
 
     async fn submit(&self, application_draft_id: &str) -> DomainResult<String> {
         let mut tx = self.db.begin().await?;
-        let (job_id, profile_id, cover_letter, form_answers_json, role_variant_id, cv_document_id): (
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT job_id, profile_id, cover_letter, form_answers_json, role_variant_id, cv_document_id
-             FROM application_drafts WHERE id = ?1",
-        )
-        .bind(application_draft_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| {
-            DomainError::InvalidInput(format!("unknown application_draft: {application_draft_id}"))
-        })?;
-
-        if let Some(run_id) = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM application_runs WHERE draft_id = ?1 ORDER BY started_at LIMIT 1",
-        )
-        .bind(application_draft_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        {
-            tx.commit().await?;
-            return Ok(run_id);
-        }
-
-        let (platform, url, canonical_url): (String, String, Option<String>) =
-            sqlx::query_as("SELECT platform, url, canonical_url FROM job_posts WHERE id = ?1")
-                .bind(&job_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(|| {
-                    DomainError::InvalidInput(format!("draft references unknown job: {job_id}"))
-                })?;
-        let canonical = canonical_url.unwrap_or(url);
-
-        let now = now_iso();
-
-        let existing_lock: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM application_url_locks
-             WHERE profile_id = ?1 AND platform = ?2 AND canonical_url = ?3",
-        )
-        .bind(&profile_id)
-        .bind(&platform)
-        .bind(&canonical)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if existing_lock.is_some() {
-            let run_id = Uuid::new_v4().to_string();
-            sqlx::query(
-                "INSERT INTO application_runs
-                   (id, draft_id, job_id, profile_id, platform, mode, status, attempt,
-                    started_at, finished_at, failure_reason)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'skipped_duplicate_url', 1,
-                         ?6, ?6, 'duplicate application URL for this profile')",
-            )
-            .bind(&run_id)
-            .bind(application_draft_id)
-            .bind(&job_id)
-            .bind(&profile_id)
-            .bind(&platform)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query(
-                "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
-            )
-            .bind(&now)
-            .bind(application_draft_id)
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
-                .bind(&job_id)
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-            return Ok(run_id);
-        }
-
-        let run_id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO application_runs
-               (id, draft_id, job_id, profile_id, platform, mode, status, attempt, started_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'manual_assist', 'started', 1, ?6)",
-        )
-        .bind(&run_id)
-        .bind(application_draft_id)
-        .bind(&job_id)
-        .bind(&profile_id)
-        .bind(&platform)
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
-
-        let lock_result = sqlx::query(
-            "INSERT INTO application_url_locks
-               (id, profile_id, platform, canonical_url, first_job_id, first_application_run_id, locked_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&profile_id)
-        .bind(&platform)
-        .bind(&canonical)
-        .bind(&job_id)
-        .bind(&run_id)
-        .bind(&now)
-        .execute(&mut *tx)
-        .await;
-
-        if let Err(e) = lock_result {
-            if is_unique_violation(&e) {
-                sqlx::query(
-                    "UPDATE application_runs
-                     SET status = 'skipped_duplicate_url', finished_at = ?1,
-                         failure_reason = 'duplicate application URL for this profile'
-                     WHERE id = ?2",
-                )
-                .bind(&now)
-                .bind(&run_id)
-                .execute(&mut *tx)
-                .await?;
-                sqlx::query(
-                    "UPDATE application_drafts SET status = 'skipped_duplicate_url', updated_at = ?1 WHERE id = ?2",
-                )
-                .bind(&now)
-                .bind(application_draft_id)
-                .execute(&mut *tx)
-                .await?;
-                sqlx::query("UPDATE job_posts SET status = 'skipped_duplicate_url' WHERE id = ?1")
-                    .bind(&job_id)
-                    .execute(&mut *tx)
-                    .await?;
+        match prepare_submission_transaction(&mut tx, application_draft_id).await? {
+            PreparedSubmission::Existing(run_id) => {
                 tx.commit().await?;
-                return Ok(run_id);
+                Ok(run_id)
             }
-            return Err(DomainError::Storage(e));
+            PreparedSubmission::New {
+                draft,
+                job,
+                now,
+                run_id,
+            } => {
+                let payload = submission_payload(&mut tx, &draft, &job).await;
+                enqueue_submission(&mut tx, &draft, &run_id, &payload, &now).await?;
+                mark_submission_queued(&mut tx, application_draft_id, &draft.job_id, &now).await?;
+                tx.commit().await?;
+                Ok(run_id)
+            }
         }
-
-        let mut answers = contact_fact_answers(&mut tx, &profile_id, role_variant_id.as_deref())
-            .await
-            .unwrap_or_default();
-        if let serde_json::Value::Array(ai) = map_answers(form_answers_json.as_deref()) {
-            answers.extend(ai);
-        }
-
-        let cv_path: Option<String> = match &cv_document_id {
-            Some(id) => sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await
-                .ok()
-                .flatten(),
-            None => None,
-        };
-
-        let payload = serde_json::json!({
-            "url": canonical,
-            "platform": platform,
-            "cover_letter": cover_letter,
-            "cv_path": cv_path,
-            "answers": serde_json::Value::Array(answers),
-        })
-        .to_string();
-
-        sqlx::query(
-            "INSERT INTO automation_tasks
-               (id, profile_id, task_type, target_id, status, payload_json, created_at, updated_at)
-             VALUES (?1, ?2, 'apply_job', ?3, 'queued', ?4, ?5, ?5)",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&profile_id)
-        .bind(&run_id)
-        .bind(&payload)
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            "UPDATE application_drafts SET status = 'submitting', updated_at = ?1 WHERE id = ?2",
-        )
-        .bind(&now)
-        .bind(application_draft_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query("UPDATE job_posts SET status = 'queued' WHERE id = ?1")
-            .bind(&job_id)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(run_id)
     }
 }
 
 fn is_unique_violation(e: &sqlx::Error) -> bool {
     matches!(e, sqlx::Error::Database(db) if db.is_unique_violation())
-}
-
-async fn contact_fact_answers(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    profile_id: &str,
-    role_variant_id: Option<&str>,
-) -> DomainResult<Vec<serde_json::Value>> {
-    let facts: std::collections::HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "SELECT fact_key, fact_value FROM profile_facts WHERE profile_id = ?1",
-    )
-    .bind(profile_id)
-    .fetch_all(&mut **tx)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .collect();
-
-    let contact = match role_variant_id {
-        Some(vid) => sqlx::query_scalar::<_, Option<String>>(
-            "SELECT contact_json FROM profile_variants WHERE id = ?1",
-        )
-        .bind(vid)
-        .fetch_optional(&mut **tx)
-        .await
-        .ok()
-        .flatten()
-        .flatten()
-        .and_then(|raw| {
-            serde_json::from_str::<crate::domain::profile_variants::ContactInfo>(&raw).ok()
-        })
-        .unwrap_or_default(),
-        None => crate::domain::profile_variants::ContactInfo::default(),
-    };
-
-    let clean = |s: &str| {
-        let t = s.trim();
-        (!t.is_empty()).then(|| t.to_string())
-    };
-    let fact = |k: &str| facts.get(k).and_then(|v| clean(v));
-
-    let phone = fact("phone").or_else(|| contact.phone.as_deref().and_then(clean));
-    let website = fact("portfolio").or_else(|| contact.website.as_deref().and_then(clean));
-    let email = fact("email").or_else(|| contact.email.as_deref().and_then(clean));
-    let specs: [(&[&str], Option<String>); 9] = [
-        (&["phone", "telefone", "celular", "mobile phone"], phone),
-        (
-            &[
-                "pretensão salarial",
-                "pretensao salarial",
-                "salary expectation",
-                "expected salary",
-                "salary",
-                "remuneração",
-            ],
-            fact("salaryMin"),
-        ),
-        (&["linkedin"], fact("linkedin")),
-        (&["github"], fact("github")),
-        (
-            &["portfolio", "website", "personal website", "site"],
-            website,
-        ),
-        (&["email address", "e-mail"], email),
-        (
-            &[
-                "work authorization",
-                "autorização de trabalho",
-                "elegível para trabalhar",
-            ],
-            fact("brazilWorkAuth"),
-        ),
-        (
-            &["visa sponsorship", "patrocínio de visto", "sponsorship"],
-            fact("visaSponsorship"),
-        ),
-        (
-            &["english", "inglês", "english level", "nível de inglês"],
-            fact("englishLevel"),
-        ),
-    ];
-
-    let mut out = Vec::new();
-    for (labels, value) in specs {
-        if let Some(v) = value {
-            for label in labels {
-                out.push(serde_json::json!({ "label": label, "value": v }));
-            }
-        }
-    }
-    Ok(out)
-}
-
-fn map_answers(form_answers_json: Option<&str>) -> serde_json::Value {
-    let Some(raw) = form_answers_json else {
-        return serde_json::json!([]);
-    };
-    let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(raw) else {
-        return serde_json::json!([]);
-    };
-    let mapped: Vec<serde_json::Value> = items
-        .into_iter()
-        .filter_map(|v| {
-            let q = v.get("question").and_then(|x| x.as_str())?;
-            let a = v.get("answer").and_then(|x| x.as_str()).unwrap_or("");
-            Some(serde_json::json!({ "label": q, "value": a }))
-        })
-        .collect();
-    serde_json::Value::Array(mapped)
 }
 
 #[cfg(test)]

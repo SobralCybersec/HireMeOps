@@ -48,6 +48,56 @@ export function attachDiagnostics(page) {
 const NET_MAX_BODY = 64 * 1024;
 const NET_RING = 120;
 
+function readNetworkMeta(response) {
+  try {
+    const request = response.request();
+    const headers = response.headers();
+    return {
+      response,
+      request,
+      headers,
+      ct: (headers["content-type"] || "").toLowerCase(),
+      type: request.resourceType(),
+      status: response.status(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function capturableNetworkResponse(meta) {
+  const looksJson = meta.ct.includes("application/json") || meta.ct.includes("+json");
+  if (!looksJson && meta.type !== "fetch" && meta.type !== "xhr") return false;
+  if (meta.status >= 300 && meta.status < 400) return false;
+  return meta.status !== 204 && meta.status !== 304;
+}
+
+function networkEntry(meta) {
+  return {
+    url: meta.response.url(),
+    method: meta.request.method(),
+    status: meta.status,
+    type: meta.type,
+    ct: meta.ct,
+  };
+}
+
+function captureNetworkBody(meta, push) {
+  const entry = networkEntry(meta);
+  const len = Number(meta.headers["content-length"] || 0);
+  if (len > NET_MAX_BODY) {
+    push({ ...entry, body: `…[${len} bytes, skipped]` });
+    return;
+  }
+  meta.response
+    .text()
+    .then((text) => {
+      const body = text.length > NET_MAX_BODY ? `${text.slice(0, NET_MAX_BODY)}…[truncated]` : text;
+      push({ ...entry, body });
+    })
+    .catch(() => {});
+}
+
 export function attachNetworkCapture(context) {
   if (!context || context.__netAttached || typeof context.on !== "function") return context;
   context.__netAttached = true;
@@ -57,32 +107,8 @@ export function attachNetworkCapture(context) {
     if (context.__net.length > NET_RING) context.__net.shift();
   };
   context.on("response", (response) => {
-    let req, ct, type, status;
-    try {
-      req = response.request();
-      ct = (response.headers()["content-type"] || "").toLowerCase();
-      type = req.resourceType();
-      status = response.status();
-    } catch {
-      return;
-    }
-    const looksJson = ct.includes("application/json") || ct.includes("+json");
-    if (!looksJson && type !== "fetch" && type !== "xhr") return;
-    if (status >= 300 && status < 400) return;
-    if (status === 204 || status === 304) return;
-    const meta = { url: response.url(), method: req.method(), status, type, ct };
-    const len = Number(response.headers()["content-length"] || 0);
-    if (len > NET_MAX_BODY) {
-      push({ ...meta, body: `…[${len} bytes, skipped]` });
-      return;
-    }
-    response
-      .text()
-      .then((text) => {
-        const body = text.length > NET_MAX_BODY ? `${text.slice(0, NET_MAX_BODY)}…[truncated]` : text;
-        push({ ...meta, body });
-      })
-      .catch(() => {});
+    const meta = readNetworkMeta(response);
+    if (meta && capturableNetworkResponse(meta)) captureNetworkBody(meta, push);
   });
   return context;
 }

@@ -11,15 +11,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /** Standard action button. Wraps `.btn` + `.btn--*` from theme.css. */
-export function Button({
-  variant = "ghost",
-  size = "md",
-  icon,
-  className,
-  children,
-  type = "button",
-  ...rest
-}: ButtonProps) {
+export function Button(props: ButtonProps) {
+  const {
+    variant = "ghost",
+    size = "md",
+    icon,
+    className,
+    children,
+    type = "button",
+    ...rest
+  } = props;
   const cls = ["btn", `btn--${variant}`, size !== "md" ? `btn--${size}` : null, className]
     .filter(Boolean)
     .join(" ");

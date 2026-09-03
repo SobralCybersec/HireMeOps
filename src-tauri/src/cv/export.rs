@@ -39,6 +39,14 @@ struct Line {
     gap_before: f32,
 }
 
+struct EntryData<'a> {
+    primary: &'a str,
+    secondary: &'a str,
+    location: &'a str,
+    dates: &'a str,
+    bullets: &'a [String],
+}
+
 pub fn build_pdf(cv: &CvRewrite, meta: &CvMetadata) -> Result<Vec<u8>, String> {
     let mut doc = Document::with_version("1.5");
 
@@ -161,6 +169,56 @@ pub fn build_pdf_tex(
     cvtex_dir: &Path,
     photo: Option<&[u8]>,
 ) -> Result<Vec<u8>, String> {
+    let pdf_bytes = build_tex_document(cv, cvtex_dir, photo, false)?;
+    embed_metadata(&pdf_bytes, meta)
+}
+
+pub fn build_cover_letter_pdf_tex(
+    cv: &CvRewrite,
+    cvtex_dir: &Path,
+    photo: Option<&[u8]>,
+) -> Result<Vec<u8>, String> {
+    build_tex_document(cv, cvtex_dir, photo, true)
+}
+
+/// Fallback cover-letter PDF for environments without xelatex. The native
+/// renderer remains the preferred path because it preserves the cover-letter
+/// template and clickable certificate/contact links.
+pub fn build_cover_letter_pdf(cv: &CvRewrite) -> Result<Vec<u8>, String> {
+    let mut fallback = cv.clone();
+    fallback.positions = vec!["Cover Letter".to_string()];
+    fallback.summary = cv.cover_letter.clone();
+    fallback.skills.clear();
+    fallback.experience.clear();
+    fallback.education.clear();
+    fallback.certificates.clear();
+    let meta = CvMetadata {
+        title: "Cover Letter".to_string(),
+        subject: "Cover Letter".to_string(),
+        keywords: String::new(),
+        author: cv.name.clone(),
+        description: cv.cover_letter.clone(),
+        category: "Cover Letter".to_string(),
+    };
+    build_pdf(&fallback, &meta)
+}
+
+fn build_tex_document(
+    cv: &CvRewrite,
+    cvtex_dir: &Path,
+    photo: Option<&[u8]>,
+    cover_letter: bool,
+) -> Result<Vec<u8>, String> {
+    let (cls_src, fontdir) = validate_tex_dir(cvtex_dir)?;
+    let scratch = ScratchDir::new()?;
+    let work = scratch.path();
+    std::fs::copy(&cls_src, work.join("curriculo.cls"))
+        .map_err(|e| format!("copy curriculo.cls: {e}"))?;
+    let stem = write_tex_source(cv, photo, work, cover_letter)?;
+    Ok(compile_tex(work, cvtex_dir, &fontdir, &stem)?)
+}
+
+fn validate_tex_dir(cvtex_dir: &Path) -> Result<(PathBuf, PathBuf), String> {
     let cls_src = cvtex_dir.join("curriculo.cls");
     if !cls_src.is_file() {
         return Err(format!(
@@ -172,16 +230,16 @@ pub fn build_pdf_tex(
     if !fontdir.is_dir() {
         return Err(format!("fontdir not found in {}", cvtex_dir.display()));
     }
+    Ok((cls_src, fontdir))
+}
 
-    let scratch = ScratchDir::new()?;
-    let work = scratch.path();
-
-    std::fs::copy(&cls_src, work.join("curriculo.cls"))
-        .map_err(|e| format!("copy curriculo.cls: {e}"))?;
-
-    // Photo: write the bytes into the workdir and point the tex at that local filename.
-    // Always overwrite photo_url here so a raw URL (or a stale local name) never reaches
-    // \photo{}. No bytes → empty → generate_resume_tex omits the photo entirely.
+fn write_tex_source(
+    cv: &CvRewrite,
+    photo: Option<&[u8]>,
+    work: &Path,
+    cover_letter: bool,
+) -> Result<String, String> {
+    // Photo bytes replace any source URL before template generation.
     let mut cv_local = cv.clone();
     cv_local.photo_url = match photo {
         Some(bytes) if !bytes.is_empty() => {
@@ -191,20 +249,31 @@ pub fn build_pdf_tex(
         }
         _ => String::new(),
     };
+    let stem = if cover_letter {
+        "coverletter"
+    } else {
+        "resume"
+    };
+    let tex = if cover_letter {
+        crate::cv::latex::generate_cover_letter_tex(&cv_local)
+    } else {
+        crate::cv::latex::generate_resume_tex(&cv_local)
+    };
+    std::fs::write(work.join(format!("{stem}.tex")), tex.as_bytes())
+        .map_err(|e| format!("write {stem}.tex: {e}"))?;
+    Ok(stem.to_string())
+}
 
-    let tex = crate::cv::latex::generate_resume_tex(&cv_local);
-    std::fs::write(work.join("resume.tex"), tex.as_bytes())
-        .map_err(|e| format!("write resume.tex: {e}"))?;
-
+fn compile_tex(
+    work: &Path,
+    cvtex_dir: &Path,
+    fontdir: &Path,
+    stem: &str,
+) -> Result<Vec<u8>, String> {
     let osfontdir = fontdir
         .canonicalize()
         .map_err(|e| format!("resolve fontdir: {e}"))?;
-
-    // Latin Modern (+ Math) lives in fontdir; hyperref hardcodes a `\font pzdr`
-    // (= Zapf Dingbats) under xelatex, so bundle pzdr.tfm/pzdr.otf in a texmf
-    // tree too — TeX Live 2024+ dropped both families system-wide.
     let texmfhome = cvtex_dir.join("texmf");
-
     for pass in 1..=2 {
         let output = std::process::Command::new("xelatex")
             .current_dir(work)
@@ -212,34 +281,39 @@ pub fn build_pdf_tex(
             .env("TEXMFHOME", &texmfhome)
             .arg("-interaction=nonstopmode")
             .arg("-halt-on-error")
-            .arg("resume.tex")
+            .arg(format!("{stem}.tex"))
             .output()
             .map_err(|e| format!("spawn xelatex (pass {pass}): {e}"))?;
-
         if !output.status.success() {
-            let log = std::fs::read_to_string(work.join("resume.log")).unwrap_or_default();
-            let detail = tex_error_tail(&log).unwrap_or_else(|| {
-                String::from_utf8_lossy(&output.stdout)
-                    .chars()
-                    .rev()
-                    .take(600)
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect()
-            });
-            return Err(format!("xelatex failed (pass {pass}): {detail}"));
+            return Err(xelatex_error(work, stem, pass, &output));
         }
     }
+    read_compiled_pdf(work, stem)
+}
 
-    let pdf_path = work.join("resume.pdf");
+fn xelatex_error(work: &Path, stem: &str, pass: u8, output: &std::process::Output) -> String {
+    let log = std::fs::read_to_string(work.join(format!("{stem}.log"))).unwrap_or_default();
+    let detail = tex_error_tail(&log).unwrap_or_else(|| {
+        String::from_utf8_lossy(&output.stdout)
+            .chars()
+            .rev()
+            .take(600)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect()
+    });
+    format!("xelatex failed (pass {pass}): {detail}")
+}
+
+fn read_compiled_pdf(work: &Path, stem: &str) -> Result<Vec<u8>, String> {
+    let pdf_path = work.join(format!("{stem}.pdf"));
     let pdf_bytes =
-        std::fs::read(&pdf_path).map_err(|e| format!("read compiled resume.pdf: {e}"))?;
+        std::fs::read(&pdf_path).map_err(|e| format!("read compiled {stem}.pdf: {e}"))?;
     if !pdf_bytes.starts_with(b"%PDF") {
         return Err("xelatex produced a non-PDF output".to_string());
     }
-
-    embed_metadata(&pdf_bytes, meta)
+    Ok(pdf_bytes)
 }
 
 /// Sniff a photo's container from its magic bytes so xelatex's graphics driver picks the
@@ -300,7 +374,17 @@ fn line_height(size: f32) -> f32 {
 
 fn layout_lines(cv: &CvRewrite) -> Vec<Line> {
     let mut lines: Vec<Line> = Vec::new();
+    append_header(&mut lines, cv);
+    append_summary(&mut lines, cv);
+    append_skills(&mut lines, cv);
+    append_experience(&mut lines, cv);
+    append_education(&mut lines, cv);
+    append_certificates(&mut lines, cv);
+    append_empty_marker(&mut lines);
+    lines
+}
 
+fn append_header(lines: &mut Vec<Line>, cv: &CvRewrite) {
     if !cv.name.trim().is_empty() {
         lines.push(Line {
             text: cv.name.trim().to_string(),
@@ -317,56 +401,98 @@ fn layout_lines(cv: &CvRewrite) -> Vec<Line> {
             gap_before: 2.0,
         });
     }
+}
 
-    if !cv.summary.trim().is_empty() {
-        push_heading(&mut lines, "SUMMARY");
-        push_wrapped(&mut lines, cv.summary.trim(), 11.0, 0.0, 95);
+fn append_summary(lines: &mut Vec<Line>, cv: &CvRewrite) {
+    if cv.summary.trim().is_empty() {
+        return;
     }
+    push_heading(lines, "SUMMARY");
+    push_wrapped(lines, cv.summary.trim(), 11.0, 0.0, 95);
+}
 
-    if !cv.skills.is_empty() {
-        push_heading(&mut lines, "SKILLS");
-        for g in &cv.skills {
-            let text = if g.category.trim().is_empty() {
-                g.skills.trim().to_string()
-            } else {
-                format!("{}: {}", g.category.trim(), g.skills.trim())
-            };
-            push_wrapped(&mut lines, &text, 11.0, 0.0, 95);
-        }
+fn append_skills(lines: &mut Vec<Line>, cv: &CvRewrite) {
+    if cv.skills.is_empty() {
+        return;
     }
-
-    if !cv.experience.is_empty() {
-        push_heading(&mut lines, "EXPERIENCE");
-        for e in &cv.experience {
-            let head = entry_head(&e.title, &e.organization, &e.location, &e.dates);
-            lines.push(Line {
-                text: head,
-                size: 12.0,
-                indent: 0.0,
-                gap_before: 6.0,
-            });
-            for b in &e.bullets {
-                push_wrapped(&mut lines, &format!("- {}", b.trim()), 11.0, 12.0, 90);
-            }
-        }
+    push_heading(lines, "SKILLS");
+    for group in &cv.skills {
+        let text = if group.category.trim().is_empty() {
+            group.skills.trim().to_string()
+        } else {
+            format!("{}: {}", group.category.trim(), group.skills.trim())
+        };
+        push_wrapped(lines, &text, 11.0, 0.0, 95);
     }
+}
 
-    if !cv.education.is_empty() {
-        push_heading(&mut lines, "EDUCATION");
-        for e in &cv.education {
-            let head = entry_head(&e.degree, &e.institution, &e.location, &e.dates);
-            lines.push(Line {
-                text: head,
-                size: 12.0,
-                indent: 0.0,
-                gap_before: 6.0,
-            });
-            for b in &e.bullets {
-                push_wrapped(&mut lines, &format!("- {}", b.trim()), 11.0, 12.0, 90);
-            }
-        }
+fn append_experience(lines: &mut Vec<Line>, cv: &CvRewrite) {
+    if cv.experience.is_empty() {
+        return;
     }
+    push_heading(lines, "EXPERIENCE");
+    for entry in &cv.experience {
+        push_entry(
+            lines,
+            EntryData {
+                primary: &entry.title,
+                secondary: &entry.organization,
+                location: &entry.location,
+                dates: &entry.dates,
+                bullets: &entry.bullets,
+            },
+        );
+    }
+}
 
+fn append_education(lines: &mut Vec<Line>, cv: &CvRewrite) {
+    if cv.education.is_empty() {
+        return;
+    }
+    push_heading(lines, "EDUCATION");
+    for entry in &cv.education {
+        push_entry(
+            lines,
+            EntryData {
+                primary: &entry.degree,
+                secondary: &entry.institution,
+                location: &entry.location,
+                dates: &entry.dates,
+                bullets: &entry.bullets,
+            },
+        );
+    }
+}
+
+fn push_entry(lines: &mut Vec<Line>, entry: EntryData<'_>) {
+    lines.push(Line {
+        text: entry_head(entry.primary, entry.secondary, entry.location, entry.dates),
+        size: 12.0,
+        indent: 0.0,
+        gap_before: 6.0,
+    });
+    for bullet in entry.bullets {
+        push_wrapped(lines, &format!("- {}", bullet.trim()), 11.0, 12.0, 90);
+    }
+}
+
+fn append_certificates(lines: &mut Vec<Line>, cv: &CvRewrite) {
+    if cv.certificates.is_empty() {
+        return;
+    }
+    push_heading(lines, "CERTIFICATES");
+    for certificate in &cv.certificates {
+        let head = entry_head(
+            &certificate.name,
+            &certificate.issuer,
+            &certificate.credential_id,
+            &certificate.date,
+        );
+        push_wrapped(lines, &head, 11.0, 0.0, 95);
+    }
+}
+
+fn append_empty_marker(lines: &mut Vec<Line>) {
     if lines.is_empty() {
         lines.push(Line {
             text: "(empty rewrite)".to_string(),
@@ -375,7 +501,6 @@ fn layout_lines(cv: &CvRewrite) -> Vec<Line> {
             gap_before: 0.0,
         });
     }
-    lines
 }
 
 fn push_heading(lines: &mut Vec<Line>, title: &str) {
@@ -480,7 +605,9 @@ fn paginate(lines: &[Line]) -> Vec<Vec<Operation>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::prompt::{CvEducationEntry, CvExperienceEntry, CvSkillGroup, Language};
+    use crate::ai::prompt::{
+        CvCertificate, CvEducationEntry, CvExperienceEntry, CvSkillGroup, Language,
+    };
 
     fn sample() -> CvRewrite {
         CvRewrite {
@@ -513,7 +640,14 @@ mod tests {
 
     #[test]
     fn build_pdf_emits_a_loadable_document() {
-        let cv = sample();
+        let mut cv = sample();
+        cv.certificates.push(CvCertificate {
+            name: "Cloud Certificate".to_string(),
+            issuer: "Issuer".to_string(),
+            credential_id: "CERT-1".to_string(),
+            date: "2025".to_string(),
+            credential_url: "https://certs.example/CERT-1?a=1&b=2".to_string(),
+        });
         let meta = cv.cv_metadata();
         let bytes = build_pdf(&cv, &meta).expect("build");
         assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
@@ -568,7 +702,14 @@ mod tests {
             return;
         }
 
-        let cv = sample();
+        let mut cv = sample();
+        cv.certificates.push(CvCertificate {
+            name: "Cloud Certificate".to_string(),
+            issuer: "Issuer".to_string(),
+            credential_id: "CERT-1".to_string(),
+            date: "2025".to_string(),
+            credential_url: "https://certs.example/CERT-1?a=1&b=2".to_string(),
+        });
         let meta = cv.cv_metadata();
         let bytes = build_pdf_tex(&cv, &meta, &cvtex, None).expect("xelatex compile");
         assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
@@ -585,6 +726,36 @@ mod tests {
         );
         assert_eq!(info.get(b"Category").unwrap().as_str().unwrap(), b"CV");
         assert!(!doc.get_pages().is_empty(), "must have at least one page");
+        assert!(doc.objects.values().any(|object| {
+            matches!(
+                object,
+                Object::Dictionary(dict)
+                    if matches!(dict.get(b"Subtype"), Ok(Object::Name(name)) if name == b"Link")
+            )
+        }));
+    }
+
+    #[test]
+    fn build_cover_letter_tex_compiles_via_xelatex() {
+        if std::process::Command::new("xelatex")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping: xelatex not available");
+            return;
+        }
+        let cvtex = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/cvtex");
+        if !cvtex.join("curriculo.cls").is_file() {
+            eprintln!("skipping: resources/cvtex not present");
+            return;
+        }
+
+        let mut cv = sample();
+        cv.cover_letter = "I built reliable systems.\n\nI welcome a conversation.".to_string();
+        let bytes = build_cover_letter_pdf_tex(&cv, &cvtex, None).expect("xelatex compile");
+        assert!(bytes.starts_with(b"%PDF"), "must be a PDF");
+        assert!(!Document::load_mem(&bytes).unwrap().get_pages().is_empty());
     }
 
     #[test]

@@ -36,6 +36,126 @@ export function buildInfojobsSearchUrl({ query = "", location = "", workModels =
   return `https://www.infojobs.com.br/empregos.aspx${qs}`;
 }
 
+async function extractInfojobsCards(page, html = null) {
+  return page.evaluate((markup) => {
+    const origin = "https://www.infojobs.com.br";
+    const root = markup ? new DOMParser().parseFromString(markup, "text/html") : document;
+    const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const safeUrl = (href) => {
+      try {
+        return new URL(href, origin).href;
+      } catch {
+        return null;
+      }
+    };
+    const readLocation = (card) => {
+      const text = card.querySelector(".mb-8")?.textContent;
+      return text ? clean(text).replace(/,?\s*a\s*[\d.,]+\s*km de você\.?/i, "").trim() || null : null;
+    };
+    const readDescription = (card, salary) => {
+      const mediums = card.querySelectorAll(".text-medium");
+      const teaser = mediums.length ? clean(mediums[mediums.length - 1].textContent) : "";
+      const bits = [];
+      if (salary && !/combinar/i.test(salary)) bits.push(`Salário: ${salary}`);
+      if (card.querySelector(".icon-user-home")) bits.push("Home office");
+      return [bits.join(" · "), teaser].filter(Boolean).join("\n") || null;
+    };
+    const buildCard = ({ card, jobId, applyUrl }) => {
+      const compScope = card.querySelector(".d-flex.align-items-baseline");
+      const company = clean(compScope?.querySelector(".text-body")?.textContent) || null;
+      const salary = clean(card.querySelector(".icon-money")?.closest("div")?.textContent) || null;
+      return {
+        job_id: jobId,
+        title: clean(card.querySelector(".js_vacancyTitle")?.textContent) || null,
+        company,
+        location: readLocation(card),
+        apply_url: applyUrl,
+        is_easy_apply: true,
+        description: readDescription(card, salary),
+      };
+    };
+    const readCard = (card) => {
+      const jobId = card.getAttribute("data-id");
+      const href =
+        card.getAttribute("data-href") || card.querySelector('a[href*="/vaga-"]')?.getAttribute("href");
+      if (!jobId || !href) return [];
+      const applyUrl = safeUrl(href);
+      if (!applyUrl) return [];
+      return [buildCard({ card, jobId, applyUrl })];
+    };
+    return Array.from(root.querySelectorAll('div[id^="vacancy"][data-id]')).flatMap(readCard);
+  }, html);
+}
+
+async function fetchInfojobsFragment(page, url) {
+  return page.evaluate(async (fragUrl) => {
+    try {
+      const response = await fetch(fragUrl, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "include",
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return { html: data.listFragmentHTML || "", eof: !!data.eof };
+    } catch {
+      return null;
+    }
+  }, url);
+}
+
+async function enrichInfojobsJob(page, job) {
+  if (!job.apply_url) return;
+  const full = await page
+    .evaluate(async (url) => {
+      try {
+        const response = await fetch(url, { credentials: "include" });
+        if (!response.ok) return "";
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return (doc.querySelector(".js_vacancyDataPanels .white-space-pre-line, .white-space-pre-line")?.textContent || "")
+          .replace(/[ \t]+\n/g, "\n")
+          .trim();
+      } catch {
+        return "";
+      }
+    }, job.apply_url)
+    .catch(() => "");
+  if (full.length <= (job.description || "").length) return;
+  const firstLine = (job.description || "").split("\n")[0];
+  job.description = /Salário|Home office/.test(firstLine) ? `${firstLine}\n${full}` : full;
+}
+
+async function enrichInfojobsJobs(page, jobs) {
+  for (let i = 0; i < jobs.length; i += 6) {
+    await Promise.all(jobs.slice(i, i + 6).map((job) => enrichInfojobsJob(page, job)));
+  }
+}
+
+function addInfojobsJobs(jobs, seen, cards) {
+  for (const card of cards) {
+    if (seen.has(card.job_id)) continue;
+    seen.add(card.job_id);
+    jobs.push(card);
+  }
+}
+
+async function collectInfojobsPages(page, { base, lastPage, jobs, seen }) {
+  let eof = jobs.length === 0;
+  for (let p = 2; p <= lastPage && !eof; p++) {
+    const sep = base.includes("?") ? "&" : "?";
+    const listUrl = `${base}${sep}page=${p}`;
+    const fragment = await fetchInfojobsFragment(
+      page,
+      `https://www.infojobs.com.br/mf-publicarea/VacancyList/GetVacancyListFragment?url=${encodeURIComponent(listUrl)}`,
+    );
+    if (!fragment) break;
+    const cards = await extractInfojobsCards(page, fragment.html);
+    addInfojobsJobs(jobs, seen, cards);
+    eof = fragment.eof || cards.length === 0;
+  }
+  return eof;
+}
+
 export async function infojobsSearchJobs(page, opts = {}) {
   const { maxPages = 3, enrichDescriptions = true, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(20, Number(maxPages) || 1));
@@ -48,149 +168,16 @@ export async function infojobsSearchJobs(page, opts = {}) {
     .waitForSelector('div[id^="vacancy"][data-id], .js_rowCard', { timeout: 15_000 })
     .catch(() => {});
 
-  const result = await page.evaluate(async ({ cap, enrich }) => {
-    const origin = "https://www.infojobs.com.br";
+  const jobs = await extractInfojobsCards(page);
+  const seen = new Set(jobs.map((job) => job.job_id));
+  const totalText = await page.locator("#resumeVacancies .text-medium, #resumeVacancies span").first().textContent().catch(() => "");
+  const total = parseInt(String(totalText || "").replace(/\D/g, ""), 10) || 0;
+  const lastPage = total ? Math.min(cap, Math.ceil(total / 20)) : cap;
+  const base = page.url().replace(/([?&])page=\d+/i, "$1").replace(/[?&]$/, "");
+  const eof = await collectInfojobsPages(page, { base, lastPage, jobs, seen });
+  if (enrichDescriptions && jobs.length) await enrichInfojobsJobs(page, jobs);
 
-    const parseCards = (root) =>
-      Array.from(root.querySelectorAll('div[id^="vacancy"][data-id]')).flatMap((card) => {
-        const jobId = card.getAttribute("data-id");
-        const href =
-          card.getAttribute("data-href") ||
-          card.querySelector('a[href*="/vaga-"]')?.getAttribute("href") ||
-          "";
-        if (!jobId || !href) return [];
-
-        const title = (card.querySelector(".js_vacancyTitle")?.textContent || "").trim() || null;
-
-        const compScope = card.querySelector(".d-flex.align-items-baseline");
-        const company =
-          (compScope?.querySelector(".text-body")?.textContent || "").replace(/\s+/g, " ").trim() ||
-          null;
-
-        const locEl = card.querySelector(".mb-8");
-        const location = locEl
-          ? locEl.textContent
-              .replace(/\s+/g, " ")
-              .replace(/,?\s*a\s*[\d.,]+\s*km de você\.?/i, "")
-              .trim() || null
-          : null;
-
-        let salary = null;
-        const moneyIcon = card.querySelector(".icon-money");
-        if (moneyIcon) {
-          const div = moneyIcon.closest("div");
-          if (div) salary = div.textContent.replace(/\s+/g, " ").trim() || null;
-        }
-
-        const homeOffice = !!card.querySelector(".icon-user-home");
-
-        const mediums = card.querySelectorAll(".text-medium");
-        const teaser = mediums.length
-          ? mediums[mediums.length - 1].textContent.replace(/\s+/g, " ").trim()
-          : "";
-
-        const bits = [];
-        if (salary && !/combinar/i.test(salary)) bits.push(`Salário: ${salary}`);
-        if (homeOffice) bits.push("Home office");
-        const description = [bits.join(" · "), teaser].filter(Boolean).join("\n") || null;
-
-        let applyUrl = null;
-        try {
-          applyUrl = new URL(href, origin).href;
-        } catch {
-          applyUrl = null;
-        }
-
-        return [
-          {
-            job_id: jobId,
-            title,
-            company,
-            location,
-            apply_url: applyUrl,
-            is_easy_apply: true,
-            description,
-          },
-        ];
-      });
-
-    const all = [];
-    const seen = new Set();
-    const push = (cards) => {
-      for (const c of cards) {
-        if (c.job_id && !seen.has(c.job_id)) {
-          seen.add(c.job_id);
-          all.push(c);
-        }
-      }
-    };
-
-    push(parseCards(document));
-
-    const totalText =
-      document.querySelector("#resumeVacancies .text-medium, #resumeVacancies span")?.textContent ||
-      "";
-    const total = parseInt(totalText.replace(/\D/g, ""), 10) || 0;
-    const lastPage = total ? Math.min(cap, Math.ceil(total / 20)) : cap;
-
-    const base = location.href.replace(/([?&])page=\d+/i, "$1").replace(/[?&]$/, "");
-    let eof = all.length === 0;
-    for (let p = 2; p <= lastPage && !eof; p++) {
-      const sep = base.includes("?") ? "&" : "?";
-      const listUrl = `${base}${sep}page=${p}`;
-      const fragUrl = `${origin}/mf-publicarea/VacancyList/GetVacancyListFragment?url=${encodeURIComponent(listUrl)}`;
-      try {
-        const res = await fetch(fragUrl, {
-          headers: { "X-Requested-With": "XMLHttpRequest" },
-          credentials: "include",
-        });
-        if (!res.ok) break;
-        const data = await res.json();
-        const doc = new DOMParser().parseFromString(data.listFragmentHTML || "", "text/html");
-        const cards = parseCards(doc);
-        push(cards);
-        eof = !!data.eof || cards.length === 0;
-      } catch {
-        break;
-      }
-    }
-
-    if (enrich && all.length) {
-      const CONCURRENCY = 6;
-      for (let i = 0; i < all.length; i += CONCURRENCY) {
-        const chunk = all.slice(i, i + CONCURRENCY);
-        await Promise.all(
-          chunk.map(async (job) => {
-            if (!job.apply_url) return;
-            try {
-              const r = await fetch(job.apply_url, { credentials: "include" });
-              if (!r.ok) return;
-              const html = await r.text();
-              const d = new DOMParser().parseFromString(html, "text/html");
-              const full = (
-                d.querySelector(
-                  ".js_vacancyDataPanels .white-space-pre-line, .white-space-pre-line",
-                )?.textContent || ""
-              )
-                .replace(/[ \t]+\n/g, "\n")
-                .trim();
-              if (full && full.length > (job.description ? job.description.length : 0)) {
-                const firstLine = (job.description || "").split("\n")[0];
-                job.description = /Salário|Home office/.test(firstLine)
-                  ? `${firstLine}\n${full}`
-                  : full;
-              }
-            } catch {
-            }
-          }),
-        );
-      }
-    }
-
-    return { jobs: all, hasNext: !eof };
-  }, { cap, enrich: enrichDescriptions });
-
-  return { jobs: result.jobs, has_next_page: !!result.hasNext };
+  return { jobs, has_next_page: !eof };
 }
 
 const INFOJOBS_LOGIN_RE = /\/(login|entrar|acesso|account\/login|candidate\/login)/i;
@@ -247,16 +234,109 @@ function toAnswerable(questions) {
   );
 }
 
+const INFOJOBS_YES = new Set(["sim", "yes", "s", "y", "true", "verdadeiro"]);
+const INFOJOBS_NO = new Set(["não", "nao", "no", "n", "false", "falso"]);
+
+const normalizeInfojobsAnswer = (value) => String(value ?? "").trim().toLowerCase();
+
+function sameInfojobsBoolean(left, right) {
+  return (
+    (INFOJOBS_YES.has(left) && INFOJOBS_YES.has(right)) ||
+    (INFOJOBS_NO.has(left) && INFOJOBS_NO.has(right))
+  );
+}
+
+function findInfojobsOption(question, answer) {
+  return (
+    question.options.find((option) => normalizeInfojobsAnswer(option.value) === answer) ||
+    question.options.find((option) => sameInfojobsBoolean(normalizeInfojobsAnswer(option.value), answer))
+  );
+}
+
+async function fillInfojobsRadio(page, question, answer) {
+  const option = findInfojobsOption(question, answer);
+  if (!option?.id) return false;
+  const clicked = await page
+    .locator(`label[for="${option.id}"]`)
+    .first()
+    .click({ timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (clicked) return true;
+  return page
+    .locator(`#${option.id}`)
+    .check({ timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function fillInfojobsText(page, question, raw) {
+  const box = page.locator(`textarea[name="${question.name}"]`).first();
+  const present = await box.count().then((count) => count > 0).catch(() => false);
+  if (!present) return false;
+  const value = String(raw).slice(0, question.maxLength || 2000);
+  await box.scrollIntoViewIfNeeded().catch(() => {});
+  await box.fill(value).catch(async () => {
+    await box.click().catch(() => {});
+    await box.type(value, { delay: 8 }).catch(() => {});
+  });
+  return true;
+}
+
+async function fillInfojobsQuestion(page, question, raw) {
+  const answer = normalizeInfojobsAnswer(raw);
+  return question.kind === "radio"
+    ? fillInfojobsRadio(page, question, answer)
+    : fillInfojobsText(page, question, raw);
+}
+
+async function waitInfojobsSuccess(page) {
+  return page
+    .locator(INFOJOBS_SUCCESS_SEL)
+    .first()
+    .waitFor({ state: "visible", timeout: 12_000 })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function processInfojobsKillerForm(page, offerId, answers) {
+  const questions = await extractInfojobsKillerQuestions(page);
+  const answerable = toAnswerable(questions);
+  if (!answers || Object.keys(answers).length === 0) {
+    return { offerId, status: "needs_answers", questions: answerable };
+  }
+  const { unanswered } = await answerInfojobsKillerQuestions(page, answers);
+  if (unanswered.length) {
+    return {
+      offerId,
+      status: "needs_answers",
+      questions: answerable,
+      unanswered: unanswered.map((question) => question.label),
+    };
+  }
+  const accept = page.locator("#btnKillerQuestionsAccept").first();
+  await accept.scrollIntoViewIfNeeded().catch(() => {});
+  await accept.click().catch(() => {});
+  return { offerId, status: (await waitInfojobsSuccess(page)) ? "applied" : "submitted" };
+}
+
+async function clickInfojobsApply(page) {
+  const button = page.locator("a.js_btApplyVacancy, .js_btApplyVacancy").first();
+  if ((await button.count()) === 0) return false;
+  await button.scrollIntoViewIfNeeded().catch(() => {});
+  await button.click().catch(() => {});
+  await Promise.race([
+    page.waitForSelector(INFOJOBS_KILLER_SEL, { state: "visible", timeout: 12_000 }),
+    page.waitForSelector(INFOJOBS_SUCCESS_SEL, { state: "visible", timeout: 12_000 }),
+  ]).catch(() => {});
+  return true;
+}
+
 // Fill the killer form from an { "question label": "answer" } map (as returned by
 // generate_form_answers). Radios match the answer to an option value (case-insensitive, with
 // SIM/NÃO↔yes/no synonyms); textareas get typed. Returns the labels we couldn't answer so the
 // caller can park for a human instead of submitting a half-filled form.
 export async function answerInfojobsKillerQuestions(page, answers = {}) {
-  const norm = (s) => String(s ?? "").trim().toLowerCase();
-  const yes = new Set(["sim", "yes", "s", "y", "true", "verdadeiro"]);
-  const no = new Set(["não", "nao", "no", "n", "false", "falso"]);
-  const sameBool = (a, b) => (yes.has(a) && yes.has(b)) || (no.has(a) && no.has(b));
-
   const questions = await extractInfojobsKillerQuestions(page);
   const unanswered = [];
 
@@ -266,40 +346,7 @@ export async function answerInfojobsKillerQuestions(page, answers = {}) {
       unanswered.push({ label: q.label });
       continue;
     }
-    const want = norm(raw);
-
-    if (q.kind === "radio") {
-      const opt =
-        q.options.find((o) => norm(o.value) === want) ||
-        q.options.find((o) => sameBool(norm(o.value), want));
-      if (!opt || !opt.id) {
-        unanswered.push({ label: q.label });
-        continue;
-      }
-      // Click the label (the native radio is visually hidden by the custom-control CSS).
-      const clicked = await page
-        .locator(`label[for="${opt.id}"]`)
-        .first()
-        .click({ timeout: 4_000 })
-        .then(() => true)
-        .catch(() => false);
-      if (!clicked) {
-        const checked = await page.locator(`#${opt.id}`).check({ timeout: 4_000 }).then(() => true).catch(() => false);
-        if (!checked) unanswered.push({ label: q.label });
-      }
-    } else {
-      const box = page.locator(`textarea[name="${q.name}"]`).first();
-      const ok = await box.count().then((n) => n > 0).catch(() => false);
-      if (!ok) {
-        unanswered.push({ label: q.label });
-        continue;
-      }
-      await box.scrollIntoViewIfNeeded().catch(() => {});
-      await box.fill(String(raw).slice(0, q.maxLength || 2000)).catch(async () => {
-        await box.click().catch(() => {});
-        await box.type(String(raw).slice(0, q.maxLength || 2000), { delay: 8 }).catch(() => {});
-      });
-    }
+    if (!(await fillInfojobsQuestion(page, q, raw))) unanswered.push({ label: q.label });
   }
 
   return { unanswered };
@@ -326,56 +373,9 @@ export async function infojobsApply(page, { offerId, applyUrl, answers } = {}) {
     .catch(() => false);
   if (alreadyApplied) return { offerId, status: "already_applied" };
 
-  const btn = page.locator("a.js_btApplyVacancy, .js_btApplyVacancy").first();
-  if ((await btn.count()) === 0) return { offerId, status: "no_apply_button" };
-
-  await btn.scrollIntoViewIfNeeded().catch(() => {});
-  await btn.click().catch(() => {});
-
-  // The click either fires the success toast (no questions) or reveals the killer form.
-  await Promise.race([
-    page.waitForSelector(INFOJOBS_KILLER_SEL, { state: "visible", timeout: 12_000 }),
-    page.waitForSelector(INFOJOBS_SUCCESS_SEL, { state: "visible", timeout: 12_000 }),
-  ]).catch(() => {});
+  if (!(await clickInfojobsApply(page))) return { offerId, status: "no_apply_button" };
 
   const hasKiller = await page.locator(INFOJOBS_KILLER_SEL).first().isVisible().catch(() => false);
-  if (hasKiller) {
-    const questions = await extractInfojobsKillerQuestions(page);
-    const answerable = toAnswerable(questions);
-
-    if (!answers || Object.keys(answers).length === 0) {
-      // Phase 1: hand the questions back for AI drafting; leave the form open in the visible window.
-      return { offerId, status: "needs_answers", questions: answerable };
-    }
-
-    const { unanswered } = await answerInfojobsKillerQuestions(page, answers);
-    if (unanswered.length) {
-      return {
-        offerId,
-        status: "needs_answers",
-        questions: answerable,
-        unanswered: unanswered.map((u) => u.label),
-      };
-    }
-
-    const accept = page.locator("#btnKillerQuestionsAccept").first();
-    await accept.scrollIntoViewIfNeeded().catch(() => {});
-    await accept.click().catch(() => {});
-    const done = await page
-      .locator(INFOJOBS_SUCCESS_SEL)
-      .first()
-      .waitFor({ state: "visible", timeout: 12_000 })
-      .then(() => true)
-      .catch(() => false);
-    return { offerId, status: done ? "applied" : "submitted" };
-  }
-
-  const applied = await page
-    .locator(INFOJOBS_SUCCESS_SEL)
-    .first()
-    .waitFor({ state: "visible", timeout: 12_000 })
-    .then(() => true)
-    .catch(() => false);
-
-  return { offerId, status: applied ? "applied" : "submitted" };
+  if (hasKiller) return processInfojobsKillerForm(page, offerId, answers);
+  return { offerId, status: (await waitInfojobsSuccess(page)) ? "applied" : "submitted" };
 }

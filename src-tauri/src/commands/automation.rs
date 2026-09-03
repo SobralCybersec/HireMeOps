@@ -134,76 +134,7 @@ pub async fn automation_confirm_submit(
             .confirm_submit_parked()
             .await
             .map_err(|e| e.to_string())?;
-
-        if let (Some(task_id), Some(session_id)) = (&meta.task_id, &meta.session_id) {
-            let now = crate::util::now_iso();
-
-            if let Some(shot) = &meta.screenshot_path {
-                let _ = sqlx::query(
-                    "INSERT INTO automation_evidence
-                       (id, task_id, evidence_type, file_path, created_at)
-                     VALUES (?1, ?2, 'screenshot', ?3, ?4)",
-                )
-                .bind(crate::util::new_id())
-                .bind(task_id)
-                .bind(shot)
-                .bind(&now)
-                .execute(&state.db)
-                .await;
-            }
-
-            let _ = sqlx::query(
-                "UPDATE browser_sessions
-                 SET status = 'closed', ended_at = ?1, updated_at = ?1
-                 WHERE id = ?2",
-            )
-            .bind(&now)
-            .bind(session_id)
-            .execute(&state.db)
-            .await;
-
-            let _ = sqlx::query(
-                "UPDATE automation_tasks
-                 SET status = 'completed', finished_at = ?1,
-                     result_json = '{\"outcome\":\"submitted\"}', updated_at = ?1
-                 WHERE id = ?2",
-            )
-            .bind(&now)
-            .bind(task_id)
-            .execute(&state.db)
-            .await;
-
-            let _ = sqlx::query(
-                "UPDATE application_runs SET status = 'submitted', browser_session_id = ?1
-                 WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?2)",
-            )
-            .bind(session_id)
-            .bind(task_id)
-            .execute(&state.db)
-            .await;
-
-            let _ = sqlx::query(
-                "UPDATE job_posts SET status = 'applied'
-                 WHERE id = (
-                   SELECT job_id FROM application_runs
-                   WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?1)
-                 )",
-            )
-            .bind(task_id)
-            .execute(&state.db)
-            .await;
-
-            emit_state(
-                &app,
-                "Completed",
-                Some(task_id),
-                Some("Application submitted"),
-                None,
-            );
-        } else {
-            emit_state(&app, "Completed", None, Some("Application submitted"), None);
-        }
-
+        record_confirmed_submission(&app, &state, &meta).await;
         Ok(())
     }
     #[cfg(not(feature = "real-browser"))]
@@ -211,6 +142,100 @@ pub async fn automation_confirm_submit(
         let _ = (app, state);
         Err("real-browser feature not enabled".to_string())
     }
+}
+
+#[cfg(feature = "real-browser")]
+async fn record_confirmed_submission(
+    app: &AppHandle,
+    state: &AppState,
+    meta: &crate::browser::playwright::PostSubmitMeta,
+) {
+    let Some((task_id, session_id)) = meta.task_id.as_ref().zip(meta.session_id.as_ref()) else {
+        emit_state(app, "Completed", None, Some("Application submitted"), None);
+        return;
+    };
+    let now = crate::util::now_iso();
+    record_submission_evidence(&state.db, task_id, &meta.screenshot_path, &now).await;
+    close_submission_session(&state.db, session_id, &now).await;
+    mark_submission_complete(&state.db, task_id, session_id, &now).await;
+    emit_state(
+        app,
+        "Completed",
+        Some(task_id),
+        Some("Application submitted"),
+        None,
+    );
+}
+
+#[cfg(feature = "real-browser")]
+async fn record_submission_evidence(
+    db: &sqlx::SqlitePool,
+    task_id: &str,
+    screenshot_path: &Option<String>,
+    now: &str,
+) {
+    let Some(path) = screenshot_path else { return };
+    let _ = sqlx::query(
+        "INSERT INTO automation_evidence
+           (id, task_id, evidence_type, file_path, created_at)
+         VALUES (?1, ?2, 'screenshot', ?3, ?4)",
+    )
+    .bind(crate::util::new_id())
+    .bind(task_id)
+    .bind(path)
+    .bind(now)
+    .execute(db)
+    .await;
+}
+
+#[cfg(feature = "real-browser")]
+async fn close_submission_session(db: &sqlx::SqlitePool, session_id: &str, now: &str) {
+    let _ = sqlx::query(
+        "UPDATE browser_sessions
+         SET status = 'closed', ended_at = ?1, updated_at = ?1
+         WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(session_id)
+    .execute(db)
+    .await;
+}
+
+#[cfg(feature = "real-browser")]
+async fn mark_submission_complete(
+    db: &sqlx::SqlitePool,
+    task_id: &str,
+    session_id: &str,
+    now: &str,
+) {
+    let _ = sqlx::query(
+        "UPDATE automation_tasks
+         SET status = 'completed', finished_at = ?1,
+             result_json = '{\"outcome\":\"submitted\"}', updated_at = ?1
+         WHERE id = ?2",
+    )
+    .bind(now)
+    .bind(task_id)
+    .execute(db)
+    .await;
+    let _ = sqlx::query(
+        "UPDATE application_runs SET status = 'submitted', browser_session_id = ?1
+         WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?2)",
+    )
+    .bind(session_id)
+    .bind(task_id)
+    .execute(db)
+    .await;
+    let _ = sqlx::query(
+        "UPDATE job_posts SET status = 'applied'
+         WHERE id = (
+           SELECT job_id FROM application_runs
+           WHERE id = (SELECT target_id FROM automation_tasks WHERE id = ?1)
+         )",
+    )
+    .bind(task_id)
+    .execute(db)
+    .await;
 }
 
 #[tauri::command]
@@ -280,9 +305,6 @@ pub async fn automation_start_indeed(
 ) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
         emit_state(
             &app,
             "PreparingBrowser",
@@ -291,23 +313,7 @@ pub async fn automation_start_indeed(
             None,
         );
 
-        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-        let headless =
-            crate::storage::settings::read_automation_headless_for(&state.db, "job_apply", false)
-                .await;
-        let handle = state
-            .playwright
-            .open(&SessionSpec {
-                profile_id: profile_id.clone(),
-                platform: "indeed".into(),
-                user_data_dir,
-                extensions: vec![],
-                headless,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
+        let handle = open_indeed_session(state.inner(), &profile_id).await?;
 
         let mut merged = build_indeed_answers(&state.db, &profile_id).await;
         if let Some(Value::Object(over)) = answers {
@@ -328,51 +334,21 @@ pub async fn automation_start_indeed(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let mut needs_human = reply
+        let needs_human = reply
             .get("needsHuman")
             .and_then(Value::as_array)
             .map(|a| a.len())
             .unwrap_or(0);
-
-        if !unanswered.is_empty() {
-            emit_state(
-                &app,
-                "GeneratingAnswers",
-                None,
-                Some("Drafting answers for screening questions…"),
-                Some(&job_url),
-            );
-            match crate::domain::automation::generate_form_answers(
-                &state.db,
-                &profile_id,
-                &unanswered,
-            )
-            .await
-            {
-                Ok((question_map, human)) => {
-                    needs_human += human;
-                    if !question_map.is_empty() {
-                        let payload = json!({ "questions": Value::Object(question_map) });
-                        let refill = state
-                            .playwright
-                            .answer_indeed_free_text(&handle, &payload)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        needs_human += refill
-                            .get("unanswered")
-                            .and_then(Value::as_array)
-                            .map(|a| a.len())
-                            .unwrap_or(0);
-                    } else {
-                        needs_human += unanswered.len();
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Indeed answer generation failed; parking for review");
-                    needs_human += unanswered.len();
-                }
-            }
-        }
+        let needs_human = resolve_indeed_answers(&IndeedAnswerContext {
+            state: &state,
+            app: &app,
+            profile_id: &profile_id,
+            handle: &handle,
+            job_url: &job_url,
+            unanswered: &unanswered,
+            initial_needs_human: needs_human,
+        })
+        .await?;
 
         let detail = if needs_human > 0 {
             format!("Review the SmartApply form — {needs_human} item(s) need you, then confirm or reject.")
@@ -387,6 +363,81 @@ pub async fn automation_start_indeed(
         let _ = (app, state, job_url, profile_id, answers);
         Err("real-browser feature not enabled".to_string())
     }
+}
+
+#[cfg(feature = "real-browser")]
+struct IndeedAnswerContext<'a> {
+    state: &'a AppState,
+    app: &'a AppHandle,
+    profile_id: &'a str,
+    handle: &'a str,
+    job_url: &'a str,
+    unanswered: &'a [Value],
+    initial_needs_human: usize,
+}
+
+#[cfg(feature = "real-browser")]
+async fn resolve_indeed_answers(ctx: &IndeedAnswerContext<'_>) -> Result<usize, String> {
+    if ctx.unanswered.is_empty() {
+        return Ok(ctx.initial_needs_human);
+    }
+    emit_state(
+        ctx.app,
+        "GeneratingAnswers",
+        None,
+        Some("Drafting answers for screening questions…"),
+        Some(ctx.job_url),
+    );
+    let Ok((question_map, human)) = crate::domain::automation::generate_form_answers(
+        &ctx.state.db,
+        ctx.profile_id,
+        ctx.unanswered,
+    )
+    .await
+    else {
+        tracing::warn!("Indeed answer generation failed; parking for review");
+        return Ok(ctx.initial_needs_human + ctx.unanswered.len());
+    };
+    let mut needs_human = ctx.initial_needs_human + human;
+    if question_map.is_empty() {
+        return Ok(needs_human + ctx.unanswered.len());
+    }
+    let payload = json!({ "questions": Value::Object(question_map) });
+    let refill = ctx
+        .state
+        .playwright
+        .answer_indeed_free_text(ctx.handle, &payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    needs_human += refill
+        .get("unanswered")
+        .and_then(Value::as_array)
+        .map(|answers| answers.len())
+        .unwrap_or(0);
+    Ok(needs_human)
+}
+
+#[cfg(feature = "real-browser")]
+async fn open_indeed_session(state: &AppState, profile_id: &str) -> Result<String, String> {
+    use crate::domain::automation::{BrowserDriver, SessionSpec};
+    use crate::storage::paths::automation_profile_dir;
+
+    let user_data_dir = automation_profile_dir(&state.paths.data_dir, profile_id)
+        .to_string_lossy()
+        .into_owned();
+    let headless =
+        crate::storage::settings::read_automation_headless_for(&state.db, "job_apply", false).await;
+    state
+        .playwright
+        .open(&SessionSpec {
+            profile_id: profile_id.to_string(),
+            platform: "indeed".into(),
+            user_data_dir,
+            extensions: vec![],
+            headless,
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "real-browser")]

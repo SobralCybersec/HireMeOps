@@ -9,6 +9,97 @@ export interface BrowserExtensionsPanelProps {
   onChange?: (next: string[]) => void;
 }
 
+interface ExtensionInputProps {
+  draft: string;
+  onChange: (value: string) => void;
+  onAdd: () => void;
+}
+
+function ExtensionInput(props: ExtensionInputProps) {
+  const { draft, onChange, onAdd } = props;
+  return (
+    <Field label="Add extension path" htmlFor="ext-path">
+      <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+        <Input
+          id="ext-path"
+          type="text"
+          value={draft}
+          placeholder="/path/to/unpacked/extension"
+          style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            onAdd();
+          }}
+        />
+        <Button variant="ghost" size="sm" onClick={onAdd}>
+          Add
+        </Button>
+      </div>
+    </Field>
+  );
+}
+
+interface ExtensionListProps {
+  paths: string[];
+  onRemove: (index: number) => void;
+}
+
+function ExtensionList({ paths, onRemove }: ExtensionListProps) {
+  if (paths.length === 0) {
+    return (
+      <EmptyState
+        label="Browser extensions"
+        title="No extensions configured"
+        body="Extensions you add are loaded into the automation browser at launch."
+      />
+    );
+  }
+  return (
+    <ul
+      aria-label="Configured browser extensions"
+      style={{ listStyle: "none", margin: 0, padding: 0 }}
+    >
+      {paths.map((path, index) => (
+        <li
+          key={path}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-2)",
+            padding: "var(--sp-2) var(--sp-3)",
+            marginBottom: "var(--sp-2)",
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          <code
+            className="code"
+            style={{
+              flex: 1,
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              wordBreak: "break-all",
+            }}
+          >
+            {path}
+          </code>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Remove ${path}`}
+            onClick={() => onRemove(index)}
+          >
+            Remove
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Manage the list of unpacked Chrome extension paths that get side-loaded into
  * the driven browser. Parent may own the array via `value`/`onChange`; when
@@ -55,77 +146,10 @@ export function BrowserExtensionsPanel({ value, onChange }: BrowserExtensionsPan
         browser on the next session via <code className="code">--load-extension</code>.
       </p>
 
-      <Field label="Add extension path" htmlFor="ext-path">
-        <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-          <Input
-            id="ext-path"
-            type="text"
-            value={draft}
-            placeholder="/path/to/unpacked/extension"
-            style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAdd();
-              }
-            }}
-          />
-          <Button variant="ghost" size="sm" onClick={handleAdd}>
-            Add
-          </Button>
-        </div>
-      </Field>
+      <ExtensionInput draft={draft} onChange={setDraft} onAdd={handleAdd} />
 
       <div style={{ marginTop: "var(--sp-3)" }}>
-        {paths.length === 0 ? (
-          <EmptyState
-            label="Browser extensions"
-            title="No extensions configured"
-            body="Extensions you add are loaded into the automation browser at launch."
-          />
-        ) : (
-          <ul
-            aria-label="Configured browser extensions"
-            style={{ listStyle: "none", margin: 0, padding: 0 }}
-          >
-            {paths.map((path, idx) => (
-              <li
-                key={path}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--sp-2)",
-                  padding: "var(--sp-2) var(--sp-3)",
-                  marginBottom: "var(--sp-2)",
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                }}
-              >
-                <code
-                  className="code"
-                  style={{
-                    flex: 1,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "var(--text-xs)",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {path}
-                </code>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Remove ${path}`}
-                  onClick={() => handleRemove(idx)}
-                >
-                  Remove
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ExtensionList paths={paths} onRemove={handleRemove} />
       </div>
     </div>
   );

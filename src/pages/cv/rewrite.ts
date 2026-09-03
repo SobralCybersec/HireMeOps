@@ -7,18 +7,32 @@
 // metadata), NOT a critique - it is additive alongside `analysis.ts`.
 
 import { invokeStrict } from "../../lib/tauriInvoke";
-import type { CvLanguage, CvRewriteReport } from "./types";
+import type { CvLanguage, CvRewriteReport, CvRewriteSummary } from "./types";
+
+const rewriteListRequests = new Map<string, Promise<CvRewriteSummary[]>>();
 
 /**
- * List a profile's persisted CV rewrites, newest first. Resolves to the
- * (possibly empty) list, or **rejects** if the backend errors - the caller must
+ * List lightweight metadata for a profile's persisted CV rewrites, newest first.
+ * Resolves to the (possibly empty) list, or **rejects** if the backend errors - the caller must
  * distinguish "no rewrites yet" (`[]`) from "failed to load" (throw) so a
  * backend failure never masquerades as an empty history. Passing "" when there
  * is no active profile yields an empty list. Mirrors
- * `list_cv_rewrites({ profileId })`.
+ * `list_cv_rewrites({ profileId })`. Full JSON/source text uses `loadCvRewrite`.
  */
-export async function loadCvRewrites(profileId: string): Promise<CvRewriteReport[]> {
-  return invokeStrict<CvRewriteReport[]>("list_cv_rewrites", { profileId });
+export function loadCvRewrites(profileId: string): Promise<CvRewriteSummary[]> {
+  const existing = rewriteListRequests.get(profileId);
+  if (existing) return existing;
+  const request = invokeStrict<CvRewriteSummary[]>("list_cv_rewrites", { profileId }).finally(
+    () => {
+      rewriteListRequests.delete(profileId);
+    },
+  );
+  rewriteListRequests.set(profileId, request);
+  return request;
+}
+
+export function loadCvRewrite(profileId: string, rewriteId: string): Promise<CvRewriteReport> {
+  return invokeStrict<CvRewriteReport>("get_cv_rewrite", { profileId, rewriteId });
 }
 
 /**
@@ -87,6 +101,11 @@ export async function exportCvRewrite(rewriteId: string, mode: CvExportMode): Pr
   return Uint8Array.from(bytes);
 }
 
+export async function exportCoverLetter(rewriteId: string): Promise<Uint8Array> {
+  const bytes = await invokeStrict<number[]>("export_cover_letter", { rewriteId });
+  return Uint8Array.from(bytes);
+}
+
 /**
  * Render a persisted rewrite to a PDF and save it via a **native save dialog**,
  * suggesting `suggestedName` as the filename. Resolves to the saved absolute
@@ -106,6 +125,17 @@ export async function saveCvRewritePdf(
   return invokeStrict<string | null>("save_cv_rewrite_pdf", {
     rewriteId,
     mode,
+    suggestedName,
+  });
+}
+
+/** Render a persisted rewrite's generated cover letter and save it via native dialog. */
+export async function saveCoverLetterPdf(
+  rewriteId: string,
+  suggestedName: string,
+): Promise<string | null> {
+  return invokeStrict<string | null>("save_cover_letter_pdf", {
+    rewriteId,
     suggestedName,
   });
 }

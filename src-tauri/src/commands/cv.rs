@@ -10,7 +10,8 @@ use tauri::{Manager, State};
 
 use crate::ai::prompt::Language;
 use crate::domain::cv::{
-    CvAnalysisReport, CvDocumentSummary, CvRewriteReport, CvService, CvServiceImpl,
+    CvAnalysisReport, CvDocumentSummary, CvRewriteReport, CvRewriteSummary, CvService,
+    CvServiceImpl,
 };
 use crate::domain::profile_variants::{
     ProfileVariantDto, ProfileVariantService, ProfileVariantServiceImpl,
@@ -167,9 +168,21 @@ pub async fn list_cv_analysis_reports(
 pub async fn list_cv_rewrites(
     state: State<'_, AppState>,
     profile_id: String,
-) -> Result<Vec<CvRewriteReport>, String> {
+) -> Result<Vec<CvRewriteSummary>, String> {
     service(&state)
-        .list_rewrites(&profile_id)
+        .list_rewrite_summaries(&profile_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_cv_rewrite(
+    state: State<'_, AppState>,
+    profile_id: String,
+    rewrite_id: String,
+) -> Result<CvRewriteReport, String> {
+    service(&state)
+        .get_rewrite(&profile_id, &rewrite_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -240,40 +253,14 @@ async fn render_rewrite_pdf(
     mode: &str,
     cvtex_dir: Option<&std::path::Path>,
 ) -> Result<Vec<u8>, String> {
-    use crate::ai::prompt::{CvMetadata, CvRewrite};
     use crate::cv::export::{self, ExportMode};
 
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT rewrite_json, metadata_json, cv_document_id FROM cv_rewrites WHERE id = ?1",
-    )
-    .bind(rewrite_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let (rewrite_json, metadata_json, cv_document_id) =
-        row.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
-
-    let rewrite: CvRewrite =
-        serde_json::from_str(&rewrite_json).map_err(|e| format!("decode rewrite: {e}"))?;
-    let metadata: CvMetadata =
-        serde_json::from_str(&metadata_json).unwrap_or_else(|_| rewrite.cv_metadata());
+    let (rewrite, metadata, cv_document_id) = load_rewrite_export_data(db, rewrite_id).await?;
 
     if ExportMode::parse(mode) == ExportMode::Modify {
-        if let Some(doc_id) = cv_document_id {
-            let stored: Option<String> =
-                sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
-                    .bind(&doc_id)
-                    .fetch_optional(db)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            if let Some(path) = stored {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    if bytes.starts_with(b"%PDF") {
-                        return export::embed_metadata(&bytes, &metadata);
-                    }
-                }
-            }
+        if let Some(bytes) = try_modify_stored_pdf(db, cv_document_id.as_deref(), &metadata).await?
+        {
+            return Ok(bytes);
         }
     }
 
@@ -294,6 +281,93 @@ async fn render_rewrite_pdf(
     export::build_pdf(&rewrite, &metadata)
 }
 
+async fn load_rewrite_export_data(
+    db: &sqlx::SqlitePool,
+    rewrite_id: &str,
+) -> Result<
+    (
+        crate::ai::prompt::CvRewrite,
+        crate::ai::prompt::CvMetadata,
+        Option<String>,
+    ),
+    String,
+> {
+    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT rewrite_json, metadata_json, cv_document_id FROM cv_rewrites WHERE id = ?1",
+    )
+    .bind(rewrite_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    let (rewrite_json, metadata_json, cv_document_id) =
+        row.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
+    let rewrite: crate::ai::prompt::CvRewrite =
+        serde_json::from_str(&rewrite_json).map_err(|e| format!("decode rewrite: {e}"))?;
+    let metadata: crate::ai::prompt::CvMetadata =
+        serde_json::from_str(&metadata_json).unwrap_or_else(|_| rewrite.cv_metadata());
+    Ok((rewrite, metadata, cv_document_id))
+}
+
+async fn try_modify_stored_pdf(
+    db: &sqlx::SqlitePool,
+    cv_document_id: Option<&str>,
+    metadata: &crate::ai::prompt::CvMetadata,
+) -> Result<Option<Vec<u8>>, String> {
+    use crate::cv::export;
+
+    let Some(doc_id) = cv_document_id else {
+        return Ok(None);
+    };
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT stored_path FROM cv_documents WHERE id = ?1")
+            .bind(doc_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?;
+    let Some(path) = stored else { return Ok(None) };
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ok(None);
+    };
+    if !bytes.starts_with(b"%PDF") {
+        return Ok(None);
+    }
+    export::embed_metadata(&bytes, metadata).map(Some)
+}
+
+async fn render_cover_letter_pdf(
+    db: &sqlx::SqlitePool,
+    rewrite_id: &str,
+    cvtex_dir: Option<&std::path::Path>,
+) -> Result<Vec<u8>, String> {
+    use crate::ai::prompt::CvRewrite;
+    use crate::cv::export;
+
+    let json: Option<String> =
+        sqlx::query_scalar("SELECT rewrite_json FROM cv_rewrites WHERE id = ?1")
+            .bind(rewrite_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?;
+    let json = json.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
+    let rewrite: CvRewrite =
+        serde_json::from_str(&json).map_err(|e| format!("decode rewrite: {e}"))?;
+    if rewrite.cover_letter.trim().is_empty() {
+        return Err("cover letter is not available for this rewrite".to_string());
+    }
+
+    let photo_bytes = fetch_photo(&rewrite.photo_url).await;
+    if let Some(dir) = cvtex_dir {
+        match export::build_cover_letter_pdf_tex(&rewrite, dir, photo_bytes.as_deref()) {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) => tracing::warn!(
+                target: "hiremeops::cv",
+                "xelatex cover-letter render failed, using lopdf fallback: {e}"
+            ),
+        }
+    }
+    export::build_cover_letter_pdf(&rewrite)
+}
+
 #[tauri::command]
 pub async fn export_cv_rewrite(
     app: tauri::AppHandle,
@@ -303,6 +377,16 @@ pub async fn export_cv_rewrite(
 ) -> Result<Vec<u8>, String> {
     let cvtex_dir = resolve_cvtex_dir(&app);
     render_rewrite_pdf(&state.db, &rewrite_id, &mode, cvtex_dir.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn export_cover_letter(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    rewrite_id: String,
+) -> Result<Vec<u8>, String> {
+    let cvtex_dir = resolve_cvtex_dir(&app);
+    render_cover_letter_pdf(&state.db, &rewrite_id, cvtex_dir.as_deref()).await
 }
 
 #[tauri::command]
@@ -335,6 +419,36 @@ pub async fn save_cv_rewrite_pdf(
         return Ok(None);
     };
 
+    let path = file_path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn save_cover_letter_pdf(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    rewrite_id: String,
+    suggested_name: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let cvtex_dir = resolve_cvtex_dir(&app);
+    let bytes = render_cover_letter_pdf(&state.db, &rewrite_id, cvtex_dir.as_deref()).await?;
+    let file_name = if suggested_name.to_ascii_lowercase().ends_with(".pdf") {
+        suggested_name
+    } else {
+        format!("{suggested_name}.pdf")
+    };
+    let chosen = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter("PDF", &["pdf"])
+        .blocking_save_file();
+    let Some(file_path) = chosen else {
+        return Ok(None);
+    };
     let path = file_path.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))

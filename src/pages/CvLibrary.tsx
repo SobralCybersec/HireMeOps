@@ -1,36 +1,15 @@
-import { useEffect, useState } from "react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { Badge, Button, Card, Icon, Input, Textarea } from "../components/ui";
 import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  Icon,
-  Input,
-  Textarea,
-  Toolbar,
-  ToolbarSep,
-  ToolbarSpacer,
-  matchScoreVariant,
-} from "../components/ui";
-import { open } from "@tauri-apps/plugin-dialog";
-import {
-  CvCard,
-  CvViewer,
+  CoverLetterExportButton,
   CvExportButton,
-  loadCvLibrary,
-  importCvDocument,
-  loadCvRewrites,
-  runCvRewrite,
-  runFirstTimeCvRewrite,
-  renderInlineBold,
+  CvViewer,
   defaultCvBytesLoader,
-  formatBytes,
-  relativeTime,
+  renderInlineBold,
 } from "./cv";
-import type { CvLanguage, CvLibraryDoc, CvRewriteReport } from "./cv";
-import { useSettingsStore } from "../stores/useSettingsStore";
-import { errMessage, invokeStrict } from "../lib/tauriInvoke";
+import type { CvLanguage, CvLibraryDoc, CvRewriteReport, CvRewriteSummary } from "./cv";
+import { useCvLibraryController } from "./cv/useCvLibraryController";
+import { CvLibraryAlerts, CvLibraryDocuments, CvLibraryToolbar } from "./cv/CvLibraryViewParts";
 import "./cv/cv.css";
 
 /*
@@ -41,360 +20,101 @@ import "./cv/cv.css";
 const loader = defaultCvBytesLoader;
 
 export function CvLibrary() {
-  const activeProfileId = useSettingsStore((s) => s.settings?.activeProfileId ?? null);
-  const [docs, setDocs] = useState<CvLibraryDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  // Bumped by the error-state Retry button to re-run the load effect even when
-  // the profile id is unchanged (a plain re-set of the same value is a no-op).
-  const [reloadNonce, setReloadNonce] = useState(0);
-  // Upload flow: null when idle, a message string while importing/on failure.
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-  // Re-analyse flow: mirrors the import error pattern.
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  // Delete flow
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  // AI-rewrite flow: mirrors the analyse pattern. `rewrites` holds the profile's
-  // persisted rewrites (newest first); the inspector surfaces the newest one for
-  // the selected document so it can be exported to PDF.
-  const [isRewriting, setIsRewriting] = useState(false);
-  const [rewriteError, setRewriteError] = useState<string | null>(null);
-  const [rewrites, setRewrites] = useState<CvRewriteReport[]>([]);
-  // Output language for AI analysis/rewrite (pt-BR default, matching backend).
-  const [language, setLanguage] = useState<CvLanguage>("pt");
-  // Optional free-text context (links, GitHub, portfolio, notes) fed to the AI
-  // for the next rewrite only. Empty = nothing sent.
-  const [extraInfo, setExtraInfo] = useState("");
-  // First-CV composer: no uploaded document required, but the candidate must
-  // provide enough source facts for the model to fill a real CV without guessing.
-  const [firstCvOpen, setFirstCvOpen] = useState(false);
-  const [firstCvTarget, setFirstCvTarget] = useState("");
-  const [firstCvInfo, setFirstCvInfo] = useState("");
-  // The rewrite currently shown in the before/after comparison overlay.
-  const [comparing, setComparing] = useState<CvRewriteReport | null>(null);
+  const model = useCvLibraryController();
+  return <CvLibraryView model={model} />;
+}
 
-  // Reset transient load state when the request identity changes. Done during
-  // render (not synchronously inside the effect) so React folds it into the
-  // in-progress render instead of triggering an extra commit->render cascade --
-  // this is what satisfies react-hooks/set-state-in-effect. See react.dev
-  // "you-might-not-need-an-effect" (resetting all state when a prop changes).
-  const requestKey = `${activeProfileId ?? ""}:${reloadNonce}`;
-  const [loadingKey, setLoadingKey] = useState(requestKey);
-  if (loadingKey !== requestKey) {
-    setLoadingKey(requestKey);
-    setLoading(true);
-    setError(null);
-  }
+export type CvLibraryViewModel = {
+  docs: CvLibraryDoc[];
+  query: string;
+  setQuery: (value: string) => void;
+  loading: boolean;
+  error: string | null;
+  selectedId: string | null;
+  selected: CvLibraryDoc | null;
+  opened: CvLibraryDoc | null;
+  visible: CvLibraryDoc[];
+  inspectorRows: { label: string; value: string }[];
+  importing: boolean;
+  isRewriting: boolean;
+  firstCvOpen: boolean;
+  setFirstCvOpen: (value: boolean | ((value: boolean) => boolean)) => void;
+  language: CvLanguage;
+  setLanguage: (value: CvLanguage) => void;
+  isAnalyzing: boolean;
+  handleAnalyze: () => Promise<void>;
+  isDeleting: boolean;
+  handleDelete: () => Promise<void>;
+  importError: string | null;
+  setImportError: (value: string | null) => void;
+  analyzeError: string | null;
+  setAnalyzeError: (value: string | null) => void;
+  rewriteError: string | null;
+  setRewriteError: (value: string | null) => void;
+  deleteError: string | null;
+  setDeleteError: (value: string | null) => void;
+  firstCvTarget: string;
+  setFirstCvTarget: (value: string) => void;
+  firstCvInfo: string;
+  setFirstCvInfo: (value: string) => void;
+  firstCvReady: boolean;
+  handleFirstCvRewrite: () => Promise<void>;
+  latestFirstTimeRewrite: CvRewriteSummary | null;
+  latestFirstTimeDetail: CvRewriteReport | null;
+  rewriteDetailLoading: string | null;
+  loadRewriteDetail: (id: string) => Promise<void>;
+  setComparing: (value: CvRewriteReport | null) => void;
+  comparing: CvRewriteReport | null;
+  setOpenId: (value: string | null) => void;
+  handleRewrite: () => Promise<void>;
+  extraInfo: string;
+  setExtraInfo: (value: string) => void;
+  latestRewrite: CvRewriteSummary | null;
+  latestDetail: CvRewriteReport | null;
+  activeProfileId: string | null;
+  setReloadNonce: (update: (value: number) => number) => void;
+  setSelectedId: (value: string | null) => void;
+  toggle: (id: string) => void;
+  handleUpload: (kind: "pdf" | "docx") => Promise<void>;
+};
 
-  // Load the active profile's real CV documents. Passing "" when there is no
-  // active profile yields an empty library from the backend (and, off-Tauri,
-  // the dev mock returns rows regardless so previews stay populated). A backend
-  // *error* sets `error` -- distinct from an empty `[]` -- so a failed load never
-  // masquerades as "no CVs uploaded yet".
-  useEffect(() => {
-    let cancelled = false;
-    loadCvLibrary(activeProfileId ?? "")
-      .then((rows) => {
-        if (cancelled) return;
-        setDocs(rows);
-        setLoading(false);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setDocs([]);
-        setError(errMessage(e));
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProfileId, reloadNonce]);
-
-  // Load the profile's persisted CV rewrites (newest first). Keyed on the same
-  // deps as the library load so a fresh rewrite (which bumps `reloadNonce`)
-  // reloads the list. A load failure degrades to an empty list -- the rewrite
-  // affordance simply stays hidden rather than blocking the library view.
-  useEffect(() => {
-    let cancelled = false;
-    loadCvRewrites(activeProfileId ?? "")
-      .then((rows) => {
-        if (!cancelled) setRewrites(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setRewrites([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProfileId, reloadNonce]);
-
-  const visible = docs.filter((c) => c.fileName.toLowerCase().includes(query.toLowerCase()));
-
-  const selected = docs.find((c) => c.id === selectedId) ?? null;
-  const opened = docs.find((c) => c.id === openId) ?? null;
-  const latestFirstTimeRewrite = rewrites.find((r) => r.cvDocumentId === null) ?? null;
-  const firstCvReady = firstCvTarget.trim().length > 0 && firstCvInfo.trim().length >= 80;
-
-  function toggle(id: string) {
-    setSelectedId((prev) => (prev === id ? null : id));
-  }
-
-  // Open a native file picker for the given type, import the chosen file into
-  // the active profile, then reload the library. A backend DomainError (bad
-  // file, parse failure, unsupported type) surfaces via `importError`; the user
-  // cancelling the dialog is a no-op. Guarded so double-clicks can't overlap.
-  async function handleUpload(kind: "pdf" | "docx") {
-    if (importing) return;
-    const selected = await open({
-      multiple: false,
-      directory: false,
-      filters:
-        kind === "pdf"
-          ? [{ name: "PDF", extensions: ["pdf"] }]
-          : [{ name: "Word document", extensions: ["docx"] }],
-    });
-    if (typeof selected !== "string") return; // cancelled
-    setImporting(true);
-    setImportError(null);
-    try {
-      await importCvDocument(activeProfileId ?? "", selected);
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      setImportError(errMessage(e));
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function handleAnalyze() {
-    if (isAnalyzing || selected === null) return;
-    setIsAnalyzing(true);
-    setAnalyzeError(null);
-    try {
-      await invokeStrict<string>("analyze_cv_document", { cvDocumentId: selected.id, language });
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      setAnalyzeError(errMessage(e));
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (isDeleting || selected === null) return;
-    if (!window.confirm(`Delete "${selected.fileName}"? This cannot be undone.`)) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
-      await invokeStrict<void>("delete_cv_document", { cvDocumentId: selected.id });
-      setSelectedId(null);
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      setDeleteError(errMessage(e));
-    } finally {
-      setIsDeleting(false);
-    }
-  }
-
-  // Produce an AI-tailored rewrite of the selected CV, then reload the rewrites
-  // list (via `reloadNonce`) so the inspector's Export-PDF affordance appears.
-  // Mirrors `handleAnalyze`'s busy/error conventions.
-  async function handleRewrite() {
-    if (isRewriting || selected === null) return;
-    setIsRewriting(true);
-    setRewriteError(null);
-    try {
-      await runCvRewrite(selected.id, undefined, language, extraInfo);
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      setRewriteError(errMessage(e));
-    } finally {
-      setIsRewriting(false);
-    }
-  }
-
-  async function handleFirstCvRewrite() {
-    if (isRewriting || !firstCvReady || activeProfileId === null) return;
-    setIsRewriting(true);
-    setRewriteError(null);
-    try {
-      await runFirstTimeCvRewrite(activeProfileId, firstCvTarget, language, firstCvInfo);
-      setFirstCvOpen(true);
-      setReloadNonce((n) => n + 1);
-    } catch (e) {
-      setRewriteError(errMessage(e));
-    } finally {
-      setIsRewriting(false);
-    }
-  }
-
-  // Inspector metadata rows -- computed once when selected changes.
-  const inspectorRows = selected
-    ? [
-        { label: "File", value: selected.fileName },
-        { label: "Type", value: selected.fileType.toUpperCase() },
-        { label: "Pages", value: String(selected.pageCount) },
-        { label: "Size", value: formatBytes(selected.sizeBytes) },
-        { label: "Hash", value: selected.fileHash },
-        { label: "Profile ID", value: selected.profileId },
-        { label: "Added", value: relativeTime(selected.createdAt) },
-        { label: "Last used", value: relativeTime(selected.lastUsedAt) },
-        { label: "Active", value: selected.isActive ? "Yes" : "No" },
-        {
-          label: "Last Score",
-          value: selected.lastAnalysisScore !== null ? `${selected.lastAnalysisScore}%` : "-",
-        },
-      ]
-    : [];
-
+function CvLibraryView({ model }: { model: CvLibraryViewModel }) {
   return (
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">CV Library</h1>
-        <span className="page-subtitle">{docs.length} documents</span>
+        <span className="page-subtitle">{model.docs.length} documents</span>
       </div>
-
-      <Toolbar>
-        <Button variant="primary" disabled={importing} onClick={() => handleUpload("pdf")}>
-          {importing ? "Uploading..." : "Upload PDF"}
-        </Button>
-        <Button disabled={importing} onClick={() => handleUpload("docx")}>
-          Upload DOCX
-        </Button>
-        <Button disabled>Import Profile</Button>
-        <Button
-          disabled={isRewriting}
-          variant={firstCvOpen ? "primary" : "ghost"}
-          onClick={() => setFirstCvOpen((open) => !open)}
-        >
-          First CV
-        </Button>
-        <ToolbarSep />
-        <Input
-          type="search"
-          className="cvx-search"
-          placeholder="Search CVs..."
-          aria-label="Search CVs"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <ToolbarSpacer />
-        <Button
-          size="sm"
-          variant={language === "pt" ? "primary" : "ghost"}
-          disabled={isAnalyzing || isRewriting}
-          onClick={() => setLanguage("pt")}
-          title="Generate analysis & rewrites in Portuguese (pt-BR)"
-        >
-          PT
-        </Button>
-        <Button
-          size="sm"
-          variant={language === "en" ? "primary" : "ghost"}
-          disabled={isAnalyzing || isRewriting}
-          onClick={() => setLanguage("en")}
-          title="Generate analysis & rewrites in English"
-        >
-          EN
-        </Button>
-        {selected !== null && (
-          <>
-            <ToolbarSep />
-            <Button size="sm" onClick={() => setOpenId(selected.id)}>
-              View
-            </Button>
-            <Button size="sm" disabled>
-              Re-parse
-            </Button>
-            <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
-              {isAnalyzing ? "Analysing..." : "Re-analyse"}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              disabled={isDeleting}
-              onClick={() => void handleDelete()}
-            >
-              {isDeleting ? "Deleting…" : "Delete"}
-            </Button>
-          </>
-        )}
-      </Toolbar>
-
-      {importError !== null && (
-        <div className="inline-warning inline-warning--danger" role="alert">
-          <div className="inline-warning__body">
-            <div>Upload failed. Your library is unchanged.</div>
-            <div className="inline-warning__url">{importError}</div>
-          </div>
-          <button
-            type="button"
-            className="inline-warning__dismiss"
-            onClick={() => setImportError(null)}
-            aria-label="Dismiss upload error"
-          >
-            <Icon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
+      <CvLibraryToolbar model={model} />
+      <CvLibraryAlerts model={model} />
+      <FirstCvComposer model={model} />
+      <CvLibraryDocuments model={model} />
+      {model.opened !== null && (
+        <CvViewer cv={model.opened} loader={loader} onClose={() => model.setOpenId(null)} />
       )}
-
-      {analyzeError !== null && (
-        <div className="inline-warning inline-warning--danger" role="alert">
-          <div className="inline-warning__body">
-            <div>Re-analyse failed. Your library is unchanged.</div>
-            <div className="inline-warning__url">{analyzeError}</div>
-          </div>
-          <button
-            type="button"
-            className="inline-warning__dismiss"
-            onClick={() => setAnalyzeError(null)}
-            aria-label="Dismiss analyse error"
-          >
-            <Icon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
+      {model.comparing !== null && (
+        <CvCompareModal report={model.comparing} onClose={() => model.setComparing(null)} />
       )}
+    </div>
+  );
+}
 
-      {rewriteError !== null && (
-        <div className="inline-warning inline-warning--danger" role="alert">
-          <div className="inline-warning__body">
-            <div>Rewrite failed. Your library is unchanged.</div>
-            <div className="inline-warning__url">{rewriteError}</div>
-          </div>
-          <button
-            type="button"
-            className="inline-warning__dismiss"
-            onClick={() => setRewriteError(null)}
-            aria-label="Dismiss rewrite error"
-          >
-            <Icon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
-      )}
-
-      {deleteError !== null && (
-        <div className="inline-warning inline-warning--danger" role="alert">
-          <div className="inline-warning__body">
-            <div>Delete failed. The file is still in your library.</div>
-            <div className="inline-warning__url">{deleteError}</div>
-          </div>
-          <button
-            type="button"
-            className="inline-warning__dismiss"
-            onClick={() => setDeleteError(null)}
-            aria-label="Dismiss delete error"
-          >
-            <Icon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
-      )}
-
+function FirstCvComposer({ model }: { model: CvLibraryViewModel }) {
+  const {
+    docs,
+    firstCvOpen,
+    setFirstCvOpen,
+    isRewriting,
+    firstCvTarget,
+    setFirstCvTarget,
+    firstCvInfo,
+    setFirstCvInfo,
+    firstCvReady,
+    activeProfileId,
+    handleFirstCvRewrite,
+  } = model;
+  return (
+    <>
       {(firstCvOpen || docs.length === 0) && (
         <Card
           title="Create first CV"
@@ -442,202 +162,53 @@ export function CvLibrary() {
                 disabled={isRewriting || !firstCvReady || activeProfileId === null}
                 onClick={handleFirstCvRewrite}
               >
-                {isRewriting ? "Creating..." : "Create first CV with AI"}
+                {isRewriting ? "Creating CV + letter..." : "Create first CV with AI"}
               </Button>
               {!firstCvReady && (
                 <p className="cvx-first-cv__hint">
                   Add a target role and at least 80 characters of candidate facts.
                 </p>
               )}
-              {latestFirstTimeRewrite !== null && (
-                <div className="cvx-first-cv__result">
-                  <span className="cvx-inspector__heading">Latest first CV</span>
-                  <div className="cvx-inspector__rewrite-actions">
-                    <CvExportButton rewrite={latestFirstTimeRewrite} />
-                    {latestFirstTimeRewrite.sourceText ? (
-                      <Button size="sm" onClick={() => setComparing(latestFirstTimeRewrite)}>
-                        Review generated CV
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              )}
+              <FirstCvResult model={model} />
             </div>
           </div>
         </Card>
       )}
+    </>
+  );
+}
 
-      {/* Content area: grid-only when nothing selected, grid + inspector
-          side-by-side when a document is selected. The split gives the
-          inspector spatial proximity to the grid instead of floating
-          disconnected below it. */}
-      {loading ? (
-        <EmptyState
-          label="..."
-          title="Loading CVs..."
-          body="Reading this profile's document library."
-        />
-      ) : error !== null ? (
-        <EmptyState
-          label="Error"
-          title="Couldn't load your CV library"
-          body={`The document store returned an error, so your CVs aren't shown. This does not mean they were deleted. ${error}`}
-          action={
-            <Button variant="primary" onClick={() => setReloadNonce((n) => n + 1)}>
-              Retry
-            </Button>
-          }
-        />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          label="Empty"
-          title={query ? "No CVs match that search" : "No CVs uploaded yet"}
-          body={
-            query
-              ? "Try a different filename."
-              : "Upload a PDF or DOCX to get started. The system will parse and analyse it automatically."
-          }
-          action={
-            !query && (
-              <Button variant="primary" disabled={importing} onClick={() => handleUpload("pdf")}>
-                {importing ? "Uploading..." : "Upload your first CV"}
+function FirstCvResult({ model }: { model: CvLibraryViewModel }) {
+  const {
+    latestFirstTimeRewrite,
+    latestFirstTimeDetail,
+    rewriteDetailLoading,
+    loadRewriteDetail,
+    setComparing,
+  } = model;
+  if (latestFirstTimeRewrite === null) return null;
+  return (
+    <div className="cvx-first-cv__result">
+      <span className="cvx-inspector__heading">Latest first CV</span>
+      <div className="cvx-inspector__rewrite-actions">
+        {latestFirstTimeDetail ? (
+          <>
+            <CvExportButton rewrite={latestFirstTimeDetail} />
+            <CoverLetterExportButton rewrite={latestFirstTimeDetail} />
+            {latestFirstTimeDetail.sourceText ? (
+              <Button size="sm" onClick={() => setComparing(latestFirstTimeDetail)}>
+                Review generated CV
               </Button>
-            )
-          }
-        />
-      ) : (
-        <div className="cvx-library-split" data-inspector={selected !== null ? "1" : "0"}>
-          {/* Card grid */}
-          <div className="cvx-library-cards">
-            <div className="cv-grid">
-              {visible.map((cv) => (
-                <CvCard
-                  key={cv.id}
-                  cv={cv}
-                  loader={loader}
-                  selected={cv.id === selectedId}
-                  onSelect={toggle}
-                  onOpen={(id) => setOpenId(id)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Inspector panel -- only rendered when selected */}
-          {selected !== null && (
-            <div className="cvx-library-inspector">
-              <Card
-                title={selected.fileName}
-                actions={
-                  <div className="cvx-inspector__actions">
-                    <Button size="sm" onClick={() => setOpenId(selected.id)}>
-                      Open
-                    </Button>
-                    <Button
-                      size="sm"
-                      aria-label="Close inspector"
-                      onClick={() => setSelectedId(null)}
-                    >
-                      <Icon icon={Cancel01Icon} size={14} />
-                    </Button>
-                  </div>
-                }
-              >
-                {/* Metadata rows -- key/value pairs, mono values, truncated. */}
-                <dl className="cvx-inspector__list">
-                  {inspectorRows.map(({ label, value }) => (
-                    <div key={label} className="cvx-inspector__row">
-                      <dt>{label}</dt>
-                      <dd title={value}>{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-
-                {/* Assigned variants + score */}
-                <div className="cvx-inspector__variants">
-                  <span className="cvx-inspector__heading">Assigned variants</span>
-                  <div className="cvx-variants">
-                    {selected.assignedVariants.length > 0 ? (
-                      selected.assignedVariants.map((v) => (
-                        <span key={v.id} className="tag">
-                          {v.name}
-                        </span>
-                      ))
-                    ) : (
-                      <Badge variant="neutral">none</Badge>
-                    )}
-                  </div>
-                </div>
-
-                {/* CV analysis + rewrite. The "Rewrite with AI" trigger sits
-                    beside the analysis score so it reads as the natural next
-                    step after seeing the match result. */}
-                <div className="cvx-inspector__analysis">
-                  <span className="cvx-inspector__heading">CV analysis</span>
-                  <div className="cvx-inspector__analysis-row">
-                    {selected.lastAnalysisScore !== null ? (
-                      <Badge variant={matchScoreVariant(selected.lastAnalysisScore)}>
-                        match {selected.lastAnalysisScore}%
-                      </Badge>
-                    ) : (
-                      <Badge variant="neutral">not analysed</Badge>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      aria-label="Rewrite this CV with AI"
-                      disabled={isRewriting}
-                      onClick={handleRewrite}
-                    >
-                      {isRewriting ? "Rewriting..." : "Rewrite with AI"}
-                    </Button>
-                  </div>
-                  <label className="cvx-inspector__extra">
-                    <span className="cvx-inspector__extra-label">Extra info for AI / first CV</span>
-                    <Textarea
-                      rows={3}
-                      placeholder="For a first CV, include: name/contact, target role, education, projects, work/volunteer/freelance experience, skills/tools, languages, courses/certs, links, achievements/metrics, availability, notes…"
-                      value={extraInfo}
-                      onChange={(e) => setExtraInfo(e.target.value)}
-                      disabled={isRewriting}
-                      style={{ resize: "vertical", fontSize: "var(--text-xs)" }}
-                    />
-                  </label>
-                </div>
-
-                {/* AI rewrite -> PDF export. Only shown once a rewrite exists
-                    for this document; produced via the CV analysis "Rewrite
-                    with AI" action above. Export offers New (fresh render) or
-                    Modify (stamp metadata onto the source PDF). */}
-                {(() => {
-                  const latestRewrite = rewrites.find((r) => r.cvDocumentId === selected.id);
-                  return latestRewrite ? (
-                    <div className="cvx-inspector__rewrite">
-                      <span className="cvx-inspector__heading">AI rewrite</span>
-                      <div className="cvx-inspector__rewrite-actions">
-                        <CvExportButton rewrite={latestRewrite} />
-                        {latestRewrite.sourceText ? (
-                          <Button size="sm" onClick={() => setComparing(latestRewrite)}>
-                            Compare before / after
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
-              </Card>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Full-document viewer */}
-      {opened !== null && <CvViewer cv={opened} loader={loader} onClose={() => setOpenId(null)} />}
-
-      {/* Before/after comparison overlay */}
-      {comparing !== null && (
-        <CvCompareModal report={comparing} onClose={() => setComparing(null)} />
-      )}
+            ) : null}
+          </>
+        ) : (
+          <Button size="sm" onClick={() => void loadRewriteDetail(latestFirstTimeRewrite.id)}>
+            {rewriteDetailLoading === latestFirstTimeRewrite.id
+              ? "Loading rewrite..."
+              : "Load generated CV"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -730,6 +301,41 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+            {r.certificates?.length > 0 && (
+              <div className="cvx-compare__block">
+                <h4>Certificates</h4>
+                <ul>
+                  {r.certificates.map((certificate, i) => {
+                    const label = certificate.name || certificate.credentialId || "Certificate";
+                    const href = certificate.credentialUrl?.trim();
+                    const content = /^https?:\/\//i.test(href || "") ? (
+                      <a href={href} target="_blank" rel="noreferrer">
+                        {label}
+                      </a>
+                    ) : (
+                      label
+                    );
+                    return (
+                      <li key={i}>
+                        {content}
+                        {[certificate.issuer, certificate.date].filter(Boolean).join(" · ") && (
+                          <span className="cvx-compare__meta">
+                            {[certificate.issuer, certificate.date].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {r.coverLetter?.trim() && (
+              <div className="cvx-compare__block">
+                <h4>Cover letter</h4>
+                <p className="cvx-cover-letter-preview">{r.coverLetter}</p>
+                <CoverLetterExportButton rewrite={report} />
               </div>
             )}
           </div>

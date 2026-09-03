@@ -56,63 +56,55 @@ function scrapeProgramathorPage(page) {
         .replace(/\s+/g, " ")
         .trim();
 
-    const jobs = Array.from(document.querySelectorAll(".cell-list")).flatMap((cell) => {
+    const readJobLink = (cell) => {
       const a = cell.querySelector('a[href^="/jobs/"]');
       const href = a ? a.getAttribute("href") || "" : "";
-      // Ad cells (`min-height-180`) and other non-job cells have no /jobs/ link.
-      if (!href) return [];
       const m = href.match(/\/jobs\/(\d+)/);
-      const jobId = m ? m[1] : null;
-      if (!jobId) return [];
+      return href && m ? { a, href, jobId: m[1] } : null;
+    };
 
-      // Title lives in <h3.text-24>; drop the "NOVA" / presencial badges.
+    const readTitle = (a) => {
       const h3 = a.querySelector("h3");
-      let title = "";
-      if (h3) {
-        const clone = h3.cloneNode(true);
-        clone.querySelectorAll(".new-label, .presential-only-badge").forEach((n) => n.remove());
-        title = clean(clone.textContent);
-      }
+      if (!h3) return "";
+      const clone = h3.cloneNode(true);
+      clone.querySelectorAll(".new-label, .presential-only-badge").forEach((n) => n.remove());
+      return clean(clone.textContent);
+    };
 
-      // The icon row: each <span> is prefixed by a Font-Awesome <i>. Read them by
-      // their icon class so a reordered/missing field never shifts the mapping.
-      const iconText = (sel) => {
-        const icon = a.querySelector(`.cell-list-content-icon i.${sel}`);
-        const span = icon ? icon.closest("span") : null;
-        return span ? clean(span.textContent) : "";
-      };
-      const company = iconText("fa-briefcase") || null;
-      const locationRaw = iconText("fa-map-marker-alt");
-      const seniority = iconText("fa-chart-bar");
-      const contract = iconText("fa-file-alt");
-      const salary = iconText("fa-money-bill-alt");
+    const readIconText = (a, selector) => {
+      const icon = a.querySelector(`.cell-list-content-icon i.${selector}`);
+      return clean(icon?.closest("span")?.textContent);
+    };
 
-      const skills = Array.from(a.querySelectorAll(".tag-list.background-gray"))
-        .map((t) => clean(t.textContent))
-        .filter(Boolean);
-
-      const full = [
-        locationRaw ? `Local: ${locationRaw}` : "",
-        seniority ? `Nível: ${seniority}` : "",
-        contract ? `Contrato: ${contract}` : "",
-        salary ? `Salário: ${salary}` : "",
-        skills.length ? `Skills: ${skills.join(", ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      return [
-        {
-          job_id: jobId,
-          title: title || null,
-          company,
-          location: locationRaw || null,
-          apply_url: new URL(href.split("?")[0], origin).href,
-          is_easy_apply: false,
-          description: full || null,
-        },
+    const buildJob = ({ a, href, jobId }) => {
+      const location = readIconText(a, "fa-map-marker-alt");
+      const fields = [
+        location ? `Local: ${location}` : "",
+        readIconText(a, "fa-chart-bar") ? `Nível: ${readIconText(a, "fa-chart-bar")}` : "",
+        readIconText(a, "fa-file-alt") ? `Contrato: ${readIconText(a, "fa-file-alt")}` : "",
+        readIconText(a, "fa-money-bill-alt") ? `Salário: ${readIconText(a, "fa-money-bill-alt")}` : "",
       ];
-    });
+      const skills = Array.from(a.querySelectorAll(".tag-list.background-gray"))
+        .map((tag) => clean(tag.textContent))
+        .filter(Boolean);
+      if (skills.length) fields.push(`Skills: ${skills.join(", ")}`);
+      return {
+        job_id: jobId,
+        title: readTitle(a) || null,
+        company: readIconText(a, "fa-briefcase") || null,
+        location: location || null,
+        apply_url: new URL(href.split("?")[0], origin).href,
+        is_easy_apply: false,
+        description: fields.filter(Boolean).join("\n") || null,
+      };
+    };
+
+    const readCell = (cell) => {
+      const link = readJobLink(cell);
+      return link ? [buildJob(link)] : [];
+    };
+
+    const jobs = Array.from(document.querySelectorAll(".cell-list")).flatMap(readCell);
 
     // Pagination: the "Last »" link carries the highest /jobs/page/N, and a
     // rel="Próx" link means there's a next page from where we are.
@@ -128,6 +120,23 @@ function scrapeProgramathorPage(page) {
   });
 }
 
+async function scrapeProgramathorPageAt(page, urlOpts, pageNumber) {
+  await page.goto(buildProgramathorSearchUrl({ ...urlOpts, page: pageNumber }), {
+    waitUntil: "domcontentloaded",
+    timeout: 30_000,
+  });
+  await page.waitForSelector(".cell-list a[href^='/jobs/']", { timeout: 15_000 }).catch(() => {});
+  return scrapeProgramathorPage(page);
+}
+
+function mergeProgramathorJobs(jobs, seen, pageJobs) {
+  for (const job of pageJobs) {
+    if (!job.job_id || seen.has(job.job_id)) continue;
+    seen.add(job.job_id);
+    jobs.push(job);
+  }
+}
+
 export async function programathorSearchJobs(page, opts = {}) {
   const { maxPages = 5, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(30, Number(maxPages) || 1));
@@ -138,23 +147,10 @@ export async function programathorSearchJobs(page, opts = {}) {
   let lastPage = cap; // refined from page 1's "Last »" link (capped at maxPages)
 
   for (let p = 1; p <= Math.min(cap, lastPage); p++) {
-    await page.goto(buildProgramathorSearchUrl({ ...urlOpts, page: p }), {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    // Server-rendered, but wait for the first card so a slow first byte doesn't
-    // scrape an empty list. If none appear (genuinely empty / blocked), scrape 0.
-    await page.waitForSelector(".cell-list a[href^='/jobs/']", { timeout: 15_000 }).catch(() => {});
-
-    const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeProgramathorPage(page);
+    const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeProgramathorPageAt(page, urlOpts, p);
     if (p === 1 && detected && detected > 1) lastPage = Math.min(cap, detected);
 
-    for (const job of pageJobs) {
-      if (job.job_id && !seen.has(job.job_id)) {
-        seen.add(job.job_id);
-        jobs.push(job);
-      }
-    }
+    mergeProgramathorJobs(jobs, seen, pageJobs);
     hasNextAfterLast = hasNext;
     // Stop only on a genuinely empty page (real end / block), never on !hasNext.
     if (pageJobs.length === 0) break;

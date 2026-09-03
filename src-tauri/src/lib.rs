@@ -35,6 +35,7 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     tracing::info!(portable = paths.portable, db = %paths.db_path.display(), "resolved storage paths");
     let db = storage::db::init_pool(&paths).await?;
     storage::db::run_migrations(&db).await?;
+    storage::db::observe_wal(&db, &paths.db_path).await?;
     storage::settings::ensure_defaults(&db).await?;
     // Restore the persisted Docker-worker opt-in into the process env that the
     // spawn gate (`browser::playwright::docker_worker_enabled`) reads.
@@ -127,43 +128,9 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    configure_linux_display();
-
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "hiremeops=info,hiremeops_lib=info,sqlx=warn".into()),
-        )
-        .init();
-
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            let state = tauri::async_runtime::block_on(init_state(&handle)).map_err(|e| {
-                tracing::error!("startup failed: {e:#}");
-                e.to_string()
-            })?;
-            let data_dir = state.paths.data_dir.clone();
-            #[cfg(feature = "real-browser")]
-            let playwright = state.playwright.clone();
-            app.manage(state);
-            util::spawn_self_mem_logger();
-            #[cfg(feature = "real-browser")]
-            tauri::async_runtime::spawn(async move {
-                playwright.prewarm().await;
-            });
-            tauri::async_runtime::spawn(async move {
-                let bridge_dir = data_dir.join("chatgpt-bridge");
-                let _ = std::fs::create_dir_all(&bridge_dir);
-                std::env::set_var("HIREMEOPS_CHATGPT_PROFILE_DIR", &bridge_dir);
-            });
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+macro_rules! app_invoke_handler {
+    () => {
+        tauri::generate_handler![
             commands::setup::install_dependencies,
             commands::setup::install_latex,
             commands::settings::get_settings,
@@ -186,8 +153,11 @@ pub fn run() {
             commands::cv::list_cv_documents,
             commands::cv::list_cv_analysis_reports,
             commands::cv::list_cv_rewrites,
+            commands::cv::get_cv_rewrite,
             commands::cv::export_cv_rewrite,
+            commands::cv::export_cover_letter,
             commands::cv::save_cv_rewrite_pdf,
+            commands::cv::save_cover_letter_pdf,
             commands::cv::set_cv_rewrite_appearance,
             commands::profile_variants::create_profile_variant,
             commands::profile_variants::list_profile_variants,
@@ -226,8 +196,10 @@ pub fn run() {
             commands::jobs::delete_search_query,
             commands::jobs::ingest_job_post,
             commands::jobs::list_job_posts,
+            commands::jobs::get_job_post,
             commands::jobs::update_job_status,
             commands::jobs::run_search,
+            commands::jobs::optimize_job_search_index,
             commands::jobs::score_job_match,
             commands::jobs::list_job_matches,
             commands::jobs::run_linkedin_search,
@@ -283,9 +255,70 @@ pub fn run() {
             commands::auth::oauth_refresh,
             commands::auth::oauth_logout,
             commands::browser_provider::browser_provider_login,
+            commands::browser_provider::browser_provider_logout,
             commands::browser_provider::browser_provider_status,
             commands::browser_provider::browser_provider_models,
-        ])
+        ]
+    };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    configure_linux_display();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "hiremeops=info,hiremeops_lib=info,sqlx=warn".into()),
+        )
+        .init();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let state = tauri::async_runtime::block_on(init_state(&handle)).map_err(|e| {
+                tracing::error!("startup failed: {e:#}");
+                e.to_string()
+            })?;
+            let data_dir = state.paths.data_dir.clone();
+            let maintenance_db = state.db.clone();
+            let maintenance_path = state.paths.db_path.clone();
+            #[cfg(feature = "real-browser")]
+            let playwright = state.playwright.clone();
+            app.manage(state);
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                loop {
+                    interval.tick().await;
+                    if let Err(error) =
+                        storage::db::maintain(&maintenance_db, &maintenance_path).await
+                    {
+                        tracing::warn!(%error, "sqlite maintenance skipped");
+                    }
+                }
+            });
+            util::spawn_self_mem_logger();
+            #[cfg(feature = "real-browser")]
+            tauri::async_runtime::spawn(async move {
+                playwright.prewarm().await;
+            });
+            // Set BEFORE any bridge helper spawns: the Node child inherits its
+            // environment at spawn time, so a bridge warmed first would miss the
+            // shared profile dir and open its own cookie jar instead.
+            let bridge_dir = data_dir.join("chatgpt-bridge");
+            let _ = std::fs::create_dir_all(&bridge_dir);
+            std::env::set_var("HIREMEOPS_CHATGPT_PROFILE_DIR", &bridge_dir);
+            // Start the browser-bridge helpers now rather than on the first
+            // "Log in" click, which used to absorb the whole Node + Playwright
+            // cold start before the login window could appear.
+            tauri::async_runtime::spawn(async {
+                ai::browser_bridge::warm_up().await;
+            });
+            Ok(())
+        })
+        .invoke_handler(app_invoke_handler!())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

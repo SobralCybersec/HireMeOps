@@ -36,18 +36,9 @@ interface PdfPageCanvasProps {
   className?: string;
 }
 
-export function PdfPageCanvas({
-  doc,
-  pageNumber,
-  scale,
-  cssWidth,
-  cssHeight,
-  className,
-}: PdfPageCanvasProps) {
+export function PdfPageCanvas(props: PdfPageCanvasProps) {
+  const { doc, pageNumber, scale, cssWidth, cssHeight, className } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // Cache the dpr snapshot the JSX uses so the pixel buffer, the CSS box, and
-  // the render transform all agree even if the user drags the window to a
-  // different-DPI monitor between renders.
   const dprRef = useRef<number>(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
   const dpr = dprRef.current;
 

@@ -18,38 +18,29 @@ export function buildGeekhunterSearchUrl({ query = "", page, remoteOnly = false 
 
 function scrapeGeekhunterPage(page) {
   return page.evaluate(() => {
-    const clean = (s) =>
-      String(s ?? "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    const cards = Array.from(document.querySelectorAll('a[aria-label="Visualizar vaga"][href]'));
-    const jobs = cards.flatMap((a) => {
+    const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+    const readCardLink = (a) => {
       const href = a.getAttribute("href") || "";
-      // Real job links look like /pt/<company>/jobs/<slug>. Skip anything else.
       const m = href.match(/\/pt\/([^/]+)\/jobs\/([^/?#]+)/);
-      if (!m) return [];
-      const company = decodeURIComponent(m[1]).replace(/-/g, " ");
-      const jobId = `${m[1]}/${m[2]}`;
-
-      // Title: the first heading-ish <p> in the card is the role. Fall back to the
-      // longest short line if the class anchor moved.
-      const ps = Array.from(a.querySelectorAll("p.chakra-text")).map((p) => clean(p.textContent));
-      const title = ps.find((t) => t.length > 3) || null;
-
-      // Location: the <p> carrying the country flag emoji + "Brasil".
-      const location =
-        ps.find((t) => /brasil/i.test(t)) || ps.find((t) => /,\s*[A-Z]{2}\b/.test(t)) || null;
-      // Work modality chip (Remoto / Híbrido / Presencial).
-      const modality = ps.find((t) => /^(remoto|h[íi]brido|presencial)$/i.test(t)) || "";
-      // Salary line, if the card exposes one.
-      const salary = ps.find((t) => /R\$/.test(t)) || "";
-
-      const skills = Array.from(a.querySelectorAll(".css-dqhvn"))
-        .map((s) => clean(s.textContent))
-        .filter((s) => s && !/^\+\d+$/.test(s)); // drop the "+3" overflow chip
-
-      const full = [
+      return m ? { href, company: decodeURIComponent(m[1]).replace(/-/g, " "), jobId: `${m[1]}/${m[2]}` } : null;
+    };
+    const readCardText = (a) => Array.from(a.querySelectorAll("p.chakra-text")).map((p) => clean(p.textContent));
+    const readCardFields = (a) => {
+      const ps = readCardText(a);
+      const location = ps.find((t) => /brasil/i.test(t)) || ps.find((t) => /,\s*[A-Z]{2}\b/.test(t)) || null;
+      return {
+        ps,
+        title: ps.find((t) => t.length > 3) || null,
+        location,
+        modality: ps.find((t) => /^(remoto|h[íi]brido|presencial)$/i.test(t)) || "",
+        salary: ps.find((t) => /R\$/.test(t)) || "",
+        skills: Array.from(a.querySelectorAll(".css-dqhvn"))
+          .map((s) => clean(s.textContent))
+        .filter((s) => s && !/^\+\d+$/.test(s)),
+      };
+    };
+    const cardDescription = ({ modality, location, salary, skills }) =>
+      [
         modality ? `Modalidade: ${modality}` : "",
         location ? `Local: ${location}` : "",
         salary ? `Salário: ${salary}` : "",
@@ -57,26 +48,25 @@ function scrapeGeekhunterPage(page) {
       ]
         .filter(Boolean)
         .join("\n");
-
-      const clean_location = location ? location.replace(/^[^\p{L}]+/u, "").trim() : null;
-
-      return [
-        {
-          job_id: jobId,
-          title,
-          company: company || null,
-          location: clean_location,
-          apply_url: href.startsWith("http")
-            ? href.split("?")[0]
-            : `https://www.geekhunter.com${href}`,
-          is_easy_apply: false,
-          description: full || null,
-        },
-      ];
-    });
-
-    // Pagination: Chakra numbered buttons; max numeric label is the last page.
-    // "Próxima página" (aria-label) enabled means there's a next page.
+    const buildCard = ({ a, href, company, jobId }) => {
+      const fields = readCardFields(a);
+      const cleanLocation = fields.location ? fields.location.replace(/^[^\p{L}]+/u, "").trim() : null;
+      return {
+        job_id: jobId,
+        title: fields.title,
+        company: company || null,
+        location: cleanLocation,
+        apply_url: href.startsWith("http") ? href.split("?")[0] : `https://www.geekhunter.com${href}`,
+        is_easy_apply: false,
+        description: cardDescription(fields) || null,
+      };
+    };
+    const readCard = (a) => {
+      const link = readCardLink(a);
+      return link ? [buildCard({ a, ...link })] : [];
+    };
+    const cards = Array.from(document.querySelectorAll('a[aria-label="Visualizar vaga"][href]'));
+    const jobs = cards.flatMap(readCard);
     const nums = Array.from(document.querySelectorAll('button[data-testid="button"]'))
       .map((b) => Number(clean(b.textContent)))
       .filter((n) => !Number.isNaN(n));
@@ -85,6 +75,23 @@ function scrapeGeekhunterPage(page) {
     const hasNext = !!nextBtn && !nextBtn.disabled;
     return { jobs, hasNext, lastPage };
   });
+}
+
+async function scrapeGeekhunterPageAt(page, urlOpts, pageNumber) {
+  await page.goto(buildGeekhunterSearchUrl({ ...urlOpts, page: pageNumber }), {
+    waitUntil: "domcontentloaded",
+    timeout: 30_000,
+  });
+  await page.waitForSelector('a[aria-label="Visualizar vaga"]', { timeout: 20_000 }).catch(() => {});
+  return scrapeGeekhunterPage(page);
+}
+
+function mergeGeekhunterJobs(jobs, seen, pageJobs) {
+  for (const job of pageJobs) {
+    if (!job.job_id || seen.has(job.job_id)) continue;
+    seen.add(job.job_id);
+    jobs.push(job);
+  }
 }
 
 export async function geekhunterSearchJobs(page, opts = {}) {
@@ -97,25 +104,10 @@ export async function geekhunterSearchJobs(page, opts = {}) {
   let lastPage = cap; // refined from page 1's numbered pager (capped at maxPages)
 
   for (let p = 1; p <= Math.min(cap, lastPage); p++) {
-    await page.goto(buildGeekhunterSearchUrl({ ...urlOpts, page: p }), {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    // SPA: cards hydrate after domcontentloaded. Wait for the first job link;
-    // if none appear (empty result / block), scrape 0 and stop.
-    await page
-      .waitForSelector('a[aria-label="Visualizar vaga"]', { timeout: 20_000 })
-      .catch(() => {});
-
-    const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeGeekhunterPage(page);
+    const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeGeekhunterPageAt(page, urlOpts, p);
     if (p === 1 && detected && detected > 1) lastPage = Math.min(cap, detected);
 
-    for (const job of pageJobs) {
-      if (job.job_id && !seen.has(job.job_id)) {
-        seen.add(job.job_id);
-        jobs.push(job);
-      }
-    }
+    mergeGeekhunterJobs(jobs, seen, pageJobs);
     hasNextAfterLast = hasNext;
     if (pageJobs.length === 0) break;
   }

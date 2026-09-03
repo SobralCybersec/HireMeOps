@@ -149,7 +149,8 @@ export interface CreateJobPreferenceInput {
   dailyConnectionLimit?: number | null;
 }
 
-// Full DTO returned by `list_job_posts`. Fields serialized camelCase by backend.
+// Job list DTO. `description` is bounded on list responses and full on
+// `get_job_post` detail responses. Fields serialized camelCase by backend.
 export interface JobPostDto {
   id: string;
   profileId: string;

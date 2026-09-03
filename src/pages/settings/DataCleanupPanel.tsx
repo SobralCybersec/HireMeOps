@@ -48,6 +48,39 @@ const ITEMS: CleanupItem[] = [
   },
 ];
 
+interface FactoryResetProps {
+  confirmed: boolean;
+  onRequest: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function FactoryReset({ confirmed, onRequest, onConfirm, onCancel }: FactoryResetProps) {
+  return (
+    <div className="danger-zone">
+      <p className="danger-zone__title">Factory reset</p>
+      <p className="danger-zone__body">
+        Permanently wipes all profiles, jobs, applications, settings, and stored data. This cannot
+        be undone.
+      </p>
+      {confirmed ? (
+        <div className="danger-zone__actions">
+          <Button variant="danger" onClick={onConfirm}>
+            Confirm factory reset
+          </Button>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button variant="danger" size="sm" onClick={onRequest}>
+          Factory reset...
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /**
  * Cleanup panel. Every destructive action requires an inline confirmation
  * before execution. Factory reset lives in the danger zone at the bottom.
@@ -124,28 +157,12 @@ export function DataCleanupPanel() {
         ))}
       </div>
 
-      {/* ── Danger zone ─────────────────────────────────────────────────── */}
-      <div className="danger-zone">
-        <p className="danger-zone__title">Factory reset</p>
-        <p className="danger-zone__body">
-          Permanently wipes all profiles, jobs, applications, settings, and stored data. This cannot
-          be undone.
-        </p>
-        {confirmKey === "factory_reset" ? (
-          <div className="danger-zone__actions">
-            <Button variant="danger" onClick={() => execute("factory_reset")}>
-              Confirm factory reset
-            </Button>
-            <Button variant="ghost" onClick={() => setConfirmKey(null)}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button variant="danger" size="sm" onClick={() => setConfirmKey("factory_reset")}>
-            Factory reset...
-          </Button>
-        )}
-      </div>
+      <FactoryReset
+        confirmed={confirmKey === "factory_reset"}
+        onRequest={() => setConfirmKey("factory_reset")}
+        onConfirm={() => execute("factory_reset")}
+        onCancel={() => setConfirmKey(null)}
+      />
     </div>
   );
 }

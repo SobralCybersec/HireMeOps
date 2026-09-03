@@ -26,9 +26,16 @@ use tokio::{
     sync::{oneshot, Mutex},
 };
 
-const DEFAULT_BRIDGE_TIMEOUT_MS: u64 = 120_000;
+// Outer RPC ceiling. Kept ABOVE the bridge's inner Playwright timeouts (the
+// conversation POST + the completion poll) so a genuinely slow generation is
+// aborted by the inner layer with a precise error, not guillotined here first.
+const DEFAULT_BRIDGE_TIMEOUT_MS: u64 = 360_000;
 
 const DEFAULT_LOGIN_TIMEOUT_MS: u64 = 315_000;
+
+// Sites `index.mjs` implements a handler for. Mirrors BROWSER_SITES in
+// src/pages/settings/BrowserProviderPanel.tsx — both lists must move together.
+pub const BROWSER_SITES: &[&str] = &["chatgpt"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InitParams {
@@ -70,6 +77,12 @@ pub struct BrowserModel {
     pub id: String,
     #[serde(default)]
     pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct BrowserAuthStatus {
+    #[serde(default)]
+    logged_in: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +181,35 @@ impl PlaywrightBridge {
             .await?;
         *self.initialized.lock().await = true;
         Ok(models)
+    }
+
+    pub async fn logout(&self) -> Result<()> {
+        self.ensure_init().await?;
+        self.request_raw::<_, Value>("logout", json!({})).await?;
+        *self.initialized.lock().await = false;
+        Ok(())
+    }
+
+    pub async fn is_logged_in(&self) -> bool {
+        // Status may race app-start warm_up. Ensure the helper exists here so
+        // the first status read can still discover a persisted session.
+        if !self.is_running().await && self.ensure_process().await.is_err() {
+            return false;
+        }
+        // The app warms the Node helper process before any browser context is
+        // created. Initialize lazily here so status can discover a persisted
+        // login instead of reporting false until a manual model load.
+        if self.ensure_init().await.is_err() {
+            return false;
+        }
+        self.request_raw_timeout::<_, BrowserAuthStatus>(
+            "status",
+            json!({}),
+            Duration::from_secs(10),
+        )
+        .await
+        .map(|status| status.logged_in)
+        .unwrap_or(false)
     }
 
     pub async fn request<T: Serialize, R: DeserializeOwned>(
@@ -417,6 +459,31 @@ async fn bridge_for(site: &str) -> Arc<PlaywrightBridge> {
     bridge
 }
 
+/// Spawn each site's helper process at app start so the first user action does
+/// not pay for it. The Node child loads Playwright at module scope (`index.mjs`:
+/// `const playwright = await importPlaywright()`), and that import — not the
+/// login itself — is the bulk of a cold "Log in" click; pre-paying it here is
+/// what makes the window open promptly instead of stalling for seconds.
+///
+/// Deliberately stops at the process: `init` is NOT sent. A warm init would
+/// launch a HEADLESS persistent context, and `openChatGPTLogin` re-inits with
+/// `headless: false`, so `initChatGPT` would tear that context down and relaunch
+/// — paying the browser launch twice and reviving the headless flip that used to
+/// log the site back out mid-login.
+///
+/// Registering the bridges is the other half of the fix: `status()` enumerates
+/// these known sites, so the settings panel has rows on its first mount.
+pub async fn warm_up() {
+    for site in BROWSER_SITES {
+        let bridge = bridge_for(site).await;
+        match bridge.ensure_process().await {
+            Ok(_) => tracing::info!(site = %site, "browser bridge helper warm"),
+            // Non-fatal: login retries ensure_process, just without the head start.
+            Err(err) => tracing::warn!(site = %site, "browser bridge warm-up failed: {err:#}"),
+        }
+    }
+}
+
 pub async fn chat(site: &str, model: &str, prompt: String, web_search: bool) -> Result<String> {
     let bridge = bridge_for(site).await;
     bridge.ensure_init().await?;
@@ -449,6 +516,11 @@ pub async fn manual_login(site: &str) -> Result<Vec<String>> {
     Ok(response.data.into_iter().map(|m| m.id).collect())
 }
 
+pub async fn logout(site: &str) -> Result<()> {
+    let bridge = bridge_for(site).await;
+    bridge.logout().await
+}
+
 #[allow(dead_code)]
 pub async fn ensure_initialized(site: &str) -> Result<()> {
     let bridge = bridge_for(site).await;
@@ -461,16 +533,21 @@ pub struct BrowserProviderStatus {
     pub site: String,
     pub initialized: bool,
     pub running: bool,
+    pub logged_in: bool,
 }
 
 pub async fn status() -> Vec<BrowserProviderStatus> {
-    let map = registry().lock().await;
-    let mut out = Vec::with_capacity(map.len());
-    for (site, bridge) in map.iter() {
+    let mut bridges = Vec::with_capacity(BROWSER_SITES.len());
+    for site in BROWSER_SITES {
+        bridges.push(((*site).to_string(), bridge_for(site).await));
+    }
+    let mut out = Vec::with_capacity(bridges.len());
+    for (site, bridge) in bridges {
         out.push(BrowserProviderStatus {
-            site: site.clone(),
+            site,
             initialized: bridge.is_initialized().await,
             running: bridge.is_running().await,
+            logged_in: bridge.is_logged_in().await,
         });
     }
     out
@@ -531,6 +608,24 @@ fn headless_default() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The registry half of the warm-up fix: `status()` walks the registry, so
+    /// an unregistered site left the settings panel blank until the first login.
+    /// Points the helper at an empty dir — the Node spawn is allowed to fail
+    /// here; registration must happen either way.
+    #[tokio::test]
+    async fn warm_up_registers_every_known_site() {
+        let tmp = std::env::temp_dir().join("hiremeops-bridge-warmup-test");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::env::set_var("HIREMEOPS_BROWSER_BRIDGE_DIR", &tmp);
+
+        warm_up().await;
+
+        let map = registry().lock().await;
+        for site in BROWSER_SITES {
+            assert!(map.contains_key(*site), "warm_up did not register {site}");
+        }
+    }
 
     #[test]
     fn browser_model_list_preserves_order() {

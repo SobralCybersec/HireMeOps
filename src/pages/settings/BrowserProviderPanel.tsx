@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { Badge, Button, Field, FormRow, Input, Select } from "../../components/ui";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { Field, FormRow, Input, Select } from "../../components/ui";
+import { BrowserSiteRow } from "./BrowserProviderRows";
+import {
+  choosePreferredBrowserModel,
+  encodeBrowserModel,
+  isAutomaticBrowserModel,
+} from "./browser-model-selection";
 import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauriInvoke";
 import type { AiProviderSettings } from "../../types/settings";
 
@@ -18,16 +24,15 @@ const BROWSER_SITE_VALUES: string[] = BROWSER_SITES.map((s) => s.value);
  * One site's live session state, exactly as `browser_provider_status` returns
  * each element. Field names mirror the Rust `BrowserProviderStatus` struct,
  * which serialises with `#[serde(rename_all = "camelCase")]`:
- *   - `initialized` — the headless session's `init` RPC has completed → "Ready"
- *   - `running`     — a helper subprocess is alive (logged-in session) → "Logged in"
- * The previous `logged_in` / `ready` names never matched this wire payload, so
- * `st.logged_in` / `st.ready` were always `undefined` and every site rendered as
- * "Logged out" even right after a successful login.
+ *   - `initialized` — the headless session's `init` RPC has completed
+ *   - `running`     — a helper subprocess is alive
+ *   - `loggedIn`    — the ChatGPT session cookie is present
  */
 export interface BrowserSiteStatus {
   site: string;
   initialized: boolean;
   running: boolean;
+  loggedIn: boolean;
 }
 
 /**
@@ -57,130 +62,152 @@ function decodeBrowserModel(defaultModel: string): { site: string; model: string
   return { site, model };
 }
 
-/** Encode a `{ site, model }` pair back into the `"<site>/<model>"` form. */
-function encodeBrowserModel(site: string, model: string): string {
-  const m = model.trim();
-  return m === "" ? site : `${site}/${m}`;
-}
-
 interface BrowserProviderPanelProps {
   value: AiProviderSettings;
   onUpdate: (patch: Partial<Omit<AiProviderSettings, "kind">>) => void;
 }
 
-/**
- * Config controls for the local driven-browser provider. Instead of an endpoint
- * + API key it exposes a Site selector, an optional Model input, and a one-time
- * interactive "Log in" per site. It owns NO auth logic — it only drives the
- * `browser_provider_login` / `browser_provider_status` commands and reflects the
- * returned state, mirroring `ProviderOAuthPanel`'s read/act split (a missing
- * status read degrades to "logged out"; every login uses `invokeStrict`).
- */
-export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelProps) {
-  const { site, model } = decodeBrowserModel(value.defaultModel);
-  const [statuses, setStatuses] = useState<BrowserSiteStatus[]>(statusCache);
-  const [busySite, setBusySite] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [models, setModels] = useState<Record<string, string[]>>(modelsCache);
-  const [loadingModelsSite, setLoadingModelsSite] = useState<string | null>(null);
+const MONO_FIELD = { fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" } as const;
+interface StateSetter<T> {
+  (value: T | ((previous: T) => T)): void;
+}
 
-  const refreshStatus = useCallback(async () => {
-    const s = await safeInvoke<BrowserSiteStatus[]>("browser_provider_status");
-    if (s) {
-      statusCache = s;
-      setStatuses(s);
-    }
-  }, []);
+function cacheBrowserModels(
+  target: string,
+  list: string[],
+  setModels: StateSetter<Record<string, string[]>>,
+) {
+  setModels((previous) => {
+    const next = { ...previous, [target]: list };
+    modelsCache = next;
+    return next;
+  });
+}
 
-  /**
-   * List the websession models the (logged-in) site exposes and stash them in
-   * `models[target]`. Uses `safeInvoke` (graceful) like the status read: a null
-   * result surfaces as `error` via `errMessage` but never throws. An empty list
-   * is a valid answer and is stored as-is.
-   */
-  const loadModels = useCallback(async (target: string) => {
-    setLoadingModelsSite(target);
-    setError(null);
-    try {
-      const list = await safeInvoke<string[]>("browser_provider_models", { site: target });
-      if (list) {
-        setModels((prev) => {
-          const next = { ...prev, [target]: list };
-          modelsCache = next;
-          return next;
-        });
-      } else {
-        setError(errMessage(`Could not load models for ${target}.`));
-      }
-    } catch (err) {
-      setError(errMessage(err));
-    } finally {
-      setLoadingModelsSite(null);
-    }
-  }, []);
-
-  // Read live session state on mount. A null result (off-Tauri preview, or a
-  // backend that hasn't wired the command yet) leaves every site logged-out.
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      const s = await safeInvoke<BrowserSiteStatus[]>("browser_provider_status");
-      if (alive && s) {
-        statusCache = s;
-        setStatuses(s);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const statusFor = (target: string): BrowserSiteStatus | undefined =>
-    statuses.find((s) => s.site === target);
-
-  /** Drive the one-time interactive login for a site, then re-read status. */
-  async function handleLogin(target: string) {
-    setBusySite(target);
-    setError(null);
-    try {
-      // The login command blocks in the bridge until the visible window reaches
-      // a logged-in state, then closes it. If it hands back the models it
-      // scanned off that live page, use them as an optimistic first paint.
-      const list = await invokeStrict<string[]>("browser_provider_login", { site: target });
-      if (Array.isArray(list) && list.length > 0) {
-        setModels((prev) => {
-          const next = { ...prev, [target]: list };
-          modelsCache = next;
-          return next;
-        });
-      }
-      await refreshStatus();
-      // Then list models against the now-live logged-in session (RustProxyHub
-      // parity). The backend reuses that logged-in session instead of spinning
-      // up a fresh headless one — the headless-flip that used to tear the login
-      // window down and log the site back out — so a post-login models read is
-      // now safe. This also covers login commands that don't return a list
-      // inline; loadModels is graceful (a null result only surfaces an error).
-      await loadModels(target);
-      // Logging in to a site is an explicit choice to use it, so persist it as
-      // the provider's target. Without this the provider stays "Not configured"
-      // (empty `defaultModel`) unless the user also picks the Site in the
-      // dropdown, so the analysis/draft run resolves Provider::Disabled and
-      // fails with "no AI provider configured". Only rewrite when the encoded
-      // site differs, preserving any model already set for the same site.
-      if (site !== target) {
-        onUpdate({ defaultModel: encodeBrowserModel(target, "") });
-      }
-    } catch (err) {
-      setError(errMessage(err));
-    } finally {
-      setBusySite(null);
-    }
+async function refreshBrowserStatus(
+  setStatuses: StateSetter<BrowserSiteStatus[]>,
+): Promise<BrowserSiteStatus[] | null> {
+  const statuses = await safeInvoke<BrowserSiteStatus[]>("browser_provider_status");
+  if (statuses) {
+    statusCache = statuses;
+    setStatuses(statuses);
   }
+  return statuses;
+}
 
-  const siteLabel = BROWSER_SITES.find((s) => s.value === site)?.label ?? "the selected site";
-  const monoField = { fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" } as const;
+interface BrowserModelActionContext {
+  setLoadingModelsSite: (site: string | null) => void;
+  setError: (error: string | null) => void;
+  setModels: StateSetter<Record<string, string[]>>;
+  selectionRef: MutableRefObject<{
+    site: string;
+    model: string;
+    onUpdate: BrowserProviderPanelProps["onUpdate"];
+  }>;
+}
 
+async function loadBrowserModels(
+  target: string,
+  context: BrowserModelActionContext,
+): Promise<string[]> {
+  const { setLoadingModelsSite, setError, setModels, selectionRef } = context;
+  setLoadingModelsSite(target);
+  setError(null);
+  try {
+    const list = await safeInvoke<string[]>("browser_provider_models", { site: target });
+    if (!list) {
+      setError(errMessage(`Could not load models for ${target}.`));
+      return [];
+    }
+    cacheBrowserModels(target, list, setModels);
+    const preferred = choosePreferredBrowserModel(list);
+    const selection = selectionRef.current;
+    if (
+      selection.site === target &&
+      isAutomaticBrowserModel(selection.model) &&
+      preferred !== "" &&
+      preferred !== selection.model
+    ) {
+      selection.onUpdate({ defaultModel: encodeBrowserModel(target, preferred) });
+    }
+    return list;
+  } catch (error) {
+    setError(errMessage(error));
+    return [];
+  } finally {
+    setLoadingModelsSite(null);
+  }
+}
+
+interface BrowserLoginContext extends BrowserModelActionContext {
+  setBusySite: (site: string | null) => void;
+  refreshStatus: () => Promise<BrowserSiteStatus[] | null>;
+  loadModels: (site: string) => Promise<string[]>;
+  site: string;
+  onUpdate: BrowserProviderPanelProps["onUpdate"];
+}
+
+async function loginBrowserSite(target: string, context: BrowserLoginContext) {
+  const { setBusySite, setError, setModels, refreshStatus, loadModels, site, onUpdate } = context;
+  setBusySite(target);
+  setError(null);
+  try {
+    const list = await invokeStrict<string[]>("browser_provider_login", { site: target });
+    if (Array.isArray(list) && list.length > 0) cacheBrowserModels(target, list, setModels);
+    await refreshStatus();
+    const loadedModels = await loadModels(target);
+    if (site !== target) {
+      onUpdate({
+        defaultModel: encodeBrowserModel(target, choosePreferredBrowserModel(loadedModels)),
+      });
+    }
+  } catch (error) {
+    setError(errMessage(error));
+  } finally {
+    setBusySite(null);
+  }
+}
+
+async function logoutBrowserSite(
+  target: string,
+  context: {
+    setBusySite: (site: string | null) => void;
+    setError: (error: string | null) => void;
+    statuses: BrowserSiteStatus[];
+    setStatuses: StateSetter<BrowserSiteStatus[]>;
+    setModels: StateSetter<Record<string, string[]>>;
+    refreshStatus: () => Promise<BrowserSiteStatus[] | null>;
+  },
+) {
+  const { setBusySite, setError, statuses, setStatuses, setModels, refreshStatus } = context;
+  setBusySite(target);
+  setError(null);
+  try {
+    await invokeStrict<void>("browser_provider_logout", { site: target });
+    const next = statuses.map((status) =>
+      status.site === target
+        ? { ...status, initialized: false, running: false, loggedIn: false }
+        : status,
+    );
+    statusCache = next;
+    setStatuses(next);
+    cacheBrowserModels(target, [], setModels);
+    await refreshStatus();
+  } catch (error) {
+    setError(errMessage(error));
+  } finally {
+    setBusySite(null);
+  }
+}
+
+function BrowserProviderFields(props: {
+  site: string;
+  model: string;
+  onUpdate: BrowserProviderPanelProps["onUpdate"];
+}) {
+  const { site, model, onUpdate } = props;
+  const siteLabel =
+    BROWSER_SITES.find((option) => option.value === site)?.label ?? "the selected site";
   return (
     <>
       <FormRow>
@@ -189,12 +216,13 @@ export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelPr
             id="browser-site"
             value={site}
             placeholder="Select a site"
-            options={BROWSER_SITES.map((s) => ({ value: s.value, label: s.label }))}
-            style={monoField}
-            onChange={(e) => onUpdate({ defaultModel: encodeBrowserModel(e.target.value, model) })}
+            options={BROWSER_SITES.map((option) => ({ value: option.value, label: option.label }))}
+            style={MONO_FIELD}
+            onChange={(event) =>
+              onUpdate({ defaultModel: encodeBrowserModel(event.target.value, model) })
+            }
           />
         </Field>
-
         <Field label="Model (optional)" htmlFor="browser-model">
           <Input
             id="browser-model"
@@ -202,12 +230,13 @@ export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelPr
             value={model}
             placeholder="default"
             disabled={site === ""}
-            style={monoField}
-            onChange={(e) => onUpdate({ defaultModel: encodeBrowserModel(site, e.target.value) })}
+            style={MONO_FIELD}
+            onChange={(event) =>
+              onUpdate({ defaultModel: encodeBrowserModel(site, event.target.value) })
+            }
           />
         </Field>
       </FormRow>
-
       <p
         className="field__helper"
         style={{
@@ -219,8 +248,25 @@ export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelPr
         Drives a real, locally-controlled browser session for {siteLabel} — no API key needed. A
         one-time login per site is required; the session is reused after that.
       </p>
+    </>
+  );
+}
 
-      {/* One row per site: live ready/logged-in indicator + one-time Log in. */}
+function BrowserSiteList(props: {
+  statuses: BrowserSiteStatus[];
+  models: Record<string, string[]>;
+  busySite: string | null;
+  loadingModelsSite: string | null;
+  error: string | null;
+  onLogin: (site: string) => void;
+  onLogout: (site: string) => void;
+  onLoadModels: (site: string) => void;
+}) {
+  const { statuses, models, busySite, loadingModelsSite, error, onLogin, onLogout, onLoadModels } =
+    props;
+  const statusFor = (site: string) => statuses.find((status) => status.site === site);
+  return (
+    <>
       <div
         style={{
           display: "flex",
@@ -229,71 +275,23 @@ export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelPr
           marginTop: "var(--sp-2)",
         }}
       >
-        {BROWSER_SITES.map((s) => {
-          const st = statusFor(s.value);
-          const ready = st?.initialized ?? false;
-          const loggedIn = st?.running ?? false;
-          const siteModels = models[s.value] ?? [];
-          const loadingModels = loadingModelsSite === s.value;
+        {BROWSER_SITES.map((siteOption) => {
+          const siteStatus = statusFor(siteOption.value);
           return (
-            <div
-              key={s.value}
-              style={{ display: "flex", flexDirection: "column", gap: "var(--sp-1)" }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-                <span style={{ minWidth: "5rem", fontSize: "var(--text-xs)" }}>{s.label}</span>
-                <Badge variant={ready ? "success" : loggedIn ? "running" : "neutral"}>
-                  {ready ? "Ready" : loggedIn ? "Logged in" : "Logged out"}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busySite !== null}
-                  onClick={() => void handleLogin(s.value)}
-                >
-                  {busySite === s.value ? "Opening…" : loggedIn ? "Log in again" : "Log in"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loadingModels}
-                  onClick={() => void loadModels(s.value)}
-                >
-                  {loadingModels ? "Loading…" : "Load models"}
-                </Button>
-              </div>
-              {loadingModels && (
-                <span
-                  style={{
-                    marginLeft: "5rem",
-                    fontSize: "var(--text-xs)",
-                    color: "var(--color-text-muted)",
-                  }}
-                >
-                  Loading models…
-                </span>
-              )}
-              {siteModels.length > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "var(--sp-1)",
-                    marginLeft: "5rem",
-                  }}
-                >
-                  {siteModels.map((m) => (
-                    <Badge key={m} variant="neutral" style={monoField}>
-                      {m}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </div>
+            <BrowserSiteRow
+              key={siteOption.value}
+              site={siteOption}
+              loggedIn={siteStatus?.loggedIn ?? false}
+              models={models[siteOption.value] ?? []}
+              loadingModels={loadingModelsSite === siteOption.value}
+              busy={busySite !== null}
+              onLogin={onLogin}
+              onLogout={onLogout}
+              onLoadModels={onLoadModels}
+            />
           );
         })}
       </div>
-
       {error !== null && (
         <div
           className="provider-test-result is-error"
@@ -306,6 +304,86 @@ export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelPr
           {error}
         </div>
       )}
+    </>
+  );
+}
+
+/**
+ * Config controls for the local driven-browser provider. Instead of an endpoint
+ * + API key it exposes a Site selector, an optional Model input, and a one-time
+ * interactive "Log in" per site. It owns NO auth logic — it only drives the
+ * `browser_provider_login` / `browser_provider_status` commands and reflects the
+ * returned state, mirroring `ProviderOAuthPanel`'s read/act split (a missing
+ * status read degrades to "logged out"; every login uses `invokeStrict`).
+ */
+export function BrowserProviderPanel({ value, onUpdate }: BrowserProviderPanelProps) {
+  const { site, model } = decodeBrowserModel(value.defaultModel);
+  const selectionRef = useRef({ site, model, onUpdate });
+  selectionRef.current = { site, model, onUpdate };
+  const [statuses, setStatuses] = useState<BrowserSiteStatus[]>(statusCache);
+  const [busySite, setBusySite] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<Record<string, string[]>>(modelsCache);
+  const [loadingModelsSite, setLoadingModelsSite] = useState<string | null>(null);
+
+  const refreshStatus = useCallback(() => refreshBrowserStatus(setStatuses), []);
+  const loadModels = useCallback(
+    (target: string) =>
+      loadBrowserModels(target, { setLoadingModelsSite, setError, setModels, selectionRef }),
+    [],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const s = await safeInvoke<BrowserSiteStatus[]>("browser_provider_status");
+      if (!alive || !s) return;
+      statusCache = s;
+      setStatuses(s);
+      await Promise.all(
+        s.filter((status) => status.loggedIn).map((status) => loadModels(status.site)),
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [loadModels]);
+
+  const handleLogin = (target: string) =>
+    loginBrowserSite(target, {
+      setBusySite,
+      setError,
+      setModels,
+      selectionRef,
+      setLoadingModelsSite,
+      refreshStatus,
+      loadModels,
+      site,
+      onUpdate,
+    });
+  const handleLogout = (target: string) =>
+    logoutBrowserSite(target, {
+      setBusySite,
+      setError,
+      statuses,
+      setStatuses,
+      setModels,
+      refreshStatus,
+    });
+
+  return (
+    <>
+      <BrowserProviderFields site={site} model={model} onUpdate={onUpdate} />
+      <BrowserSiteList
+        statuses={statuses}
+        models={models}
+        busySite={busySite}
+        loadingModelsSite={loadingModelsSite}
+        error={error}
+        onLogin={(target) => void handleLogin(target)}
+        onLogout={(target) => void handleLogout(target)}
+        onLoadModels={(target) => void loadModels(target)}
+      />
     </>
   );
 }

@@ -10,6 +10,7 @@ struct SectionTitles {
     summary: &'static str,
     education: &'static str,
     experience: &'static str,
+    certificates: &'static str,
     skills: &'static str,
 }
 
@@ -19,12 +20,14 @@ fn section_titles(lang: Language) -> SectionTitles {
             summary: "Perfil Profissional",
             education: "Educação",
             experience: "Experiência",
+            certificates: "Certificados",
             skills: "Habilidades",
         },
         Language::En => SectionTitles {
             summary: "Professional Profile",
             education: "Education",
             experience: "Experience",
+            certificates: "Certificates",
             skills: "Skills",
         },
     }
@@ -36,7 +39,10 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
     let mut out = String::with_capacity(2048);
 
     out.push_str("\\documentclass[11pt, a4paper]{curriculo}\n");
-    out.push_str("\\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}\n");
+    // The bundled class enables an empty fancyhdr footer. CV exports do not use it;
+    // disable that page style so the blank footer never creates a reserved gap.
+    out.push_str("\\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.0cm, footskip=0pt}\n");
+    out.push_str("\\pagestyle{empty}\n");
     out.push_str("\\definecolor{verdeescuro}{HTML}{219150}\n");
     out.push_str(&format!(
         "\\definecolor{{cordeescolha}}{{HTML}}{{{}}}\n",
@@ -48,6 +54,111 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
     out.push_str("\\setbool{acvSectionColorHighlight}{true}\n");
     out.push_str("\\renewcommand{\\acvHeaderSocialSep}{\\quad\\textbar\\quad}\n\n");
 
+    append_personal_info(&mut out, cv);
+
+    // ponytail: at build time build_pdf_tex sets photo_url to the LOCAL filename it wrote
+    // into the xelatex workdir (e.g. "cvphoto.png"); empty = no photo. curriculo.cls already
+    // ships \photo (circle,edge,left default), so no cls change is needed.
+    if !cv.photo_url.trim().is_empty() {
+        out.push_str(&format!("\\photo{{{}}}\n", cv.photo_url.trim()));
+    }
+
+    out.push_str("\n\\begin{document}\n\\makecvheader[C]\n\n");
+    out.push_str(&generate_summary(cv));
+    out.push_str(&generate_education(cv));
+    out.push_str(&generate_experience(cv));
+    out.push_str(&generate_certificates(cv));
+    out.push_str(&generate_skills(cv));
+    out.push_str("\\end{document}\n");
+
+    out
+}
+
+pub fn generate_cover_letter_tex(cv: &CvRewrite) -> String {
+    let mut out = String::with_capacity(2048);
+    out.push_str("\\documentclass[11pt, a4paper]{curriculo}\n");
+    out.push_str("\\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}\n");
+    out.push_str("\\pagestyle{empty}\n");
+    out.push_str("\\definecolor{cordeescolha}{HTML}{");
+    out.push_str(&sanitize_hex(&cv.accent_color).unwrap_or_else(|| "2B0A3D".to_string()));
+    out.push_str("}\n\\colorlet{awesome}{cordeescolha}\n");
+    out.push_str("\\definecolor{graytext}{HTML}{5D5D5D}\n");
+    out.push_str("\\definecolor{lighttext}{HTML}{999999}\n");
+    out.push_str("\\setbool{acvSectionColorHighlight}{true}\n");
+    out.push_str("\\renewcommand{\\acvHeaderSocialSep}{\\quad\\textbar\\quad}\n\n");
+
+    append_personal_info(&mut out, cv);
+    if !cv.photo_url.trim().is_empty() {
+        out.push_str(&format!("\\photo{{{}}}\n", cv.photo_url.trim()));
+    }
+
+    let role = cv
+        .positions
+        .first()
+        .map(String::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(match cv.language {
+            Language::En => "Target Role",
+            Language::Pt => "Cargo-alvo",
+        });
+    let (recipient, title_prefix, opening, closing, footer) = match cv.language {
+        Language::En => (
+            "Hiring Team",
+            "Application for",
+            "Dear Hiring Manager,",
+            "Sincerely,",
+            "Cover Letter",
+        ),
+        Language::Pt => (
+            "Equipe de Recrutamento",
+            "Candidatura para",
+            "Prezada equipe de recrutamento,",
+            "Atenciosamente,",
+            "Carta de Apresentação",
+        ),
+    };
+    // curriculo.cls ends the recipient address with a line break; a nonbreaking
+    // space keeps that template command valid when no address was supplied.
+    out.push_str(&format!("\n\\recipient{{{recipient}}}{{~}}\n"));
+    out.push_str("\\letterdate{\\today}\n");
+    out.push_str(&format!(
+        "\\lettertitle{{{title_prefix} {}}}\n",
+        latex_escape(role.trim())
+    ));
+    out.push_str(&format!("\\letteropening{{{opening}}}\n"));
+    out.push_str(&format!("\\letterclosing{{{closing}}}\n\n"));
+    out.push_str("\\begin{document}\n\\makecvheader[R]\n\\makecvfooter{\\today}{");
+    out.push_str(&latex_escape(cv.name.trim()));
+    out.push_str(&format!("~~~·~~~{footer}}}{{}}\n\\makelettertitle\n\n"));
+    out.push_str("\\begin{cvletter}\n");
+    append_cover_letter_body(&mut out, &cv.cover_letter, cv.language);
+    out.push_str("\\end{cvletter}\n\n\\makeletterclosing\n\\end{document}\n");
+    out
+}
+
+fn append_cover_letter_body(out: &mut String, body: &str, language: Language) {
+    let headings = match language {
+        Language::En => ["About Me", "Why This Role", "What I Bring"],
+        Language::Pt => ["Sobre Mim", "Por Que Esta Vaga", "O Que Ofereço"],
+    };
+    for (index, paragraph) in body.split("\n\n").enumerate() {
+        let paragraph = paragraph.trim();
+        if paragraph.is_empty() {
+            continue;
+        }
+        let heading = headings.get(index).copied().unwrap_or(match language {
+            Language::En => "Additional Details",
+            Language::Pt => "Detalhes Adicionais",
+        });
+        out.push_str(&format!(
+            "\\lettersection{{{}}}\n{}\n",
+            heading,
+            latex_escape_bold(paragraph)
+        ));
+    }
+}
+
+fn append_personal_info(out: &mut String, cv: &CvRewrite) {
     let (first, last) = split_name(&cv.name);
     out.push_str(&format!(
         "\\name{{{}}}{{{}}}\n",
@@ -107,22 +218,6 @@ pub fn generate_resume_tex(cv: &CvRewrite) -> String {
     if !has_social {
         out.push_str("\\extrainfo{~}\n");
     }
-
-    // ponytail: at build time build_pdf_tex sets photo_url to the LOCAL filename it wrote
-    // into the xelatex workdir (e.g. "cvphoto.png"); empty = no photo. curriculo.cls already
-    // ships \photo (circle,edge,left default), so no cls change is needed.
-    if !cv.photo_url.trim().is_empty() {
-        out.push_str(&format!("\\photo{{{}}}\n", cv.photo_url.trim()));
-    }
-
-    out.push_str("\n\\begin{document}\n\\makecvheader[C]\n\n");
-    out.push_str(&generate_summary(cv));
-    out.push_str(&generate_education(cv));
-    out.push_str(&generate_experience(cv));
-    out.push_str(&generate_skills(cv));
-    out.push_str("\\end{document}\n");
-
-    out
 }
 
 /// Validate a user-supplied hex color for `\definecolor{...}{HTML}{...}`.
@@ -189,6 +284,38 @@ fn generate_experience(cv: &CvRewrite) -> String {
         ));
     }
     s.push_str("\\end{cventries}\n\n");
+    s
+}
+
+fn generate_certificates(cv: &CvRewrite) -> String {
+    let certificates: Vec<_> = cv
+        .certificates
+        .iter()
+        .filter(|c| {
+            !c.name.trim().is_empty()
+                || !c.issuer.trim().is_empty()
+                || !c.credential_id.trim().is_empty()
+                || !c.date.trim().is_empty()
+        })
+        .collect();
+    if certificates.is_empty() {
+        return String::new();
+    }
+
+    let mut s = format!(
+        "\\cvsection{{{}}}\n\\begin{{cvhonors}}\n",
+        latex_escape(section_titles(cv.language).certificates)
+    );
+    for c in certificates {
+        let name = latex_link(&c.name, &c.credential_url);
+        s.push_str(&format!(
+            "  \\cvhonor\n    {{{name}}}\n    {{{}}}\n    {{{}}}\n    {{{}}}\n\n",
+            latex_escape(c.issuer.trim()),
+            latex_escape(c.credential_id.trim()),
+            latex_escape(c.date.trim()),
+        ));
+    }
+    s.push_str("\\end{cvhonors}\n\n");
     s
 }
 
@@ -262,6 +389,20 @@ fn strip_handle(value: &str, host_path: &str) -> String {
     v.trim_start_matches('@').to_string()
 }
 
+fn latex_link(label: &str, url: &str) -> String {
+    let label = latex_escape(label.trim());
+    let url = url.trim();
+    if label.is_empty() || !is_http_url(url) {
+        return label;
+    }
+    format!("\\href{{{}}}{{{label}}}", latex_escape(url))
+}
+
+fn is_http_url(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
 pub fn latex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for ch in s.chars() {
@@ -313,7 +454,7 @@ pub fn latex_escape_bold(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::ai::prompt::CvContact;
-    use crate::ai::prompt::{CvEducationEntry, CvExperienceEntry, CvSkillGroup};
+    use crate::ai::prompt::{CvCertificate, CvEducationEntry, CvExperienceEntry, CvSkillGroup};
 
     fn sample() -> CvRewrite {
         CvRewrite {
@@ -385,6 +526,8 @@ mod tests {
     fn document_is_well_formed_and_escaped() {
         let tex = generate_resume_tex(&sample());
         assert!(tex.starts_with("\\documentclass[11pt, a4paper]{curriculo}"));
+        assert!(tex.contains("bottom=1.0cm, footskip=0pt"));
+        assert!(tex.contains("\\pagestyle{empty}"));
         assert!(tex.trim_end().ends_with("\\end{document}"));
         for env in [
             "document",
@@ -422,5 +565,36 @@ mod tests {
         assert!(!tex.contains("cvparagraph"));
         assert!(tex.contains("\\begin{document}"));
         assert!(tex.contains("\\extrainfo{~}"));
+    }
+
+    #[test]
+    fn certificates_are_optional_and_urls_are_clickable() {
+        let mut cv = sample();
+        assert!(!generate_resume_tex(&cv).contains("Certificates"));
+        cv.certificates.push(CvCertificate {
+            name: "Cloud Certificate".to_string(),
+            issuer: "Issuer".to_string(),
+            credential_id: "CERT-1".to_string(),
+            date: "2025".to_string(),
+            credential_url: "https://certs.example/CERT-1?a=1&b=2".to_string(),
+        });
+        let tex = generate_resume_tex(&cv);
+        assert!(tex.contains("\\cvsection{Certificates}"));
+        assert!(tex.contains("\\href{https://certs.example/CERT-1?a=1\\&b=2}{Cloud Certificate}"));
+        assert!(tex.contains("{Issuer}"));
+    }
+
+    #[test]
+    fn cover_letter_tex_uses_generated_body_and_cv_identity() {
+        let mut cv = sample();
+        cv.cover_letter =
+            "I built **reliable systems**.\n\nI would welcome a conversation.".to_string();
+        let tex = generate_cover_letter_tex(&cv);
+        assert!(tex.starts_with("\\documentclass[11pt, a4paper]{curriculo}"));
+        assert!(tex.contains("\\lettertitle{Application for Backend Engineer}"));
+        assert!(tex.contains("\\begin{cvletter}"));
+        assert!(tex.contains("\\lettersection{About Me}"));
+        assert!(tex.contains("\\textbf{reliable systems}"));
+        assert!(tex.contains("\\makeletterclosing"));
     }
 }

@@ -3,13 +3,10 @@
 // preview raises an enlarged page peek (portal'd, so the grid never clips it).
 
 import { useCallback, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Badge, ScoreBar } from "../../components/ui";
-import { matchScoreVariant } from "../../components/ui/status";
 import { useReducedEffects } from "../../lib/effects";
 import { getCachedPeek, renderCvPeek } from "./pdf";
 import { CvPreviewThumb } from "./CvPreviewThumb";
-import { formatBytes, relativeTime } from "./mockData";
+import { CvCardDetails, CvCardPeek } from "./CvCardParts";
 import type { CvBytesLoader, CvLibraryDoc } from "./types";
 
 interface CvCardProps {
@@ -102,54 +99,8 @@ export function CvCard({ cv, selected, loader, onSelect, onOpen }: CvCardProps) 
         </button>
       </div>
 
-      <div className="cv-card__name" title={cv.fileName}>
-        {cv.fileName}
-      </div>
-
-      <div className="cv-card__meta">
-        <Badge variant="neutral">{cv.fileType.toUpperCase()}</Badge>
-        {cv.isActive && <Badge variant="success">Active</Badge>}
-      </div>
-
-      {cv.assignedVariants.length > 0 && (
-        <div className="cvx-variants" aria-label="Assigned variants">
-          {cv.assignedVariants.map((v) => (
-            <span key={v.id} className="tag cvx-variant">
-              {v.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {cv.lastAnalysisScore !== null && (
-        <ScoreBar
-          label="Score"
-          value={cv.lastAnalysisScore}
-          variant={matchScoreVariant(cv.lastAnalysisScore)}
-        />
-      )}
-
-      <div className="cvx-card__foot">
-        <span>{formatBytes(cv.sizeBytes)}</span>
-        <span title={cv.lastUsedAt ?? "never used"}>used {relativeTime(cv.lastUsedAt)}</span>
-      </div>
-
-      {peek !== null &&
-        createPortal(
-          <div
-            className="cvx-peek overlay-surface"
-            style={{
-              left: peek.left,
-              top: peek.top,
-              width: PEEK_WIDTH,
-              opacity: reduce ? 1 : undefined,
-            }}
-            role="presentation"
-          >
-            <img className="cvx-peek__img" src={peek.src} alt="" />
-          </div>,
-          document.body,
-        )}
+      <CvCardDetails cv={cv} />
+      <CvCardPeek peek={peek} reduce={reduce} />
     </div>
   );
 }

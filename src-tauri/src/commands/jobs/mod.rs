@@ -264,6 +264,7 @@ pub struct JobPostDto {
     pub company: String,
     pub location: Option<String>,
     pub remote_mode: Option<String>,
+    /// List calls return a bounded summary; get_job_post returns full text.
     pub description: Option<String>,
     pub summary: Option<String>,
     pub seniority: Option<String>,

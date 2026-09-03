@@ -16,21 +16,10 @@
  * bridge so they render correctly in this isolated window.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import {
-  Settings01Icon,
-  Moon01Icon,
-  Globe02Icon,
-  BrowserIcon,
-  Analytics01Icon,
-  Download01Icon,
-  InboxIcon,
-  Cancel01Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Settings01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/useSettingsStore";
@@ -58,57 +47,10 @@ import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
 import { IS_TAURI, IS_MAC } from "./platform";
+import { SettingsNav } from "./SettingsNav";
+import { isSettingsTab, readInitialTab, type SettingsTab } from "./settingsTabModel";
 
 // ── Tab catalogue ─────────────────────────────────────────────────────────────
-type Tab = "general" | "effects" | "ai" | "browser" | "data" | "exports" | "backups" | "cleanup";
-
-interface TabDef {
-  key: Tab;
-  label: string;
-  icon: IconSvgElement;
-}
-
-interface TabGroup {
-  label: string;
-  tabs: TabDef[];
-}
-
-const TAB_GROUPS: TabGroup[] = [
-  {
-    label: "Preferences",
-    tabs: [
-      { key: "general", label: "General", icon: Settings01Icon },
-      { key: "effects", label: "Motion", icon: Moon01Icon },
-    ],
-  },
-  {
-    label: "Integrations",
-    tabs: [
-      { key: "ai", label: "AI Providers", icon: Globe02Icon },
-      { key: "browser", label: "Browser", icon: BrowserIcon },
-    ],
-  },
-  {
-    label: "Data",
-    tabs: [
-      { key: "data", label: "Data Storage", icon: Analytics01Icon },
-      { key: "exports", label: "Exports", icon: Download01Icon },
-      { key: "backups", label: "Backups", icon: InboxIcon },
-      { key: "cleanup", label: "Cleanup", icon: Cancel01Icon },
-    ],
-  },
-];
-
-const TABS: TabDef[] = TAB_GROUPS.flatMap((g) => g.tabs);
-
-// Read initial tab from ?tab= query string (Rust open_settings_window passes this).
-function readInitialTab(): Tab {
-  if (typeof window === "undefined") return "general";
-  const t = new URL(window.location.href).searchParams.get("tab");
-  if (t && TABS.some((x) => x.key === t)) return t as Tab;
-  return "general";
-}
-
 // ── AI provider helpers ────────────────────────────────────────────────────────
 // Kind is always "browser" — the only provider left after cloud removal.
 const PROVIDER_KINDS: AiProviderSettings["kind"][] = ["browser"];
@@ -192,40 +134,33 @@ const REDUCED_OPTS: { value: ReducedEffectsMode; label: string }[] = [
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function SettingsApp() {
-  const [active, setActive] = useState<Tab>(readInitialTab);
+  const [active, setActive] = useState<SettingsTab>(readInitialTab);
 
-  // Settings store
   const settings = useSettingsStore((s) => s.settings);
   const isLoading = useSettingsStore((s) => s.isLoading);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  // Theme store — reads only.
-  // updateSettings bridges mutations to the theme store via its own internal logic.
   const reducedEffects = useThemeStore((s) => s.reducedEffects);
   const theme = useThemeStore((s) => s.theme);
 
-  // Export state
   const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // Docker toggle — seeded from docker_status() when the browser tab first opens.
   const [dockerOptIn, setDockerOptIn] = useState(false);
   const [dockerLoaded, setDockerLoaded] = useState(false);
 
-  // Load settings on mount (settings window has its own React root and store instance).
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
 
-  // Listen for tab-switch events emitted by the Rust open_settings_window command.
   useEffect(() => {
     if (!IS_TAURI) return;
     const unlistenPromise = getCurrentWebviewWindow().listen<string>(
       "hiremeops:settings-tab",
       (e) => {
         const t = e.payload;
-        if (TABS.some((x) => x.key === t)) setActive(t as Tab);
+        if (isSettingsTab(t)) setActive(t);
       },
     );
     return () => {
@@ -233,7 +168,6 @@ export function SettingsApp() {
     };
   }, []);
 
-  // Load docker opt-in state once when the browser tab becomes active.
   useEffect(() => {
     if (active !== "browser" || dockerLoaded) return;
     void safeInvoke<DockerStatus>("docker_status").then((s) => {
@@ -242,7 +176,6 @@ export function SettingsApp() {
     });
   }, [active, dockerLoaded]);
 
-  // ── AI provider helpers ────────────────────────────────────────────────────
   const providers = settings?.aiProviders ?? [];
   const defaultProviderIdx = settings?.defaultAiProviderIndex ?? 0;
 
@@ -264,20 +197,6 @@ export function SettingsApp() {
     });
   }
 
-  // ── WAI-ARIA keyboard nav in the tab rail ──────────────────────────────────
-  function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
-    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
-    e.preventDefault();
-    let next: number;
-    if (e.key === "ArrowDown") next = (idx + 1) % TABS.length;
-    else if (e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
-    else if (e.key === "Home") next = 0;
-    else next = TABS.length - 1;
-    setActive(TABS[next].key);
-    document.getElementById(`stab-${TABS[next].key}`)?.focus();
-  }
-
-  // ── Export helpers ────────────────────────────────────────────────────────
   function downloadString(content: string, filename: string, mimeType: string) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -317,7 +236,6 @@ export function SettingsApp() {
     }
   }
 
-  // ── Docker toggle ─────────────────────────────────────────────────────────
   const handleDockerToggle = useCallback(async (enabled: boolean) => {
     setDockerOptIn(enabled);
     try {
@@ -327,7 +245,6 @@ export function SettingsApp() {
     }
   }, []);
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground select-none">
       {/* ── Drag-region header ──────────────────────────────────────────────── */}
@@ -350,52 +267,7 @@ export function SettingsApp() {
       {/* ── Body: nav rail + content ────────────────────────────────────────── */}
       <main className="flex min-h-0 flex-1 flex-row">
         {/* ── Left nav rail ──────────────────────────────────────────────────── */}
-        <nav
-          className="w-48 shrink-0 border-r border-border/60 bg-card/35 p-2"
-          role="tablist"
-          aria-label="Settings sections"
-          aria-orientation="vertical"
-        >
-          <div className="flex flex-col gap-3">
-            {TAB_GROUPS.map((group, gi) => (
-              <React.Fragment key={group.label}>
-                {gi > 0 && (
-                  <div className="h-px bg-border/50" role="separator" aria-hidden="true" />
-                )}
-                <div className="flex flex-col gap-0.5">
-                  <span className="px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/60">
-                    {group.label}
-                  </span>
-                  {group.tabs.map((t) => {
-                    const flatIdx = TABS.findIndex((ft) => ft.key === t.key);
-                    return (
-                      <button
-                        key={t.key}
-                        id={`stab-${t.key}`}
-                        type="button"
-                        role="tab"
-                        aria-selected={active === t.key}
-                        aria-controls="settings-panel"
-                        tabIndex={active === t.key ? 0 : -1}
-                        onClick={() => setActive(t.key)}
-                        onKeyDown={(e) => handleTabKey(e, flatIdx)}
-                        className={cn(
-                          "flex min-h-10 items-center gap-2 rounded-md px-2 text-left text-[12px] transition-colors",
-                          active === t.key
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
-                        )}
-                      >
-                        <HugeiconsIcon icon={t.icon} size={14} strokeWidth={1.75} />
-                        <span className="truncate">{t.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </React.Fragment>
-            ))}
-          </div>
-        </nav>
+        <SettingsNav active={active} onChange={setActive} />
 
         {/* ── Scrolling content panel ────────────────────────────────────────── */}
         <section

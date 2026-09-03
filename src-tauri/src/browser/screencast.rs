@@ -18,6 +18,7 @@ use chromiumoxide::cdp::browser_protocol::page::{
     StopScreencastParams,
 };
 use chromiumoxide::layout::Point;
+use chromiumoxide::listeners::EventStream;
 use futures::StreamExt as _;
 use tokio::sync::{oneshot, Mutex};
 
@@ -53,37 +54,8 @@ pub async fn open_real(
     headless: bool,
     channel: tauri::ipc::Channel<PreviewFrame>,
 ) -> Result<String, String> {
-    // A UNIQUE profile dir per launch — chromiumoxide otherwise defaults every browser to the shared
-    // `<temp>/chromiumoxide-runner`, whose SingletonLock collides across instances / stale locks and
-    // aborts the launch ("Failed to create .../SingletonLock: File exists").
     let user_data_dir = std::env::temp_dir().join(format!("hiremeops-preview-{}", util::new_id()));
-
-    let mut cfg_builder = BrowserConfig::builder()
-        .arg("--no-sandbox")
-        .arg("--disable-gpu")
-        .arg("--disable-dev-shm-usage")
-        .arg("--window-size=1920,1080")
-        .arg("--force-device-scale-factor=1")
-        .arg("--high-dpi-support=1")
-        // Reduce headless bot-detection so the pane doesn't hit an endless "verify you're human"
-        // wall: drop the navigator.webdriver flag and present a real desktop-Chrome UA (no
-        // "HeadlessChrome" token). Aggressive gates (Google/Cloudflare) may still challenge a
-        // headless browser — that's why the default page is a headless-tolerant one.
-        .arg("--disable-blink-features=AutomationControlled")
-        .arg("--lang=en-US,en")
-        .arg(
-            "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
-             (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-        )
-        .user_data_dir(&user_data_dir);
-
-    if headless {
-        cfg_builder = cfg_builder.arg("--headless=new");
-    }
-
-    let config = cfg_builder
-        .build()
-        .map_err(|e| format!("BrowserConfig::build: {e}"))?;
+    let config = browser_config(&user_data_dir, headless)?;
 
     let (browser, mut handler) = Browser::launch(config)
         .await
@@ -106,7 +78,7 @@ pub async fn open_real(
         .await
         .map_err(|e| format!("goto {url}: {e}"))?;
 
-    let mut frame_stream = page
+    let frame_stream = page
         .event_listener::<EventScreencastFrame>()
         .await
         .map_err(|e| format!("event_listener<EventScreencastFrame>: {e}"))?;
@@ -124,47 +96,17 @@ pub async fn open_real(
         .await
         .map_err(|e| format!("Page.startScreencast: {e}"))?;
 
-    let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
     let page_for_task = page.clone();
     let seq = Arc::new(AtomicU64::new(0));
 
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = &mut stop_rx => {
-                    tracing::debug!("preview frame task: stop signal received");
-                    break;
-                }
-                maybe_frame = frame_stream.next() => {
-                    match maybe_frame {
-                        None => {
-                            tracing::debug!("preview frame stream ended");
-                            break;
-                        }
-                        Some(ev) => {
-                            let session_id = ev.session_id;
-                            let width  = ev.metadata.device_width  as u32;
-                            let height = ev.metadata.device_height as u32;
-                            let data: String = AsRef::<str>::as_ref(&ev.data).to_owned();
-                            let s      = seq.fetch_add(1, Ordering::Relaxed);
-
-                            let frame = PreviewFrame { data, width, height, seq: s };
-
-                            if channel.send(frame).is_err() {
-                                tracing::debug!("preview channel closed by frontend");
-                                break;
-                            }
-
-                            let ack = ScreencastFrameAckParams::new(session_id);
-                            if let Err(e) = page_for_task.execute(ack).await {
-                                tracing::warn!("screencastFrameAck failed: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
+    tokio::spawn(forward_frames(
+        frame_stream,
+        page_for_task,
+        channel,
+        stop_rx,
+        seq,
+    ));
 
     let handle = util::new_id();
     registry().lock().await.insert(
@@ -179,6 +121,81 @@ pub async fn open_real(
 
     tracing::info!(handle = %handle, url = %url, headless, "preview_open: screencast started");
     Ok(handle)
+}
+
+fn browser_config(
+    user_data_dir: &std::path::Path,
+    headless: bool,
+) -> Result<BrowserConfig, String> {
+    let mut builder = BrowserConfig::builder()
+        .arg("--no-sandbox")
+        .arg("--disable-gpu")
+        .arg("--disable-dev-shm-usage")
+        .arg("--window-size=1920,1080")
+        .arg("--force-device-scale-factor=1")
+        .arg("--high-dpi-support=1")
+        .arg("--disable-blink-features=AutomationControlled")
+        .arg("--lang=en-US,en")
+        .arg(
+            "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+        )
+        .user_data_dir(user_data_dir);
+    if headless {
+        builder = builder.arg("--headless=new");
+    }
+    builder
+        .build()
+        .map_err(|e| format!("BrowserConfig::build: {e}"))
+}
+
+async fn forward_frames(
+    mut frame_stream: EventStream<EventScreencastFrame>,
+    page: chromiumoxide::page::Page,
+    channel: tauri::ipc::Channel<PreviewFrame>,
+    mut stop_rx: oneshot::Receiver<()>,
+    seq: Arc<AtomicU64>,
+) {
+    loop {
+        tokio::select! {
+            _ = &mut stop_rx => {
+                tracing::debug!("preview frame task: stop signal received");
+                break;
+            }
+            maybe_frame = frame_stream.next() => {
+                let Some(ev) = maybe_frame else {
+                    tracing::debug!("preview frame stream ended");
+                    break;
+                };
+                if !send_frame(&channel, &page, &seq, ev).await {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+async fn send_frame(
+    channel: &tauri::ipc::Channel<PreviewFrame>,
+    page: &chromiumoxide::page::Page,
+    seq: &AtomicU64,
+    ev: Arc<EventScreencastFrame>,
+) -> bool {
+    let frame = PreviewFrame {
+        data: AsRef::<str>::as_ref(&ev.data).to_owned(),
+        width: ev.metadata.device_width as u32,
+        height: ev.metadata.device_height as u32,
+        seq: seq.fetch_add(1, Ordering::Relaxed),
+    };
+    if channel.send(frame).is_err() {
+        tracing::debug!("preview channel closed by frontend");
+        return false;
+    }
+    let ack = ScreencastFrameAckParams::new(ev.session_id);
+    if let Err(e) = page.execute(ack).await {
+        tracing::warn!("screencastFrameAck failed: {e}");
+    }
+    true
 }
 
 pub async fn close_real(handle: String) -> Result<(), String> {
@@ -252,73 +269,82 @@ pub async fn navigate_real(handle: String, url: String) -> Result<(), String> {
 pub async fn input_real(handle: String, ev: InputEvent) -> Result<(), String> {
     let page = page_for(&handle).await?;
     match ev.kind.as_str() {
-        "click" => {
-            page.click(Point::new(ev.x, ev.y))
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        "move" => {
-            page.move_mouse(Point::new(ev.x, ev.y))
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        "wheel" => {
-            let params = DispatchMouseEventParams::builder()
-                .r#type(DispatchMouseEventType::MouseWheel)
-                .x(ev.x)
-                .y(ev.y)
-                .delta_x(0.0)
-                .delta_y(ev.delta_y)
-                .build()
-                .map_err(|e| e.to_string())?;
-            page.execute(params).await.map_err(|e| e.to_string())?;
-        }
-        // One keydown/keyup with full identity — key + code + virtual key code + text — so special
-        // keys (Enter/Backspace/Tab/arrows) fire real DOM events (submit/delete/navigate), not just
-        // text. `text` on a keydown produces the character for printable keys.
-        "keydown" | "keyup" => {
-            let etype = if ev.kind == "keydown" {
-                DispatchKeyEventType::KeyDown
-            } else {
-                DispatchKeyEventType::KeyUp
-            };
-            let mut b = DispatchKeyEventParams::builder().r#type(etype);
-            if let Some(k) = ev.key {
-                b = b.key(k);
-            }
-            if let Some(c) = ev.code {
-                b = b.code(c);
-            }
-            if let Some(kc) = ev.key_code {
-                if kc > 0 {
-                    b = b.windows_virtual_key_code(kc).native_virtual_key_code(kc);
-                }
-            }
-            if ev.kind == "keydown" {
-                if let Some(t) = ev.text {
-                    if !t.is_empty() {
-                        // text drives the character insertion; unmodified_text mirrors it so
-                        // Chrome generates the keypress/input the page's handlers expect.
-                        b = b.text(t.clone()).unmodified_text(t);
-                    }
-                }
-            }
-            let params = b.build().map_err(|e| e.to_string())?;
-            page.execute(params).await.map_err(|e| e.to_string())?;
-        }
-        // History / reload driven from the toolbar buttons.
-        "back" => {
-            let _ = page.evaluate("history.back()").await;
-        }
-        "forward" => {
-            let _ = page.evaluate("history.forward()").await;
-        }
-        "reload" => {
-            let _ = page.evaluate("location.reload()").await;
-        }
+        "click" | "move" | "wheel" => dispatch_mouse(&page, &ev).await?,
+        "keydown" | "keyup" => dispatch_key(&page, ev).await?,
+        "back" | "forward" | "reload" => navigate_history(&page, ev.kind.as_str()).await,
         _ => {}
     }
     Ok(())
+}
+
+async fn dispatch_mouse(page: &chromiumoxide::page::Page, ev: &InputEvent) -> Result<(), String> {
+    match ev.kind.as_str() {
+        "click" => page
+            .click(Point::new(ev.x, ev.y))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        "move" => page
+            .move_mouse(Point::new(ev.x, ev.y))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        _ => dispatch_wheel(page, ev).await,
+    }
+}
+
+async fn dispatch_wheel(page: &chromiumoxide::page::Page, ev: &InputEvent) -> Result<(), String> {
+    let params = DispatchMouseEventParams::builder()
+        .r#type(DispatchMouseEventType::MouseWheel)
+        .x(ev.x)
+        .y(ev.y)
+        .delta_x(0.0)
+        .delta_y(ev.delta_y)
+        .build()
+        .map_err(|e| e.to_string())?;
+    page.execute(params)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+async fn dispatch_key(page: &chromiumoxide::page::Page, ev: InputEvent) -> Result<(), String> {
+    let etype = if ev.kind == "keydown" {
+        DispatchKeyEventType::KeyDown
+    } else {
+        DispatchKeyEventType::KeyUp
+    };
+    let mut builder = DispatchKeyEventParams::builder().r#type(etype);
+    if let Some(key) = ev.key {
+        builder = builder.key(key);
+    }
+    if let Some(code) = ev.code {
+        builder = builder.code(code);
+    }
+    if let Some(key_code) = ev.key_code.filter(|code| *code > 0) {
+        builder = builder
+            .windows_virtual_key_code(key_code)
+            .native_virtual_key_code(key_code);
+    }
+    if ev.kind == "keydown" {
+        if let Some(text) = ev.text.filter(|text| !text.is_empty()) {
+            builder = builder.text(text.clone()).unmodified_text(text);
+        }
+    }
+    let params = builder.build().map_err(|e| e.to_string())?;
+    page.execute(params)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+async fn navigate_history(page: &chromiumoxide::page::Page, kind: &str) {
+    let script = match kind {
+        "back" => "history.back()",
+        "forward" => "history.forward()",
+        _ => "location.reload()",
+    };
+    let _ = page.evaluate(script).await;
 }
 
 /// Resize the embedded browser's viewport so the page REFLOWS to fit the pane (true responsiveness,

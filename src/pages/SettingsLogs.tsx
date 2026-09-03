@@ -177,13 +177,11 @@ const EXPORTS = [
 
 // ── Component ──────────────────────────────────────────────────────────────
 export function SettingsLogs() {
-  // Settings store
   const settings = useSettingsStore((s) => s.settings);
   const isLoading = useSettingsStore((s) => s.isLoading);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  // Theme store — single HUD theme; only motion preference is user-facing.
   const reducedEffects = useThemeStore((s) => s.reducedEffects);
   const setReducedEffects = useThemeStore((s) => s.setReducedEffects);
   const theme = useThemeStore((s) => s.theme);
@@ -197,13 +195,7 @@ export function SettingsLogs() {
     void loadSettings();
   }, [loadSettings]);
 
-  // ── AI provider helpers ──────────────────────────────────────────────────
-  // Only the browser provider kind is supported now. Drop any persisted legacy
-  // cloud/API provider entries so they are never re-emitted to the backend
-  // (which rejects every non-`browser` kind). The next settings write persists
-  // the sanitized, browser-only array.
   const providers = (settings?.aiProviders ?? []).filter((p) => p.kind === "browser");
-  // With a browser-only list the default is always index 0 (or none yet).
   const defaultProviderIdx = 0;
 
   function handleProviderUpdate(
@@ -211,11 +203,6 @@ export function SettingsLogs() {
     patch: Partial<Omit<AiProviderSettings, "kind">>,
   ) {
     if (!settings) return;
-    // Also pin defaultAiProviderIndex to 0. The browser-only list has a single
-    // entry, but a stale index (> 0, left over from a legacy multi-provider
-    // config) would make the backend resolve providers[idx] = None →
-    // Provider::Disabled → "no AI provider configured" even after a valid site
-    // is chosen. Persisting the index alongside the array keeps them in sync.
     void updateSettings({
       aiProviders: upsertProvider(providers, kind, patch),
       defaultAiProviderIndex: 0,
@@ -232,10 +219,6 @@ export function SettingsLogs() {
     });
   }
 
-  // Keyboard nav for the vertical settings tablist (ArrowUp/Down + Home/End).
-  // WAI-ARIA vertical tablist: only ArrowUp/ArrowDown navigate between tabs.
-  // ArrowLeft/Right are reserved for horizontal orientation and must not be
-  // captured here — they belong to the content panel (e.g. text editing).
   function handleTabKey(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
     const keys = ["ArrowUp", "ArrowDown", "Home", "End"];
     if (!keys.includes(e.key)) return;
@@ -249,16 +232,12 @@ export function SettingsLogs() {
     document.getElementById(`settings-tab-${TABS[next].key}`)?.focus();
   }
 
-  // ── Export helpers ───────────────────────────────────────────────────────
   function downloadString(content: string, filename: string, mimeType: string) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
-    // Attach + deferred teardown: the WebKitGTK webview (Tauri on Linux) ignores
-    // a `.click()` on a detached anchor and aborts the download if the object
-    // URL is revoked on the same tick.
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();

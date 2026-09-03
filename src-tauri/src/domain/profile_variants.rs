@@ -212,6 +212,133 @@ impl ProfileVariantServiceImpl {
     }
 }
 
+async fn update_variant_text_fields(
+    db: &SqlitePool,
+    id: &str,
+    now: &str,
+    fields: [(&str, Option<&str>); 4],
+) -> DomainResult<()> {
+    for (column, value) in fields {
+        let Some(value) = value else { continue };
+        let sql =
+            format!("UPDATE profile_variants SET {column} = ?1, updated_at = ?2 WHERE id = ?3");
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(value.trim())
+            .bind(now)
+            .bind(id)
+            .execute(db)
+            .await?;
+    }
+    Ok(())
+}
+
+struct VariantInsert<'a> {
+    id: &'a str,
+    profile_id: &'a str,
+    name: &'a str,
+    target_title: &'a str,
+    summary: &'a str,
+    headline: &'a str,
+    keywords_json: &'a str,
+    cv_document_id: &'a Option<String>,
+    positions_json: &'a str,
+    skills_json: &'a str,
+    experience_json: &'a str,
+    education_json: &'a str,
+    contact_json: &'a str,
+    about_text: &'a str,
+    rewrite_id: &'a str,
+    now: &'a str,
+}
+
+struct VariantSource {
+    cv_document_id: Option<String>,
+    rewrite: CvRewrite,
+    metadata: CvMetadata,
+}
+
+async fn load_variant_source(
+    db: &SqlitePool,
+    profile_id: &str,
+    rewrite_id: &str,
+) -> DomainResult<VariantSource> {
+    let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT profile_id, cv_document_id, rewrite_json, metadata_json
+         FROM cv_rewrites WHERE id = ?1",
+    )
+    .bind(rewrite_id)
+    .fetch_optional(db)
+    .await?;
+    let (row_profile, cv_document_id, rewrite_json, metadata_json) =
+        row.ok_or_else(|| DomainError::InvalidInput(format!("unknown cv_rewrite: {rewrite_id}")))?;
+    if row_profile != profile_id {
+        return Err(DomainError::InvalidInput(format!(
+            "cv_rewrite {rewrite_id} belongs to a different profile"
+        )));
+    }
+    let rewrite: CvRewrite = serde_json::from_str(&rewrite_json)
+        .map_err(|e| DomainError::InvalidInput(format!("corrupt rewrite_json: {e}")))?;
+    let metadata: CvMetadata = serde_json::from_str(&metadata_json).unwrap_or_default();
+    Ok(VariantSource {
+        cv_document_id,
+        rewrite,
+        metadata,
+    })
+}
+
+async fn variant_location(db: &SqlitePool, profile_id: &str, rewrite: &CvRewrite) -> String {
+    let profile_location: Option<String> =
+        sqlx::query_scalar("SELECT location FROM profiles WHERE id = ?1")
+            .bind(profile_id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
+    profile_location
+        .filter(|location| !location.trim().is_empty())
+        .or_else(|| {
+            rewrite
+                .experience
+                .iter()
+                .map(|entry| entry.location.trim())
+                .find(|location| !location.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+async fn insert_profile_variant(db: &SqlitePool, record: VariantInsert<'_>) -> DomainResult<()> {
+    sqlx::query(
+        "INSERT INTO profile_variants (
+            id, profile_id, name, target_title, summary, headline,
+            keywords_json, preferred_cv_document_id, positions_json, skills_json,
+            experience_json, education_json, contact_json, about_text,
+            source_cv_document_id, source_rewrite_id, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+    )
+    .bind(record.id)
+    .bind(record.profile_id)
+    .bind(record.name)
+    .bind(record.target_title)
+    .bind(record.summary)
+    .bind(record.headline)
+    .bind(record.keywords_json)
+    .bind(record.cv_document_id)
+    .bind(record.positions_json)
+    .bind(record.skills_json)
+    .bind(record.experience_json)
+    .bind(record.education_json)
+    .bind(record.contact_json)
+    .bind(record.about_text)
+    .bind(record.cv_document_id)
+    .bind(record.rewrite_id)
+    .bind(record.now)
+    .bind(record.now)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 impl ProfileVariantService for ProfileVariantServiceImpl {
     async fn create_from_rewrite(
         &self,
@@ -219,43 +346,13 @@ impl ProfileVariantService for ProfileVariantServiceImpl {
         rewrite_id: &str,
         name: Option<String>,
     ) -> DomainResult<ProfileVariantDto> {
-        let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
-            "SELECT profile_id, cv_document_id, rewrite_json, metadata_json
-             FROM cv_rewrites WHERE id = ?1",
-        )
-        .bind(rewrite_id)
-        .fetch_optional(&self.db)
-        .await?;
-        let (row_profile, cv_document_id, rewrite_json, metadata_json) = row.ok_or_else(|| {
-            DomainError::InvalidInput(format!("unknown cv_rewrite: {rewrite_id}"))
-        })?;
-        if row_profile != profile_id {
-            return Err(DomainError::InvalidInput(format!(
-                "cv_rewrite {rewrite_id} belongs to a different profile"
-            )));
-        }
-
-        let rewrite: CvRewrite = serde_json::from_str(&rewrite_json)
-            .map_err(|e| DomainError::InvalidInput(format!("corrupt rewrite_json: {e}")))?;
-        let metadata: CvMetadata = serde_json::from_str(&metadata_json).unwrap_or_default();
-
-        let profile_location: Option<String> =
-            sqlx::query_scalar("SELECT location FROM profiles WHERE id = ?1")
-                .bind(profile_id)
-                .fetch_optional(&self.db)
-                .await?
-                .flatten();
-        let location = profile_location
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| {
-                rewrite
-                    .experience
-                    .iter()
-                    .map(|e| e.location.trim())
-                    .find(|l| !l.is_empty())
-                    .map(str::to_string)
-            })
-            .unwrap_or_default();
+        let source = load_variant_source(&self.db, profile_id, rewrite_id).await?;
+        let VariantSource {
+            cv_document_id,
+            rewrite,
+            metadata,
+        } = source;
+        let location = variant_location(&self.db, profile_id, &rewrite).await;
 
         let target_title = rewrite.positions.first().cloned().unwrap_or_default();
         let headline = build_headline(&rewrite.positions, &target_title);
@@ -288,36 +385,28 @@ impl ProfileVariantService for ProfileVariantServiceImpl {
             serde_json::to_string(&rewrite.education).unwrap_or_else(|_| "[]".into());
         let keywords_json = serde_json::to_string(&keywords).unwrap_or_else(|_| "[]".into());
         let contact_json = serde_json::to_string(&contact).unwrap_or_else(|_| "{}".into());
-
-        sqlx::query(
-            "INSERT INTO profile_variants (
-                id, profile_id, name, target_title, summary, headline,
-                keywords_json, preferred_cv_document_id, positions_json, skills_json,
-                experience_json, education_json, contact_json, about_text,
-                source_cv_document_id, source_rewrite_id, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        insert_profile_variant(
+            &self.db,
+            VariantInsert {
+                id: &id,
+                profile_id,
+                name: &variant_name,
+                target_title: &target_title,
+                summary: &rewrite.summary,
+                headline: &headline,
+                keywords_json: &keywords_json,
+                cv_document_id: &cv_document_id,
+                positions_json: &positions_json,
+                skills_json: &skills_json,
+                experience_json: &experience_json,
+                education_json: &education_json,
+                contact_json: &contact_json,
+                about_text: &about_text,
+                rewrite_id,
+                now: &now,
+            },
         )
-        .bind(&id)
-        .bind(profile_id)
-        .bind(&variant_name)
-        .bind(&target_title)
-        .bind(&rewrite.summary)
-        .bind(&headline)
-        .bind(&keywords_json)
-        .bind(&cv_document_id)
-        .bind(&positions_json)
-        .bind(&skills_json)
-        .bind(&experience_json)
-        .bind(&education_json)
-        .bind(&contact_json)
-        .bind(&about_text)
-        .bind(&cv_document_id)
-        .bind(rewrite_id)
-        .bind(&now)
-        .bind(&now)
-        .execute(&self.db)
         .await?;
-
         self.get(&id).await
     }
 
@@ -340,43 +429,21 @@ impl ProfileVariantService for ProfileVariantServiceImpl {
 
     async fn update(&self, id: &str, input: UpdateVariantInput) -> DomainResult<ProfileVariantDto> {
         let now = now_iso();
-        if let Some(v) = &input.name {
-            sqlx::query("UPDATE profile_variants SET name = ?1, updated_at = ?2 WHERE id = ?3")
-                .bind(v.trim())
-                .bind(&now)
-                .bind(id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(v) = &input.headline {
-            sqlx::query("UPDATE profile_variants SET headline = ?1, updated_at = ?2 WHERE id = ?3")
-                .bind(v.trim())
-                .bind(&now)
-                .bind(id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(v) = &input.summary {
-            sqlx::query("UPDATE profile_variants SET summary = ?1, updated_at = ?2 WHERE id = ?3")
-                .bind(v.trim())
-                .bind(&now)
-                .bind(id)
-                .execute(&self.db)
-                .await?;
-        }
-        if let Some(v) = &input.about_text {
-            sqlx::query(
-                "UPDATE profile_variants SET about_text = ?1, updated_at = ?2 WHERE id = ?3",
-            )
-            .bind(v.trim())
-            .bind(&now)
-            .bind(id)
-            .execute(&self.db)
-            .await?;
-        }
-        if let Some(v) = &input.keywords {
-            let kws = split_keywords(v);
-            let json = serde_json::to_string(&kws).unwrap_or_else(|_| "[]".into());
+        update_variant_text_fields(
+            &self.db,
+            id,
+            &now,
+            [
+                ("name", input.name.as_deref()),
+                ("headline", input.headline.as_deref()),
+                ("summary", input.summary.as_deref()),
+                ("about_text", input.about_text.as_deref()),
+            ],
+        )
+        .await?;
+        if let Some(value) = input.keywords.as_deref() {
+            let keywords = split_keywords(value);
+            let json = serde_json::to_string(&keywords).unwrap_or_else(|_| "[]".into());
             sqlx::query(
                 "UPDATE profile_variants SET keywords_json = ?1, updated_at = ?2 WHERE id = ?3",
             )

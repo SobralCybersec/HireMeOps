@@ -25,14 +25,8 @@ interface DataTableProps<T> {
 }
 
 /** Dense data grid. Wraps `.table-wrapper` + `.data-table` from theme.css. */
-export function DataTable<T>({
-  columns,
-  rows,
-  getRowKey,
-  onRowClick,
-  empty,
-  className,
-}: DataTableProps<T>) {
+export function DataTable<T>(props: DataTableProps<T>) {
+  const { columns, rows, getRowKey, onRowClick, empty, className } = props;
   if (rows.length === 0 && empty != null) {
     return <>{empty}</>;
   }

@@ -877,6 +877,9 @@
   line-height: 1.6;
   color: var(--color-text-2);
 }
+.cvx-cover-letter-preview {
+  white-space: pre-wrap;
+}
 .cvx-compare__block ul {
   margin: 0;
   padding-left: var(--sp-5);
@@ -936,4 +939,9 @@
 .cv-export__appearance > .field__input[type="url"] {
   flex: 1;
   min-inline-size: 0;
+}
+.cv-export__letter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
 }

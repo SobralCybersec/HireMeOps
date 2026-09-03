@@ -23,22 +23,22 @@ export function parseDates(dates) {
     .split(/[–—\-]/)
     .map((s) => s.trim())
     .filter(Boolean);
-  function parsePart(s) {
-    const withMonth = s.match(/(\w{3})\s+de\s+(\d{4})/i);
-    if (withMonth) {
-      const m = PT_MONTH[withMonth[1].toLowerCase()];
-      return { month: m ? String(m) : "", year: withMonth[2] };
-    }
-    const yearOnly = s.match(/(\d{4})/);
-    if (yearOnly) return { month: "", year: yearOnly[1] };
-    return {};
-  }
-  const start = parts[0] ? parsePart(parts[0]) : {};
-  const end = parts[1] ? parsePart(parts[1]) : {};
+  const start = parts[0] ? parseDatePart(parts[0]) : {};
+  const end = parts[1] ? parseDatePart(parts[1]) : {};
   return {
     startMonth: start.month ?? "",
     startYear: start.year ?? "",
     endMonth: end.month ?? "",
     endYear: end.year ?? "",
   };
+}
+
+function parseDatePart(value) {
+  const withMonth = value.match(/(\w{3})\s+de\s+(\d{4})/i);
+  if (withMonth) {
+    const month = PT_MONTH[withMonth[1].toLowerCase()];
+    return { month: month ? String(month) : "", year: withMonth[2] };
+  }
+  const yearOnly = value.match(/(\d{4})/);
+  return yearOnly ? { month: "", year: yearOnly[1] } : {};
 }

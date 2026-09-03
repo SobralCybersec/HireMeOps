@@ -111,7 +111,8 @@ async function cathoFillSection(page, sec) {
   }
 }
 
-async function cathoFillTextarea(page, { sectionId, openTitle, textareaId, text, kind, label }) {
+async function cathoFillTextarea(page, options) {
+  const { sectionId, openTitle, textareaId, text, kind, label } = options;
   const openBtn = page.locator(`#${sectionId} button[title="${openTitle}"]`).first();
   await openBtn.waitFor({ state: "visible", timeout: 12_000 });
   await openBtn.click();
@@ -214,27 +215,29 @@ async function cathoAddExperience(page, sec, entry) {
     return { kind: "experience", status: "skipped", label, reason: "Already on Catho resume" };
   }
 
-  const addBtn = page
-    .locator('#professional-experience button[title="adicionar experiência"]')
-    .first();
+  await cathoFillExperienceForm(page, { title, org, dates: entry.dates, bullets: entry.bullets });
+  await cathoSave(page);
+  return { kind: "experience", status: "ok", label };
+}
+
+async function cathoFillExperienceForm(page, { title, org, dates, bullets }) {
+  const addBtn = page.locator('#professional-experience button[title="adicionar experiência"]').first();
   await addBtn.waitFor({ state: "visible", timeout: 12_000 });
   await addBtn.click();
-
   await page.locator("#role").first().waitFor({ state: "visible", timeout: 12_000 });
   await cathoTypeahead(page, "#role", title);
   await cathoTypeahead(page, "#company", org);
+  await cathoFillExperienceDates(page, dates);
+  const description = cathoBulletList(bullets);
+  if (description) await page.locator("#description").first().fill(description.slice(0, 3000)).catch(() => {});
+}
 
-  const { start, end, current } = cathoParseDates(entry.dates);
+async function cathoFillExperienceDates(page, dates) {
+  const { start, end, current } = cathoParseDates(dates);
   const ongoing = current || !end;
   if (ongoing) await page.locator('label[for="currentJob"]').first().click().catch(() => {});
   await cathoFillDate(page, "#dateInit", start);
   if (!ongoing) await cathoFillDate(page, "#dateEnd", end);
-
-  const desc = cathoBulletList(entry.bullets);
-  if (desc) await page.locator("#description").first().fill(desc.slice(0, 3000)).catch(() => {});
-
-  await cathoSave(page);
-  return { kind: "experience", status: "ok", label };
 }
 
 async function cathoAddEducation(page, sec, entry) {
@@ -246,21 +249,26 @@ async function cathoAddEducation(page, sec, entry) {
     return { kind: "education", status: "skipped", label, reason: "Already on Catho resume" };
   }
 
+  await cathoFillEducationForm(page, { degree, inst, dates: entry.dates });
+  await cathoSave(page);
+  return { kind: "education", status: "ok", label };
+}
+
+async function cathoFillEducationForm(page, { degree, inst, dates }) {
   const addBtn = page.locator('#education button[title="adicionar formação"]').first();
   await addBtn.waitFor({ state: "visible", timeout: 12_000 });
   await addBtn.click();
-
   await page.locator("#degree").first().waitFor({ state: "visible", timeout: 12_000 });
   await page.locator("#degree").first().selectOption(cathoDegreeValue(degree)).catch(() => {});
   await cathoTypeahead(page, "#course", degree);
   await page.locator("#institution").first().fill(inst).catch(() => {});
+  await cathoFillEducationDates(page, dates);
+}
 
-  const { start, end, current } = cathoParseDates(entry.dates);
+async function cathoFillEducationDates(page, dates) {
+  const { start, end, current } = cathoParseDates(dates);
   const ongoing = current || !end;
   if (ongoing) await page.locator('label[for="currentYear"]').first().click().catch(() => {});
   await cathoFillDate(page, "#courseStart", start);
   if (!ongoing) await cathoFillDate(page, "#courseEnd", end);
-
-  await cathoSave(page);
-  return { kind: "education", status: "ok", label };
 }

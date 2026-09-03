@@ -61,43 +61,61 @@ function findJobsArray(root) {
   const stack = [{ v: root, d: 0 }];
   while (stack.length) {
     const { v, d } = stack.pop();
-    if (!v || typeof v !== "object" || d > 8) continue;
-    if (seen.has(v)) continue;
+    if (!isWalkableNuxtValue(v, d) || seen.has(v)) continue;
     seen.add(v);
     if (Array.isArray(v)) {
-      if (v.length && v[0] && typeof v[0] === "object" && "ciphertext" in v[0] && "title" in v[0])
-        return v;
-      for (const item of v) stack.push({ v: item, d: d + 1 });
+      if (isJobArray(v)) return v;
+      addNuxtArrayChildren(stack, v, d);
     } else {
-      for (const key of Object.keys(v)) stack.push({ v: v[key], d: d + 1 });
+      addNuxtObjectChildren(stack, v, d);
     }
   }
   return null;
 }
 
+function isWalkableNuxtValue(value, depth) {
+  return !!value && typeof value === "object" && depth <= 8;
+}
+
+function isJobArray(value) {
+  const first = value[0];
+  return value.length > 0 && first && typeof first === "object" && "ciphertext" in first && "title" in first;
+}
+
+function addNuxtArrayChildren(stack, value, depth) {
+  for (const item of value) stack.push({ v: item, d: depth + 1 });
+}
+
+function addNuxtObjectChildren(stack, value, depth) {
+  for (const key of Object.keys(value)) stack.push({ v: value[key], d: depth + 1 });
+}
+
+function nuxtBudget(job) {
+  const hourly = job.hourlyBudget;
+  if (hourly && (hourly.min || hourly.max)) return `Rate: $${hourly.min ?? "?"}–$${hourly.max ?? "?"}/hr`;
+  if (job.amount && job.amount.amount) return `Budget: $${job.amount.amount}`;
+  return "";
+}
+
+function nuxtSkills(job) {
+  return Array.isArray(job.attrs)
+    ? job.attrs.map((attr) => attr && (attr.prettyName || attr.prefLabel)).filter(Boolean)
+    : [];
+}
+
 function nuxtJobToCard(j) {
   const cipher = j.ciphertext || (j.uid ? `~02${j.uid}` : null);
   if (!cipher) return null;
-  const title = stripTags(j.title);
-  const parts = [];
-  const hb = j.hourlyBudget;
-  if (hb && (hb.min || hb.max)) {
-    parts.push(`Rate: $${hb.min ?? "?"}–$${hb.max ?? "?"}/hr`);
-  } else if (j.amount && j.amount.amount) {
-    parts.push(`Budget: $${j.amount.amount}`);
-  }
-  const skills = Array.isArray(j.attrs)
-    ? j.attrs.map((a) => a && (a.prettyName || a.prefLabel)).filter(Boolean)
-    : [];
+  const skills = nuxtSkills(j);
+  const parts = [nuxtBudget(j)];
   if (skills.length) parts.push(`Skills: ${skills.join(", ")}`);
   const body = stripTags(j.description);
   const description = [parts.join(" · "), body].filter(Boolean).join("\n\n") || null;
-  const country = j.client && j.client.location && j.client.location.country;
   return {
     job_id: String(j.uid || cipher),
-    title: title || null,
+    title: stripTags(j.title) || null,
     company: null,
-    location: country || null,
+    location: j.client?.location?.country || null,
     apply_url: `https://www.upwork.com/jobs/${cipher}/`,
     is_easy_apply: false,
     description,
@@ -106,55 +124,63 @@ function nuxtJobToCard(j) {
 
 function scrapeUpworkDom(page) {
   return page.evaluate(() => {
-    const clean = (s) =>
-      String(s ?? "")
-        .replace(/\s+/g, " ")
-        .trim();
-    const cards = Array.from(
-      document.querySelectorAll('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]'),
-    );
-    const jobs = cards.flatMap((card) => {
+    const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+    const cards = Array.from(document.querySelectorAll('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]'));
+    const cleanList = (card, selector) => Array.from(card.querySelectorAll(selector)).map((el) => clean(el.textContent)).filter(Boolean);
+    const readDescription = (card) => {
+      const skills = cleanList(card, '[data-test="TokenClamp JobAttrs"] .air3-token');
+      const info = cleanList(card, 'ul[data-test="JobInfo"] li');
+      return [info.join(" · "), skills.length ? `Skills: ${skills.join(", ")}` : "", clean(card.querySelector('[data-test="JobDescription"] p, .air3-line-clamp p')?.textContent)].filter(Boolean).join("\n\n") || null;
+    };
+    const readCard = (card) => {
       const uid = card.getAttribute("data-ev-job-uid");
       const a = card.querySelector('a[data-test="job-tile-title-link"]');
-      const href = a ? a.getAttribute("href") || "" : "";
-      const m = href.match(/~0?2?(\d{6,})/) || (uid ? [null, uid] : null);
-      const id = uid || (m ? m[1] : null);
-      if (!id) return [];
-      const title = clean(a ? a.textContent : "");
-      const desc = clean(
-        (card.querySelector('[data-test="JobDescription"] p, .air3-line-clamp p') || {})
-          .textContent,
-      );
-      const skills = Array.from(
-        card.querySelectorAll('[data-test="TokenClamp JobAttrs"] .air3-token'),
-      )
-        .map((t) => clean(t.textContent))
-        .filter(Boolean);
-      const info = Array.from(card.querySelectorAll('ul[data-test="JobInfo"] li'))
-        .map((li) => clean(li.textContent))
-        .filter(Boolean);
-      const description =
-        [info.join(" · "), skills.length ? `Skills: ${skills.join(", ")}` : "", desc]
-          .filter(Boolean)
-          .join("\n\n") || null;
-      const cipher = href.match(/(~0\d\d+)/);
-      const apply = cipher
-        ? `https://www.upwork.com/jobs/${cipher[1]}/`
-        : `https://www.upwork.com/jobs/~02${id}/`;
-      return [
-        {
-          job_id: String(id),
-          title: title || null,
-          company: null,
-          location: null,
-          apply_url: apply,
-          is_easy_apply: false,
-          description,
-        },
-      ];
-    });
+      const href = a?.getAttribute("href") || "";
+      const id = uid || href.match(/~0?2?(\d{6,})/)?.[1];
+      if (!id) return null;
+      const cipher = href.match(/(~0\d\d+)/)?.[1] || `~02${id}`;
+      return {
+        job_id: String(id),
+        title: clean(a?.textContent) || null,
+        company: null,
+        location: null,
+        apply_url: `https://www.upwork.com/jobs/${cipher}/`,
+        is_easy_apply: false,
+        description: readDescription(card),
+      };
+    };
+    const jobs = cards.map(readCard).filter(Boolean);
     return jobs;
   });
+}
+
+async function scrapeUpworkPageAt(page, urlOpts, pageNumber) {
+  await page.goto(buildUpworkSearchUrl({ ...urlOpts, page: pageNumber }), {
+    waitUntil: "domcontentloaded",
+    timeout: 45_000,
+  });
+  await page.waitForTimeout(1_500).catch(() => {});
+  await passCaptchaIfChallenged(page).catch(() => {});
+  await page
+    .waitForSelector('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]', { timeout: 20_000 })
+    .catch(() => {});
+  const nuxt = await page.evaluate(() => (window.__NUXT__ ? window.__NUXT__ : null)).catch(() => null);
+  if (nuxt) {
+    const jobs = (findJobsArray(nuxt) || []).map(nuxtJobToCard).filter(Boolean);
+    if (jobs.length) return jobs;
+  }
+  return scrapeUpworkDom(page).catch(() => []);
+}
+
+function mergeUpworkJobs(jobs, seen, pageJobs) {
+  let added = 0;
+  for (const job of pageJobs) {
+    if (!job.job_id || seen.has(job.job_id)) continue;
+    seen.add(job.job_id);
+    jobs.push(job);
+    added += 1;
+  }
+  return added;
 }
 
 export async function upworkSearchJobs(page, opts = {}) {
@@ -166,41 +192,8 @@ export async function upworkSearchJobs(page, opts = {}) {
   let hasNextAfterLast = false;
 
   for (let p = 1; p <= cap; p++) {
-    await page.goto(buildUpworkSearchUrl({ ...urlOpts, page: p }), {
-      waitUntil: "domcontentloaded",
-      timeout: 45_000,
-    });
-    // Upwork fronts search with a Cloudflare wall. Give the interstitial a beat
-    // to render, then run the keyless auto-pass (headed/Xvfb is what clears it);
-    // best-effort — if it doesn't lift we still try to scrape whatever loaded.
-    await page.waitForTimeout(1_500).catch(() => {});
-    await passCaptchaIfChallenged(page).catch(() => {});
-    await page
-      .waitForSelector('article.job-tile[data-test="JobTile"], article[data-ev-job-uid]', {
-        timeout: 20_000,
-      })
-      .catch(() => {});
-
-    let pageJobs = [];
-    const nuxt = await page
-      .evaluate(() => (window.__NUXT__ ? window.__NUXT__ : null))
-      .catch(() => null);
-    if (nuxt) {
-      const arr = findJobsArray(nuxt) || [];
-      pageJobs = arr.map(nuxtJobToCard).filter(Boolean);
-    }
-    if (pageJobs.length === 0) {
-      pageJobs = await scrapeUpworkDom(page).catch(() => []);
-    }
-
-    let added = 0;
-    for (const job of pageJobs) {
-      if (job.job_id && !seen.has(job.job_id)) {
-        seen.add(job.job_id);
-        jobs.push(job);
-        added += 1;
-      }
-    }
+    const pageJobs = await scrapeUpworkPageAt(page, urlOpts, p);
+    const added = mergeUpworkJobs(jobs, seen, pageJobs);
     hasNextAfterLast = pageJobs.length > 0;
     if (added === 0) break;
   }

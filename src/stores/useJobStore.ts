@@ -7,18 +7,27 @@ import type {
 } from "../types/domain";
 import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
 
+const JOB_PAGE_SIZE = 50;
+
+interface JobCursor {
+  discoveredAt: string;
+  id: string;
+}
+
 interface JobStoreState {
   jobs: JobPostDto[];
   matches: JobMatchDto[];
   isLoading: boolean;
   error: string | null;
+  nextCursor: JobCursor | null;
 
   /**
    * Load job posts for the given profile. When `statusFilter` is provided
    * (and not "all") it is forwarded to `list_job_posts` as a server-side
    * filter. On backend failure safeInvoke collapses to null → empty list.
    */
-  loadJobs: (profileId: string, statusFilter?: string) => Promise<void>;
+  loadJobs: (profileId: string, statusFilter?: string, search?: string) => Promise<void>;
+  loadMoreJobs: (profileId: string, statusFilter?: string, search?: string) => Promise<void>;
 
   /** Load all match scores for the profile. */
   loadMatches: (profileId: string) => Promise<void>;
@@ -69,22 +78,49 @@ interface JobStoreState {
   clearError: () => void;
 }
 
-export const useJobStore = create<JobStoreState>((set) => ({
+export const useJobStore = create<JobStoreState>((set, get) => ({
   jobs: [],
   matches: [],
   isLoading: false,
   error: null,
+  nextCursor: null,
 
-  loadJobs: async (profileId, statusFilter) => {
+  loadJobs: async (profileId, statusFilter, search) => {
     set({ isLoading: true, error: null });
-    const args: Record<string, unknown> = { profileId };
+    const args: Record<string, unknown> = { profileId, limit: JOB_PAGE_SIZE };
     // Only forward a concrete status string - omit key entirely for "all"
     // so the backend returns every status rather than filtering to "all".
     if (statusFilter !== undefined && statusFilter !== "all") {
       args.statusFilter = statusFilter;
     }
-    const jobs = await safeInvoke<JobPostDto[]>("list_job_posts", args);
-    set({ jobs: jobs ?? [], isLoading: false });
+    if (search?.trim().length && search.trim().length >= 2) args.search = search.trim();
+    const jobs = await safeInvoke<JobPostDto[]>("list_job_posts", { input: args });
+    const rows = jobs ?? [];
+    set({
+      jobs: rows,
+      nextCursor: rows.length === JOB_PAGE_SIZE ? cursorFor(rows) : null,
+      isLoading: false,
+    });
+  },
+
+  loadMoreJobs: async (profileId, statusFilter, search) => {
+    const cursor = get().nextCursor;
+    if (cursor === null || get().isLoading) return;
+    set({ isLoading: true, error: null });
+    const args: Record<string, unknown> = {
+      profileId,
+      limit: JOB_PAGE_SIZE,
+      cursorDiscoveredAt: cursor.discoveredAt,
+      cursorId: cursor.id,
+    };
+    if (statusFilter !== undefined && statusFilter !== "all") args.statusFilter = statusFilter;
+    if (search?.trim().length && search.trim().length >= 2) args.search = search.trim();
+    const rows = (await safeInvoke<JobPostDto[]>("list_job_posts", { input: args })) ?? [];
+    set((state) => ({
+      jobs: [...state.jobs, ...rows],
+      nextCursor: rows.length === JOB_PAGE_SIZE ? cursorFor(rows) : null,
+      isLoading: false,
+    }));
   },
 
   loadMatches: async (profileId) => {
@@ -130,12 +166,14 @@ export const useJobStore = create<JobStoreState>((set) => ({
   runLinkedInSearch: async (profileId, searchQueryId, keywords, location, remoteOnly) => {
     try {
       const result = await invokeStrict<LinkedInSearchResult>("run_linkedin_search", {
-        profileId,
-        searchQueryId: searchQueryId ?? null,
-        keywords,
-        location: location ?? null,
-        easyApplyOnly: true,
-        remoteOnly: remoteOnly ?? false,
+        input: {
+          profileId,
+          searchQueryId: searchQueryId ?? null,
+          keywords,
+          location: location ?? null,
+          easyApplyOnly: true,
+          remoteOnly: remoteOnly ?? false,
+        },
       });
       return result;
     } catch (e) {
@@ -165,6 +203,11 @@ export const useJobStore = create<JobStoreState>((set) => ({
   clearError: () => set({ error: null }),
 }));
 
+function cursorFor(rows: JobPostDto[]): JobCursor {
+  const last = rows[rows.length - 1];
+  return { discoveredAt: last.discoveredAt, id: last.id };
+}
+
 /**
  * Scrape Google (dork search) and ingest results for a profile + query combo.
  * Throws on failure (including when Google blocks with a captcha wall) so the
@@ -177,10 +220,7 @@ export async function runGoogleSearch(
   maxPages?: number,
 ): Promise<GoogleSearchResult> {
   return invokeStrict<GoogleSearchResult>("run_google_search", {
-    profileId,
-    searchQueryId,
-    query,
-    maxPages: maxPages ?? null,
+    input: { profileId, searchQueryId, query, maxPages: maxPages ?? null },
   });
 }
 
@@ -190,23 +230,30 @@ export async function runGoogleSearch(
  * `workModels` map to the URL's `area_id[]` / `work_model[]`; `lastDays` is
  * optional (omit for any date). Throws on failure for the caller to surface.
  */
-export async function runCathoSearch(
-  profileId: string,
-  searchQueryId: string | null,
-  query: string,
-  areaIds?: number[],
-  workModels?: string[],
-  lastDays?: number,
-  maxPages?: number,
-): Promise<LinkedInSearchResult> {
+interface BoardSearchOptions {
+  profileId: string;
+  searchQueryId: string | null;
+  query: string;
+  areaIds?: number[];
+  workModels?: string[];
+  lastDays?: number;
+  maxPages?: number;
+}
+
+const nullable = <T>(value: T | undefined | null) => value ?? null;
+
+export async function runCathoSearch(options: BoardSearchOptions): Promise<LinkedInSearchResult> {
+  const { profileId, searchQueryId, query, areaIds, workModels, lastDays, maxPages } = options;
   return invokeStrict<LinkedInSearchResult>("run_catho_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    query,
-    areaIds: areaIds ?? null,
-    workModels: workModels ?? null,
-    lastDays: lastDays ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: nullable(searchQueryId),
+      query,
+      areaIds: nullable(areaIds),
+      workModels: nullable(workModels),
+      lastDays: nullable(lastDays),
+      maxPages: nullable(maxPages),
+    },
   });
 }
 
@@ -216,22 +263,19 @@ export async function runCathoSearch(
  * id; `workModels`/`lastDays` map to the idw/Antiguedad facets.
  */
 export async function runInfojobsSearch(
-  profileId: string,
-  searchQueryId: string | null,
-  query: string,
-  location?: string,
-  workModels?: string[],
-  lastDays?: number,
-  maxPages?: number,
+  options: BoardSearchOptions & { location?: string },
 ): Promise<LinkedInSearchResult> {
+  const { profileId, searchQueryId, query, location, workModels, lastDays, maxPages } = options;
   return invokeStrict<LinkedInSearchResult>("run_infojobs_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    query,
-    location: location ?? null,
-    workModels: workModels ?? null,
-    lastDays: lastDays ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: nullable(searchQueryId),
+      query,
+      location: nullable(location),
+      workModels: nullable(workModels),
+      lastDays: nullable(lastDays),
+      maxPages: nullable(maxPages),
+    },
   });
 }
 
@@ -248,11 +292,13 @@ export async function runGupySearch(
   maxPages?: number,
 ): Promise<LinkedInSearchResult> {
   return invokeStrict<LinkedInSearchResult>("run_gupy_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    query,
-    remoteOnly: remoteOnly ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: searchQueryId ?? null,
+      query,
+      remoteOnly: remoteOnly ?? null,
+      maxPages: maxPages ?? null,
+    },
   });
 }
 
@@ -269,11 +315,13 @@ export async function runUpworkSearch(
   maxPages?: number,
 ): Promise<LinkedInSearchResult> {
   return invokeStrict<LinkedInSearchResult>("run_upwork_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    query,
-    sort: sort ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: searchQueryId ?? null,
+      query,
+      sort: sort ?? null,
+      maxPages: maxPages ?? null,
+    },
   });
 }
 
@@ -328,11 +376,13 @@ export async function runGeekhunterSearch(
   maxPages?: number,
 ): Promise<LinkedInSearchResult> {
   return invokeStrict<LinkedInSearchResult>("run_geekhunter_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    query,
-    remoteOnly: remoteOnly ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: searchQueryId ?? null,
+      query,
+      remoteOnly: remoteOnly ?? null,
+      maxPages: maxPages ?? null,
+    },
   });
 }
 
@@ -383,12 +433,14 @@ export async function runIndeedSearch(
   maxPages?: number,
 ): Promise<LinkedInSearchResult> {
   return invokeStrict<LinkedInSearchResult>("run_indeed_search", {
-    profileId,
-    searchQueryId: searchQueryId ?? null,
-    keywords,
-    location: location ?? null,
-    remoteOnly: remoteOnly ?? null,
-    maxPages: maxPages ?? null,
+    input: {
+      profileId,
+      searchQueryId: searchQueryId ?? null,
+      keywords,
+      location: location ?? null,
+      remoteOnly: remoteOnly ?? null,
+      maxPages: maxPages ?? null,
+    },
   });
 }
 
@@ -399,7 +451,9 @@ export async function runIndeedSearch(
  * Never submits — the operator confirms or rejects afterward. Throws on failure.
  */
 export async function startIndeedApply(jobUrl: string, profileId: string): Promise<void> {
-  return invokeStrict<void>("automation_start_indeed", { jobUrl, profileId, answers: null });
+  return invokeStrict<void>("automation_start_indeed", {
+    input: { jobUrl, profileId, answers: null },
+  });
 }
 
 /**

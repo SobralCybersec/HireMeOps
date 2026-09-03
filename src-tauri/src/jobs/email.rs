@@ -23,18 +23,21 @@ pub fn extract_email(text: &str) -> Option<String> {
             continue;
         }
         let candidate = &text[local_start..domain_end];
-        let trimmed = candidate.trim_end_matches(['.', ',', ';', ')', '!', '?']);
-        if let Some(at) = trimmed.rfind('@') {
-            let domain = &trimmed[at + 1..];
-            if let Some(dot) = domain.rfind('.') {
-                let tld = &domain[dot + 1..];
-                if tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()) {
-                    return Some(trimmed.to_ascii_lowercase());
-                }
-            }
+        if let Some(email) = valid_candidate(candidate) {
+            return Some(email);
         }
     }
     None
+}
+
+fn valid_candidate(candidate: &str) -> Option<String> {
+    let trimmed = candidate.trim_end_matches(['.', ',', ';', ')', '!', '?']);
+    let at = trimmed.rfind('@')?;
+    let domain = &trimmed[at + 1..];
+    let dot = domain.rfind('.')?;
+    let tld = &domain[dot + 1..];
+    (tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()))
+        .then(|| trimmed.to_ascii_lowercase())
 }
 
 fn is_local_char(b: u8) -> bool {

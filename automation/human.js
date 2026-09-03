@@ -227,6 +227,35 @@ async function pressChar(page, ch, speed = 1) {
   }
 }
 
+async function instantType(locator, text) {
+  await locator
+    .fill(String(text))
+    .catch(() => locator.pressSequentially(String(text), { delay: 4 }).catch(() => {}));
+}
+
+async function typeTimedCharacter(page, ch, speed) {
+  if (rand() < K.typoRate && NEIGHBORS[ch.toLowerCase()]) {
+    const wrong = NEIGHBORS[ch.toLowerCase()];
+    await pressChar(page, ch === ch.toUpperCase() ? wrong.toUpperCase() : wrong, speed);
+    await sleep(gauss(K.flight.mean, K.flight.sd, K.flight.clamp) / speed);
+    await page.keyboard.press("Backspace", { delay: 40 });
+    await sleep(randRange([90, 240]) / speed);
+  }
+  await pressChar(page, ch, speed);
+  let flight = gauss(K.flight.mean, K.flight.sd, K.flight.clamp);
+  if (",;:".includes(ch)) flight += randRange(K.commaPause);
+  else if (".?!".includes(ch)) flight += randRange(K.sentencePause);
+  await sleep(flight / speed);
+}
+
+async function timedType(page, locator, text, speed) {
+  await sleep(randRange([80, 240]) / speed);
+  await page.keyboard.press("Control+a").catch(() => {});
+  await page.keyboard.press("Backspace").catch(() => {});
+  await sleep(randRange([40, 120]) / speed);
+  for (const ch of String(text)) await typeTimedCharacter(page, ch, speed);
+}
+
 async function humanType(page, locator, text, opts = {}) {
   await humanClick(page, locator);
 
@@ -236,31 +265,12 @@ async function humanType(page, locator, text, opts = {}) {
   if (opts.instant ?? TYPE_INSTANT) {
     await page.keyboard.press("Control+a").catch(() => {});
     await page.keyboard.press("Backspace").catch(() => {});
-    await locator
-      .fill(String(text))
-      .catch(() => locator.pressSequentially(String(text), { delay: 4 }).catch(() => {}));
+    await instantType(locator, text);
     return;
   }
 
   const speed = clampSpeed(opts.speed ?? TYPE_SPEED);
-  await sleep(randRange([80, 240]) / speed);
-  await page.keyboard.press("Control+a").catch(() => {});
-  await page.keyboard.press("Backspace").catch(() => {});
-  await sleep(randRange([40, 120]) / speed);
-  for (const ch of String(text)) {
-    if (rand() < K.typoRate && NEIGHBORS[ch.toLowerCase()]) {
-      const wrong = NEIGHBORS[ch.toLowerCase()];
-      await pressChar(page, ch === ch.toUpperCase() ? wrong.toUpperCase() : wrong, speed);
-      await sleep(gauss(K.flight.mean, K.flight.sd, K.flight.clamp) / speed);
-      await page.keyboard.press("Backspace", { delay: 40 });
-      await sleep(randRange([90, 240]) / speed);
-    }
-    await pressChar(page, ch, speed);
-    let flight = gauss(K.flight.mean, K.flight.sd, K.flight.clamp);
-    if (",;:".includes(ch)) flight += randRange(K.commaPause);
-    else if (".?!".includes(ch)) flight += randRange(K.sentencePause);
-    await sleep(flight / speed);
-  }
+  await timedType(page, locator, text, speed);
 }
 
 async function humanScroll(page, totalY) {

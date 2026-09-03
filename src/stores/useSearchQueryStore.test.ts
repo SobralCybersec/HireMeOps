@@ -59,179 +59,178 @@ function resetStore() {
 
 /* ── Tests ────────────────────────────────────────────────────────── */
 
-describe("useSearchQueryStore", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStore();
+// Store-wide reset applies to every suite below.
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetStore();
+});
+
+// ── load ──────────────────────────────────────────────────────────
+describe("load", () => {
+  it("calls list_search_queries with camelCase profileId and populates queries", async () => {
+    vi.mocked(safeInvoke).mockResolvedValueOnce([mockQuery]);
+
+    await useSearchQueryStore.getState().load("p1");
+
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
+      profileId: "p1",
+    });
+    expect(useSearchQueryStore.getState().queries).toEqual([mockQuery]);
+    expect(useSearchQueryStore.getState().isLoading).toBe(false);
   });
 
-  // ── load ──────────────────────────────────────────────────────────
-  describe("load", () => {
-    it("calls list_search_queries with camelCase profileId and populates queries", async () => {
-      vi.mocked(safeInvoke).mockResolvedValueOnce([mockQuery]);
+  it("forwards preferenceId when provided", async () => {
+    vi.mocked(safeInvoke).mockResolvedValueOnce([]);
 
-      await useSearchQueryStore.getState().load("p1");
+    await useSearchQueryStore.getState().load("p1", "pref1");
 
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
-        profileId: "p1",
-      });
-      expect(useSearchQueryStore.getState().queries).toEqual([mockQuery]);
-      expect(useSearchQueryStore.getState().isLoading).toBe(false);
-    });
-
-    it("forwards preferenceId when provided", async () => {
-      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
-
-      await useSearchQueryStore.getState().load("p1", "pref1");
-
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
-        profileId: "p1",
-        preferenceId: "pref1",
-      });
-    });
-
-    it("omits preferenceId key entirely when undefined", async () => {
-      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
-
-      await useSearchQueryStore.getState().load("p1");
-
-      // Key must be absent so the backend returns every query for the profile.
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
-        profileId: "p1",
-      });
-    });
-
-    it("sets queries to [] when safeInvoke returns null (backend error)", async () => {
-      vi.mocked(safeInvoke).mockResolvedValueOnce(null);
-
-      await useSearchQueryStore.getState().load("p1");
-
-      expect(useSearchQueryStore.getState().queries).toEqual([]);
-      expect(useSearchQueryStore.getState().isLoading).toBe(false);
-    });
-
-    it("sets isLoading true during fetch and false after", async () => {
-      let resolveInvoke!: (v: SearchQueryDto[]) => void;
-      vi.mocked(safeInvoke).mockReturnValueOnce(
-        new Promise<SearchQueryDto[]>((r) => {
-          resolveInvoke = r;
-        }),
-      );
-
-      const promise = useSearchQueryStore.getState().load("p1");
-      expect(useSearchQueryStore.getState().isLoading).toBe(true);
-
-      resolveInvoke([mockQuery]);
-      await promise;
-      expect(useSearchQueryStore.getState().isLoading).toBe(false);
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
+      profileId: "p1",
+      preferenceId: "pref1",
     });
   });
 
-  // ── generate ──────────────────────────────────────────────────────
-  describe("generate", () => {
-    it("calls generate_search_queries with the input, then reloads the list", async () => {
-      vi.mocked(invokeStrict).mockResolvedValueOnce(["sq1", "sq2"]);
-      // generate() calls load() internally, which uses safeInvoke.
-      vi.mocked(safeInvoke).mockResolvedValueOnce([mockQuery]);
+  it("omits preferenceId key entirely when undefined", async () => {
+    vi.mocked(safeInvoke).mockResolvedValueOnce([]);
 
-      const ids = await useSearchQueryStore.getState().generate(mockInput);
+    await useSearchQueryStore.getState().load("p1");
 
-      expect(invokeStrict).toHaveBeenCalledWith("generate_search_queries", {
-        input: mockInput,
-      });
-      // Reload uses the input's profileId; preferenceId undefined → omitted.
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
-        profileId: "p1",
-      });
-      expect(ids).toEqual(["sq1", "sq2"]);
-      expect(useSearchQueryStore.getState().queries).toEqual([mockQuery]);
-      expect(useSearchQueryStore.getState().isGenerating).toBe(false);
-    });
-
-    it("forwards preferenceId to the reload when present on the input", async () => {
-      vi.mocked(invokeStrict).mockResolvedValueOnce(["sq1"]);
-      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
-
-      await useSearchQueryStore.getState().generate({ ...mockInput, preferenceId: "pref1" });
-
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
-        profileId: "p1",
-        preferenceId: "pref1",
-      });
-    });
-
-    it("sets error and returns null when invokeStrict rejects", async () => {
-      vi.mocked(invokeStrict).mockRejectedValueOnce("boom");
-
-      const ids = await useSearchQueryStore.getState().generate(mockInput);
-
-      expect(ids).toBeNull();
-      expect(useSearchQueryStore.getState().error).toBe("Generate failed: boom");
-      expect(useSearchQueryStore.getState().isGenerating).toBe(false);
-      // Failure must not trigger a reload.
-      expect(safeInvoke).not.toHaveBeenCalled();
-    });
-
-    it("sets isGenerating true during the call and false after", async () => {
-      let resolveInvoke!: (v: string[]) => void;
-      vi.mocked(invokeStrict).mockReturnValueOnce(
-        new Promise<string[]>((r) => {
-          resolveInvoke = r;
-        }),
-      );
-      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
-
-      const promise = useSearchQueryStore.getState().generate(mockInput);
-      expect(useSearchQueryStore.getState().isGenerating).toBe(true);
-
-      resolveInvoke(["sq1"]);
-      await promise;
-      expect(useSearchQueryStore.getState().isGenerating).toBe(false);
+    // Key must be absent so the backend returns every query for the profile.
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
+      profileId: "p1",
     });
   });
 
-  // ── remove ────────────────────────────────────────────────────────
-  describe("remove", () => {
-    it("calls delete_search_query with id, then reloads the list for the query's profile", async () => {
-      useSearchQueryStore.setState({ queries: [mockQuery] });
-      vi.mocked(invokeStrict).mockResolvedValueOnce(undefined);
-      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
+  it("sets queries to [] when safeInvoke returns null (backend error)", async () => {
+    vi.mocked(safeInvoke).mockResolvedValueOnce(null);
 
-      await useSearchQueryStore.getState().remove("sq1");
+    await useSearchQueryStore.getState().load("p1");
 
-      expect(invokeStrict).toHaveBeenCalledWith("delete_search_query", { id: "sq1" });
-      expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", { profileId: "p1" });
-      expect(useSearchQueryStore.getState().error).toBeNull();
+    expect(useSearchQueryStore.getState().queries).toEqual([]);
+    expect(useSearchQueryStore.getState().isLoading).toBe(false);
+  });
+
+  it("sets isLoading true during fetch and false after", async () => {
+    let resolveInvoke!: (v: SearchQueryDto[]) => void;
+    vi.mocked(safeInvoke).mockReturnValueOnce(
+      new Promise<SearchQueryDto[]>((r) => {
+        resolveInvoke = r;
+      }),
+    );
+
+    const promise = useSearchQueryStore.getState().load("p1");
+    expect(useSearchQueryStore.getState().isLoading).toBe(true);
+
+    resolveInvoke([mockQuery]);
+    await promise;
+    expect(useSearchQueryStore.getState().isLoading).toBe(false);
+  });
+});
+
+// ── generate ──────────────────────────────────────────────────────
+describe("generate", () => {
+  it("calls generate_search_queries with the input, then reloads the list", async () => {
+    vi.mocked(invokeStrict).mockResolvedValueOnce(["sq1", "sq2"]);
+    // generate() calls load() internally, which uses safeInvoke.
+    vi.mocked(safeInvoke).mockResolvedValueOnce([mockQuery]);
+
+    const ids = await useSearchQueryStore.getState().generate(mockInput);
+
+    expect(invokeStrict).toHaveBeenCalledWith("generate_search_queries", {
+      input: mockInput,
     });
-
-    it("sets error and does not reload when invokeStrict rejects", async () => {
-      useSearchQueryStore.setState({ queries: [mockQuery] });
-      vi.mocked(invokeStrict).mockRejectedValueOnce("oops");
-
-      await useSearchQueryStore.getState().remove("sq1");
-
-      expect(useSearchQueryStore.getState().error).toBe("Delete failed: oops");
-      expect(safeInvoke).not.toHaveBeenCalled();
+    // Reload uses the input's profileId; preferenceId undefined → omitted.
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
+      profileId: "p1",
     });
+    expect(ids).toEqual(["sq1", "sq2"]);
+    expect(useSearchQueryStore.getState().queries).toEqual([mockQuery]);
+    expect(useSearchQueryStore.getState().isGenerating).toBe(false);
+  });
 
-    it("skips reload when the id is not found in the current query list", async () => {
-      useSearchQueryStore.setState({ queries: [] });
-      vi.mocked(invokeStrict).mockResolvedValueOnce(undefined);
+  it("forwards preferenceId to the reload when present on the input", async () => {
+    vi.mocked(invokeStrict).mockResolvedValueOnce(["sq1"]);
+    vi.mocked(safeInvoke).mockResolvedValueOnce([]);
 
-      await useSearchQueryStore.getState().remove("unknown");
+    await useSearchQueryStore.getState().generate({ ...mockInput, preferenceId: "pref1" });
 
-      expect(invokeStrict).toHaveBeenCalledWith("delete_search_query", { id: "unknown" });
-      // profileId undefined → load is not called
-      expect(safeInvoke).not.toHaveBeenCalled();
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", {
+      profileId: "p1",
+      preferenceId: "pref1",
     });
   });
 
-  // ── clearError ────────────────────────────────────────────────────
-  describe("clearError", () => {
-    it("resets error to null", () => {
-      useSearchQueryStore.setState({ error: "something failed" });
-      useSearchQueryStore.getState().clearError();
-      expect(useSearchQueryStore.getState().error).toBeNull();
-    });
+  it("sets error and returns null when invokeStrict rejects", async () => {
+    vi.mocked(invokeStrict).mockRejectedValueOnce("boom");
+
+    const ids = await useSearchQueryStore.getState().generate(mockInput);
+
+    expect(ids).toBeNull();
+    expect(useSearchQueryStore.getState().error).toBe("Generate failed: boom");
+    expect(useSearchQueryStore.getState().isGenerating).toBe(false);
+    // Failure must not trigger a reload.
+    expect(safeInvoke).not.toHaveBeenCalled();
+  });
+
+  it("sets isGenerating true during the call and false after", async () => {
+    let resolveInvoke!: (v: string[]) => void;
+    vi.mocked(invokeStrict).mockReturnValueOnce(
+      new Promise<string[]>((r) => {
+        resolveInvoke = r;
+      }),
+    );
+    vi.mocked(safeInvoke).mockResolvedValueOnce([]);
+
+    const promise = useSearchQueryStore.getState().generate(mockInput);
+    expect(useSearchQueryStore.getState().isGenerating).toBe(true);
+
+    resolveInvoke(["sq1"]);
+    await promise;
+    expect(useSearchQueryStore.getState().isGenerating).toBe(false);
+  });
+});
+
+// ── remove ────────────────────────────────────────────────────────
+describe("remove", () => {
+  it("calls delete_search_query with id, then reloads the list for the query's profile", async () => {
+    useSearchQueryStore.setState({ queries: [mockQuery] });
+    vi.mocked(invokeStrict).mockResolvedValueOnce(undefined);
+    vi.mocked(safeInvoke).mockResolvedValueOnce([]);
+
+    await useSearchQueryStore.getState().remove("sq1");
+
+    expect(invokeStrict).toHaveBeenCalledWith("delete_search_query", { id: "sq1" });
+    expect(safeInvoke).toHaveBeenCalledWith("list_search_queries", { profileId: "p1" });
+    expect(useSearchQueryStore.getState().error).toBeNull();
+  });
+
+  it("sets error and does not reload when invokeStrict rejects", async () => {
+    useSearchQueryStore.setState({ queries: [mockQuery] });
+    vi.mocked(invokeStrict).mockRejectedValueOnce("oops");
+
+    await useSearchQueryStore.getState().remove("sq1");
+
+    expect(useSearchQueryStore.getState().error).toBe("Delete failed: oops");
+    expect(safeInvoke).not.toHaveBeenCalled();
+  });
+
+  it("skips reload when the id is not found in the current query list", async () => {
+    useSearchQueryStore.setState({ queries: [] });
+    vi.mocked(invokeStrict).mockResolvedValueOnce(undefined);
+
+    await useSearchQueryStore.getState().remove("unknown");
+
+    expect(invokeStrict).toHaveBeenCalledWith("delete_search_query", { id: "unknown" });
+    // profileId undefined → load is not called
+    expect(safeInvoke).not.toHaveBeenCalled();
+  });
+});
+
+// ── clearError ────────────────────────────────────────────────────
+describe("clearError", () => {
+  it("resets error to null", () => {
+    useSearchQueryStore.setState({ error: "something failed" });
+    useSearchQueryStore.getState().clearError();
+    expect(useSearchQueryStore.getState().error).toBeNull();
   });
 });

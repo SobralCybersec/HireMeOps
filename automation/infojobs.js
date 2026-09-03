@@ -22,19 +22,6 @@ const X = "#ctl00_phMasterPage_cExperiences_";
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export async function infojobsPushProfile(page, profile = {}) {
-  const {
-    firstName = "",
-    surname = "",
-    abstract = "",
-    phoneDdd = "",
-    phoneNumber = "",
-    linkedinUrl = "",
-    skills = [],
-    experiences = [],
-    education = [],
-    url,
-  } = profile;
-
   const t = perfEnabled() ? nowMs() : 0;
   const alreadyOnForm = await page
     .locator("#IdPersonalData")
@@ -62,37 +49,43 @@ export async function infojobsPushProfile(page, profile = {}) {
     };
   }
 
-  const results = [];
-  const setVal = async (sel, val, kind, label) => {
-    if (!val) return;
-    const el = page.locator(sel).first();
-    if (!(await el.count())) {
-      results.push({ kind, status: "manual", label, reason: "field not found" });
-      return;
-    }
-    await el.fill(String(val)).catch(() => {});
-    results.push({ kind, status: "ok", label });
-  };
-
-  await setVal(`${P}txtName`, firstName, "name", "Nome");
-  await setVal(`${P}txtSurname`, surname, "name", "Sobrenome");
-  await setVal(`${P}txtAbstract`, abstract, "abstract", "Resumo");
-  await setVal(`${P}txtPhone1Code`, phoneDdd, "phone", "DDD");
-  await setVal(`${P}txtPhone1`, phoneNumber, "phone", "Telefone");
-  await setVal(
-    "#ctl00_phMasterPage_cSocialMedia_rptGrid_ctl00_txtSocialMedia",
-    linkedinUrl,
-    "linkedin",
-    "LinkedIn",
-  );
-
-  if (skills.length) results.push(await fillSkills(page, skills));
-  if (education.length) results.push(...(await fillEducation(page, education)));
-  if (experiences.length) results.push(...(await fillExperiences(page, experiences)));
+  const results = await fillInfojobsPersonalFields(page, profile);
+  results.push(...(await fillInfojobsSections(page, profile)));
 
   results.push(await saveCv(page));
   if (perfEnabled()) logSpan("infojobs_push", { ms: +(nowMs() - t).toFixed(1) });
   return { results };
+}
+
+async function fillInfojobsPersonalFields(page, profile) {
+  const fields = [
+    [`${P}txtName`, profile.firstName, "name", "Nome"],
+    [`${P}txtSurname`, profile.surname, "name", "Sobrenome"],
+    [`${P}txtAbstract`, profile.abstract, "abstract", "Resumo"],
+    [`${P}txtPhone1Code`, profile.phoneDdd, "phone", "DDD"],
+    [`${P}txtPhone1`, profile.phoneNumber, "phone", "Telefone"],
+    ["#ctl00_phMasterPage_cSocialMedia_rptGrid_ctl00_txtSocialMedia", profile.linkedinUrl, "linkedin", "LinkedIn"],
+  ];
+  const results = [];
+  for (const [selector, value, kind, label] of fields) {
+    if (!value) continue;
+    const input = page.locator(selector).first();
+    if (!(await input.count())) {
+      results.push({ kind, status: "manual", label, reason: "field not found" });
+      continue;
+    }
+    await input.fill(String(value)).catch(() => {});
+    results.push({ kind, status: "ok", label });
+  }
+  return results;
+}
+
+async function fillInfojobsSections(page, profile) {
+  const results = [];
+  if (profile.skills?.length) results.push(await fillSkills(page, profile.skills));
+  if (profile.education?.length) results.push(...(await fillEducation(page, profile.education)));
+  if (profile.experiences?.length) results.push(...(await fillExperiences(page, profile.experiences)));
+  return results;
 }
 
 async function fillSkills(page, skills) {
@@ -108,20 +101,23 @@ async function fillSkills(page, skills) {
   for (const raw of skills) {
     const skill = String(raw ?? "").trim();
     if (!skill || existing.has(skill.toLowerCase())) continue;
-    await box.click().catch(() => {});
-    await box.fill(skill).catch(() => {});
-    await page.waitForTimeout(300);
-    const opt = page
-      .locator('#divSkills li, .ui-autocomplete li', { hasText: new RegExp(`^\\s*${esc(skill)}\\s*$`, "i") })
-      .first();
-    if (await opt.isVisible({ timeout: 1_000 }).catch(() => false)) await opt.click().catch(() => {});
-    if (await addBtn.isEnabled().catch(() => false)) {
-      await addBtn.click().catch(() => {});
-      added++;
-      await page.waitForTimeout(200);
-    }
+    if (await addInfojobsSkill(page, box, addBtn, skill)) added++;
   }
   return { kind: "skills", status: added ? "ok" : "skipped", label: `${added} skill(s) added` };
+}
+
+async function addInfojobsSkill(page, box, addBtn, skill) {
+  await box.click().catch(() => {});
+  await box.fill(skill).catch(() => {});
+  await page.waitForTimeout(300);
+  const opt = page.locator('#divSkills li, .ui-autocomplete li', {
+    hasText: new RegExp(`^\\s*${esc(skill)}\\s*$`, "i"),
+  }).first();
+  if (await opt.isVisible({ timeout: 1_000 }).catch(() => false)) await opt.click().catch(() => {});
+  if (!await addBtn.isEnabled().catch(() => false)) return false;
+  await addBtn.click().catch(() => {});
+  await page.waitForTimeout(200);
+  return true;
 }
 
 async function selOpt(page, sel, value) {
@@ -136,32 +132,37 @@ async function selCascade(page, parentSel, parentValue, childSel, childValue) {
   const child = page.locator(childSel).first();
   const sig = () => child.locator("option").allTextContents().then((x) => x.join("|")).catch(() => "");
 
-  const prev = await parent.inputValue().catch(() => "");
-  if (String(parentValue) !== String(prev)) {
-    const before = await sig();
-    await parent.selectOption(parentValue).catch(() => {});
-    await parent.dispatchEvent("change").catch(() => {});
-    for (let i = 0; i < 40; i++) {
-      const now = await sig();
-      if (now && now !== before) break;
-      await page.waitForTimeout(150);
-    }
-  }
-
-  const held = async () => {
-    const now = await child.inputValue().catch(() => "");
-    return childValue ? now === String(childValue) : !!now;
-  };
-  if (!(await held())) {
-    for (let i = 0; i < 6; i++) {
-      if (childValue) await child.selectOption(String(childValue)).catch(() => {});
-      else await child.selectOption({ index: 1 }).catch(() => {});
-      await child.dispatchEvent("change").catch(() => {});
-      await page.waitForTimeout(300);
-      if (await held()) break;
-    }
-  }
+  await updateCascadeParent(page, parent, parentValue, sig);
+  await updateCascadeChild(page, child, childValue);
   return true;
+}
+
+async function updateCascadeParent(page, parent, parentValue, signature) {
+  const previous = await parent.inputValue().catch(() => "");
+  if (String(parentValue) === String(previous)) return;
+  const before = await signature();
+  await parent.selectOption(parentValue).catch(() => {});
+  await parent.dispatchEvent("change").catch(() => {});
+  for (let i = 0; i < 40; i += 1) {
+    const current = await signature();
+    if (current && current !== before) return;
+    await page.waitForTimeout(150);
+  }
+}
+
+async function updateCascadeChild(page, child, childValue) {
+  const held = async () => {
+    const current = await child.inputValue().catch(() => "");
+    return childValue ? current === String(childValue) : !!current;
+  };
+  if (await held()) return;
+  for (let i = 0; i < 6; i += 1) {
+    if (childValue) await child.selectOption(String(childValue)).catch(() => {});
+    else await child.selectOption({ index: 1 }).catch(() => {});
+    await child.dispatchEvent("change").catch(() => {});
+    await page.waitForTimeout(300);
+    if (await held()) return;
+  }
 }
 
 async function clickHard(page, sel) {

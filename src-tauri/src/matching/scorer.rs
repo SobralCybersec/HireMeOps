@@ -142,46 +142,59 @@ fn pct(x: f32) -> u8 {
     (x.clamp(0.0, 1.0) * 100.0).round() as u8
 }
 
-pub fn score_job(input: &MatchInput) -> MatchScore {
-    let title_lower = input.job_title.to_lowercase();
-    let title_tokens = normalize_tokens(&input.job_title);
-    let text_lower = format!("{} {}", title_lower, input.job_text.to_lowercase());
-    let text_tokens = normalize_tokens(&text_lower);
+struct SkillScores {
+    score: u8,
+    matched: Vec<String>,
+    missing: Vec<String>,
+}
 
-    let role_score = if input.target_roles.is_empty() {
-        NEUTRAL_SENIORITY
-    } else {
-        let best = input
-            .target_roles
-            .iter()
-            .map(|role| {
-                let rt = normalize_tokens(role);
-                if rt.is_empty() {
-                    return 0.0;
-                }
-                if title_lower.contains(&role.trim().to_lowercase()) {
-                    1.0
-                } else {
-                    let hit = rt.iter().filter(|t| title_tokens.contains(*t)).count();
-                    hit as f32 / rt.len() as f32
-                }
-            })
-            .fold(0.0_f32, f32::max);
-        pct(best)
-    };
+struct RiskAssessment {
+    flags: Vec<String>,
+    hard_skip: bool,
+}
 
-    let req_cov = coverage(&input.required_skills, &text_tokens, &text_lower);
-    let pref_cov = coverage(&input.preferred_skills, &text_tokens, &text_lower);
-    let skill_score = match (
+fn score_role(input: &MatchInput, title_lower: &str, title_tokens: &BTreeSet<String>) -> u8 {
+    if input.target_roles.is_empty() {
+        return NEUTRAL_SENIORITY;
+    }
+    let best = input
+        .target_roles
+        .iter()
+        .map(|role| {
+            let role_tokens = normalize_tokens(role);
+            if role_tokens.is_empty() {
+                return 0.0;
+            }
+            if title_lower.contains(&role.trim().to_lowercase()) {
+                1.0
+            } else {
+                let hit = role_tokens
+                    .iter()
+                    .filter(|token| title_tokens.contains(*token))
+                    .count();
+                hit as f32 / role_tokens.len() as f32
+            }
+        })
+        .fold(0.0_f32, f32::max);
+    pct(best)
+}
+
+fn score_skills(
+    input: &MatchInput,
+    text_tokens: &BTreeSet<String>,
+    text_lower: &str,
+) -> SkillScores {
+    let required = coverage(&input.required_skills, text_tokens, text_lower);
+    let preferred = coverage(&input.preferred_skills, text_tokens, text_lower);
+    let score = match (
         input.required_skills.is_empty(),
         input.preferred_skills.is_empty(),
     ) {
         (true, true) => NEUTRAL_SALARY,
-        (false, true) => pct(req_cov),
-        (true, false) => pct(pref_cov),
-        (false, false) => pct(0.7 * req_cov + 0.3 * pref_cov),
+        (false, true) => pct(required),
+        (true, false) => pct(preferred),
+        (false, false) => pct(0.7 * required + 0.3 * preferred),
     };
-
     let mut matched = Vec::new();
     let mut missing = Vec::new();
     for skill in input
@@ -192,76 +205,95 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
         if matched.contains(skill) || missing.contains(skill) {
             continue;
         }
-        if phrase_present(skill, &text_tokens, &text_lower) {
+        if phrase_present(skill, text_tokens, text_lower) {
             matched.push(skill.clone());
         } else {
             missing.push(skill.clone());
         }
     }
+    SkillScores {
+        score,
+        matched,
+        missing,
+    }
+}
 
-    let seniority_score = if input.pref_seniority.is_empty() {
-        NEUTRAL_SENIORITY
-    } else {
-        let job_level = input
-            .job_seniority
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            .and_then(canon_level)
-            .or_else(|| classify_seniority(&format!("{} {}", input.job_title, input.job_text)));
-        match job_level {
-            Some(jl) => {
-                if input
-                    .pref_seniority
-                    .iter()
-                    .filter_map(|p| canon_level(p))
-                    .any(|p| p == jl)
-                {
-                    100
-                } else {
-                    30
-                }
-            }
-            None => NEUTRAL_SENIORITY,
+fn score_seniority(input: &MatchInput) -> u8 {
+    if input.pref_seniority.is_empty() {
+        return NEUTRAL_SENIORITY;
+    }
+    let job_level = input
+        .job_seniority
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .and_then(canon_level)
+        .or_else(|| classify_seniority(&format!("{} {}", input.job_title, input.job_text)));
+    match job_level {
+        Some(level)
+            if input
+                .pref_seniority
+                .iter()
+                .filter_map(|preference| canon_level(preference))
+                .any(|preference| preference == level) =>
+        {
+            100
         }
-    };
+        Some(_) => 30,
+        None => NEUTRAL_SENIORITY,
+    }
+}
 
-    let location_score = compute_location(input);
-
-    let salary_score = compute_salary(input);
-
-    let overall = W_ROLE * role_score as f32
-        + W_SKILL * skill_score as f32
-        + W_SENIORITY * seniority_score as f32
-        + W_LOCATION * location_score as f32
-        + W_SALARY * salary_score as f32;
-    let score = overall.round().clamp(0.0, 100.0) as u8;
-
-    let mut risk_flags = Vec::new();
-    let company_lower = input.job_company.to_lowercase();
-    let blocked = input.blocked_companies.iter().any(|c| {
-        let c = c.trim().to_lowercase();
-        !c.is_empty() && (company_lower.contains(&c) || c.contains(&company_lower))
-    });
+fn assess_risk(input: &MatchInput, text_lower: &str, missing: &[String]) -> RiskAssessment {
+    let blocked = is_blocked_company(input);
+    let mut flags = Vec::new();
     if blocked {
-        risk_flags.push(format!("blocked_company:{}", input.job_company));
+        flags.push(format!("blocked_company:{}", input.job_company));
     }
-    for kw in &input.excluded_keywords {
-        let k = kw.trim().to_lowercase();
-        if !k.is_empty() && text_lower.contains(&k) {
-            risk_flags.push(format!("excluded_keyword:{kw}"));
-        }
+    flags.extend(excluded_keyword_flags(input, text_lower));
+    if let Some(flag) = missing_required_flag(input, missing) {
+        flags.push(flag);
     }
-    if !missing.is_empty() && !input.required_skills.is_empty() {
-        let missing_required = input
-            .required_skills
+    let hard_skip = blocked
+        || flags
             .iter()
-            .filter(|s| missing.contains(*s))
-            .count();
-        if missing_required > 0 {
-            risk_flags.push(format!("missing_required_skills:{missing_required}"));
-        }
-    }
+            .any(|flag| flag.starts_with("excluded_keyword:"));
+    RiskAssessment { flags, hard_skip }
+}
 
+fn is_blocked_company(input: &MatchInput) -> bool {
+    let company_lower = input.job_company.to_lowercase();
+    input.blocked_companies.iter().any(|company| {
+        let company = company.trim().to_lowercase();
+        !company.is_empty()
+            && (company_lower.contains(&company) || company.contains(&company_lower))
+    })
+}
+
+fn excluded_keyword_flags(input: &MatchInput, text_lower: &str) -> Vec<String> {
+    input
+        .excluded_keywords
+        .iter()
+        .filter_map(|keyword| {
+            let keyword_lower = keyword.trim().to_lowercase();
+            (!keyword_lower.is_empty() && text_lower.contains(&keyword_lower))
+                .then(|| format!("excluded_keyword:{keyword}"))
+        })
+        .collect()
+}
+
+fn missing_required_flag(input: &MatchInput, missing: &[String]) -> Option<String> {
+    if missing.is_empty() || input.required_skills.is_empty() {
+        return None;
+    }
+    let count = input
+        .required_skills
+        .iter()
+        .filter(|skill| missing.contains(*skill))
+        .count();
+    (count > 0).then(|| format!("missing_required_skills:{count}"))
+}
+
+fn recommendation(score: u8, hard_skip: bool, input: &MatchInput) -> Recommendation {
     let auto_min = if input.auto_submit_min_score == 0 {
         AUTO_SUBMIT_DEFAULT
     } else {
@@ -272,12 +304,7 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
     } else {
         input.needs_review_threshold
     };
-
-    let hard_skip = blocked
-        || risk_flags
-            .iter()
-            .any(|f| f.starts_with("excluded_keyword:"));
-    let recommendation = if hard_skip {
+    if hard_skip {
         Recommendation::Skip
     } else if score >= auto_min {
         Recommendation::AutoApply
@@ -285,18 +312,37 @@ pub fn score_job(input: &MatchInput) -> MatchScore {
         Recommendation::ReviewFirst
     } else {
         Recommendation::SaveForLater
-    };
+    }
+}
 
+pub fn score_job(input: &MatchInput) -> MatchScore {
+    let title_lower = input.job_title.to_lowercase();
+    let title_tokens = normalize_tokens(&input.job_title);
+    let text_lower = format!("{} {}", title_lower, input.job_text.to_lowercase());
+    let text_tokens = normalize_tokens(&text_lower);
+    let role_score = score_role(input, &title_lower, &title_tokens);
+    let skills = score_skills(input, &text_tokens, &text_lower);
+    let seniority_score = score_seniority(input);
+    let location_score = compute_location(input);
+    let salary_score = compute_salary(input);
+    let overall = W_ROLE * role_score as f32
+        + W_SKILL * skills.score as f32
+        + W_SENIORITY * seniority_score as f32
+        + W_LOCATION * location_score as f32
+        + W_SALARY * salary_score as f32;
+    let score = overall.round().clamp(0.0, 100.0) as u8;
+    let risk = assess_risk(input, &text_lower, &skills.missing);
+    let recommendation = recommendation(score, risk.hard_skip, input);
     MatchScore {
         score,
         role_score,
-        skill_score,
+        skill_score: skills.score,
         seniority_score,
         location_score,
         salary_score,
-        matched_skills: matched,
-        missing_skills: missing,
-        risk_flags,
+        matched_skills: skills.matched,
+        missing_skills: skills.missing,
+        risk_flags: risk.flags,
         recommendation,
     }
 }
@@ -395,53 +441,49 @@ pub fn classify_seniority(text: &str) -> Option<&'static str> {
 
 fn canon_level(s: &str) -> Option<&'static str> {
     let l = s.trim().to_lowercase();
-    if l.contains("intern") || l.contains("estág") || l.contains("estagi") || l.contains("aprendiz")
-    {
+    if level_matches(&l, &["intern", "estág", "estagi", "aprendiz"], &[]) {
         Some("intern")
-    } else if l.contains("lead")
-        || l.contains("staff")
-        || l.contains("principal")
-        || l.contains("gerente")
-        || l.contains("manager")
-        || l.contains("líder")
-        || l.contains("lider")
-        || l.contains("diretor")
-        || l.contains("director")
-        || l.contains("head")
-    {
+    } else if level_matches(
+        &l,
+        &[
+            "lead",
+            "staff",
+            "principal",
+            "gerente",
+            "manager",
+            "líder",
+            "lider",
+            "diretor",
+            "director",
+            "head",
+        ],
+        &[],
+    ) {
         Some("lead")
-    } else if l.contains("senior")
-        || l.contains("sênior")
-        || l == "sr"
-        || l.contains("especialista")
-        || l.contains("specialist")
-    {
+    } else if level_matches(
+        &l,
+        &["senior", "sênior", "especialista", "specialist"],
+        &["sr"],
+    ) {
         Some("senior")
-    } else if l.contains("pleno")
-        || l.contains("mid")
-        || l.contains("intermediá")
-        || l.contains("intermediar")
-        || l == "pl"
-    {
+    } else if level_matches(&l, &["pleno", "mid", "intermediá", "intermediar"], &["pl"]) {
         Some("mid")
-    } else if l.contains("junior")
-        || l.contains("júnior")
-        || l == "jr"
-        || l.contains("entry")
-        || l.contains("trainee")
-    {
+    } else if level_matches(&l, &["junior", "júnior", "entry", "trainee"], &["jr"]) {
         Some("junior")
     } else {
         None
     }
 }
 
+fn level_matches(value: &str, contains: &[&str], exact: &[&str]) -> bool {
+    contains.iter().any(|keyword| value.contains(keyword))
+        || exact.iter().any(|keyword| value == *keyword)
+}
+
 fn compute_location(input: &MatchInput) -> u8 {
-    let has_pref = !input.pref_locations.is_empty() || !input.pref_remote_modes.is_empty();
-    if !has_pref {
+    if input.pref_locations.is_empty() && input.pref_remote_modes.is_empty() {
         return NEUTRAL_LOCATION;
     }
-
     let text_model = classify_work_model(&format!(
         "{} {} {}",
         input.job_location.as_deref().unwrap_or(""),
@@ -452,61 +494,88 @@ fn compute_location(input: &MatchInput) -> u8 {
         .job_remote_mode
         .as_deref()
         .and_then(classify_work_model);
-    let job_model = match text_model {
+    let job_model = preferred_job_model(text_model, struct_model);
+    let (prefers_remote, prefers_onsite, prefers_hybrid) = location_preferences(input);
+    let only_remote = prefers_remote && !prefers_onsite && !prefers_hybrid;
+    model_location_score(
+        job_model,
+        prefers_remote,
+        prefers_onsite,
+        prefers_hybrid,
+        only_remote,
+    )
+    .or_else(|| explicit_location_score(input))
+    .unwrap_or(20)
+}
+
+fn preferred_job_model(
+    text_model: Option<&'static str>,
+    struct_model: Option<&'static str>,
+) -> Option<&'static str> {
+    match text_model {
         Some("onsite") | Some("hybrid") => text_model,
         Some(_) => text_model.or(struct_model),
         None => struct_model,
-    };
+    }
+}
 
-    let prefers = |kws: &[&str]| {
-        input.pref_remote_modes.iter().any(|p| {
-            let l = p.to_lowercase();
-            kws.iter().any(|k| l.contains(k))
+fn location_preferences(input: &MatchInput) -> (bool, bool, bool) {
+    let prefers = |keywords: &[&str]| {
+        input.pref_remote_modes.iter().any(|preference| {
+            let value = preference.to_lowercase();
+            keywords.iter().any(|keyword| value.contains(keyword))
         })
     };
-    let prefers_remote = prefers(&["remote", "remoto", "home", "teletrab", "anywhere", "flex"]);
-    let prefers_onsite = prefers(&[
-        "onsite",
-        "on-site",
-        "on site",
-        "presencial",
-        "presential",
-        "escritório",
-        "escritorio",
-    ]);
-    let prefers_hybrid = prefers(&["hybrid", "híbrido", "hibrido", "semipres"]);
-    let only_remote = prefers_remote && !prefers_onsite && !prefers_hybrid;
+    (
+        prefers(&["remote", "remoto", "home", "teletrab", "anywhere", "flex"]),
+        prefers(&[
+            "onsite",
+            "on-site",
+            "on site",
+            "presencial",
+            "presential",
+            "escritório",
+            "escritorio",
+        ]),
+        prefers(&["hybrid", "híbrido", "hibrido", "semipres"]),
+    )
+}
 
-    match job_model {
-        Some("remote") if prefers_remote => return 100,
-        Some("onsite") if prefers_onsite => return 100,
-        Some("hybrid") if prefers_hybrid || prefers_remote => return 80,
-        Some("onsite") if only_remote => return 10,
-        Some("remote") if prefers_onsite && !prefers_remote => return 15,
-        _ => {}
+fn model_location_score(
+    model: Option<&str>,
+    remote: bool,
+    onsite: bool,
+    hybrid: bool,
+    only_remote: bool,
+) -> Option<u8> {
+    match model {
+        Some("remote") if remote => Some(100),
+        Some("onsite") if onsite => Some(100),
+        Some("hybrid") if hybrid || remote => Some(80),
+        Some("onsite") if only_remote => Some(10),
+        Some("remote") if onsite && !remote => Some(15),
+        _ => None,
     }
+}
 
-    if let Some(rm) = &input.job_remote_mode {
-        let rml = rm.to_lowercase();
-        if input
-            .pref_remote_modes
-            .iter()
-            .any(|p| p.to_lowercase() == rml || rml.contains(&p.to_lowercase()))
-        {
-            return 100;
+fn explicit_location_score(input: &MatchInput) -> Option<u8> {
+    if let Some(remote_mode) = &input.job_remote_mode {
+        let value = remote_mode.to_lowercase();
+        if input.pref_remote_modes.iter().any(|preference| {
+            value == preference.to_lowercase() || value.contains(&preference.to_lowercase())
+        }) {
+            return Some(100);
         }
     }
-    if let Some(loc) = &input.job_location {
-        let ll = loc.to_lowercase();
-        if input
-            .pref_locations
-            .iter()
-            .any(|p| !p.trim().is_empty() && ll.contains(&p.to_lowercase()))
-        {
-            return 100;
+    if let Some(location) = &input.job_location {
+        let value = location.to_lowercase();
+        if input.pref_locations.iter().any(|preference| {
+            !preference.trim().is_empty() && value.contains(&preference.to_lowercase())
+        }) {
+            return Some(100);
         }
     }
-    20
+    None
 }
 
 fn compute_salary(input: &MatchInput) -> u8 {

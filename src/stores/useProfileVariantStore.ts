@@ -40,15 +40,11 @@ const EMPTY = {
 export const useProfileVariantStore = create<ProfileVariantStoreState>((set, get) => ({
   ...EMPTY,
 
-  // Optional read: an unwired/empty backend degrades to an empty list rather
-  // than surfacing an error, matching the Phase-1 page conventions.
   loadVariants: async (profileId) => {
     set({ isLoading: true, error: null });
     const variants = await safeInvoke<ProfileVariantDto[]>("list_profile_variants", { profileId });
     const list = variants ?? [];
     set((s) => {
-      // Preserve the current pick if it still exists; otherwise fall to the
-      // newest variant (the backend returns newest-first).
       const stillThere = s.selectedId != null && list.some((v) => v.id === s.selectedId);
       return {
         variants: list,
@@ -58,13 +54,10 @@ export const useProfileVariantStore = create<ProfileVariantStoreState>((set, get
     });
   },
 
-  // Switching variants invalidates any plan built for the previous one so the
-  // UI can never show a stale sync plan against the wrong variant.
   selectVariant: (id) => {
     set((s) => (s.selectedId === id ? {} : { selectedId: id, syncPlan: null, planError: null }));
   },
 
-  // Mutation: surface real backend failures to the caller via `error`.
   createVariant: async (profileId, rewriteId, name) => {
     set({ error: null });
     try {
@@ -106,13 +99,10 @@ export const useProfileVariantStore = create<ProfileVariantStoreState>((set, get
     });
   },
 
-  // Build the inert LinkedIn draft-and-review plan for a variant.
   buildSyncPlan: async (variantId) => {
     set({ isBuildingPlan: true, planError: null });
     try {
       const plan = await invokeStrict<ProfileSyncPlan>("build_profile_sync_plan", { variantId });
-      // Guard against a race: only adopt the plan if the variant is still the
-      // selected one by the time the backend answers.
       if (get().selectedId === variantId) {
         set({ syncPlan: plan, isBuildingPlan: false });
       } else {

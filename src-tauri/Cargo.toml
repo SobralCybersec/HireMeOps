@@ -19,6 +19,7 @@ tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1" # strip web-search citation artifacts from AI CV-rewrite output
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time", "net", "io-util", "process"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 anyhow = "1"
@@ -80,7 +81,11 @@ debug = false
 # Smaller, faster release binary. `lto = "thin"` keeps link times reasonable
 # vs. `fat` while still inlining across crates; single codegen-unit maximizes
 # optimization; `strip` drops debug symbols from the shipped binary.
-opt-level = "s"
+opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[profile.perf]
+inherits = "release"
+opt-level = 3

@@ -55,6 +55,22 @@ function reporters(value) {
   return parsed;
 }
 
+function applyCliOption(options, argument, value) {
+  if (argument === "--reporters") options.reporters = reporters(value);
+  else if (argument === "--output") options.output = resolve(value);
+  else if (argument === "--metrics") options.metrics = resolve(value);
+  else if (argument === "--min-lines") options.minLines = positiveInteger(value, "--min-lines");
+  else if (argument === "--threshold") options.threshold = percentage(value, "--threshold");
+  else if (argument === "--ignore")
+    options.ignores.push(
+      ...value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
+  else throw new Error(`Unknown argument: ${argument}`);
+}
+
 export function parseCliArgs(argv) {
   const options = {
     metrics: DEFAULT_METRICS,
@@ -74,19 +90,7 @@ export function parseCliArgs(argv) {
       continue;
     }
     const value = requiredValue(argv, index, argument);
-    if (argument === "--reporters") options.reporters = reporters(value);
-    else if (argument === "--output") options.output = resolve(value);
-    else if (argument === "--metrics") options.metrics = resolve(value);
-    else if (argument === "--min-lines") options.minLines = positiveInteger(value, "--min-lines");
-    else if (argument === "--threshold") options.threshold = percentage(value, "--threshold");
-    else if (argument === "--ignore")
-      options.ignores.push(
-        ...value
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      );
-    else throw new Error(`Unknown argument: ${argument}`);
+    applyCliOption(options, argument, value);
     index += 1;
   }
 

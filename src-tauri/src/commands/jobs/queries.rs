@@ -1,11 +1,44 @@
 use super::*;
 use crate::domain::ids::{JobId, ProfileId};
-use crate::domain::jobs::{JobSearchService, JobSearchServiceImpl};
+use crate::domain::jobs::{fts_query, JobSearchService, JobSearchServiceImpl};
 use crate::jobs::{build_queries, canonicalize, check_dedupe, DedupeOutcome, SearchQueryInput};
 use crate::util::now_iso;
 use crate::AppState;
 use tauri::State;
 use uuid::Uuid;
+
+const DEFAULT_JOB_PAGE_SIZE: i64 = 50;
+const MAX_JOB_PAGE_SIZE: i64 = 200;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJobPostsInput {
+    profile_id: String,
+    status_filter: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    cursor_discovered_at: Option<String>,
+    cursor_id: Option<String>,
+    search: Option<String>,
+}
+
+const JOB_LIST_SELECT: &str = "SELECT id, profile_id, platform, external_id,
+        url, canonical_url, title, company,
+        location, remote_mode,
+        substr(COALESCE(summary, description), 1, 320) AS description,
+        substr(summary, 1, 320) AS summary,
+        seniority, salary_min, salary_max, currency,
+        employment_type, discovered_at, status,
+        search_query_id, discovery_source, contact_email";
+
+const JOB_SEARCH_SELECT: &str = "SELECT jp.id, jp.profile_id, jp.platform, jp.external_id,
+        jp.url, jp.canonical_url, jp.title, jp.company,
+        jp.location, jp.remote_mode,
+        substr(COALESCE(jp.summary, jp.description), 1, 320) AS description,
+        substr(jp.summary, 1, 320) AS summary,
+        jp.seniority, jp.salary_min, jp.salary_max, jp.currency,
+        jp.employment_type, jp.discovered_at, jp.status,
+        jp.search_query_id, jp.discovery_source, jp.contact_email";
 
 #[tauri::command]
 pub async fn list_job_preferences(
@@ -180,6 +213,64 @@ pub async fn delete_search_query(state: State<'_, AppState>, id: String) -> Resu
     Ok(())
 }
 
+struct JobPostInsert<'a> {
+    id: &'a str,
+    input: &'a IngestJobPostInput,
+    canonical: &'a str,
+    remote_mode: &'a Option<String>,
+    now: &'a str,
+    status: &'a str,
+}
+
+async fn insert_job_post(db: &sqlx::SqlitePool, record: JobPostInsert<'_>) -> Result<(), String> {
+    let input = record.input;
+    sqlx::query(
+        "INSERT INTO job_posts (
+            id, profile_id, platform, external_id,
+            url, canonical_url, title, company,
+            location, remote_mode, description, summary,
+            salary_min, salary_max, currency,
+            seniority, employment_type, posted_at,
+            discovered_at, last_seen_at, discovery_source,
+            search_query_id, status
+        ) VALUES (
+            ?1,  ?2,  ?3,  ?4,
+            ?5,  ?6,  ?7,  ?8,
+            ?9,  ?10, ?11, ?12,
+            ?13, ?14, ?15,
+            ?16, ?17, ?18,
+            ?19, ?19, ?20,
+            ?21, ?22
+        )",
+    )
+    .bind(record.id)
+    .bind(&input.profile_id)
+    .bind(&input.platform)
+    .bind(&input.external_id)
+    .bind(&input.url)
+    .bind(record.canonical)
+    .bind(&input.title)
+    .bind(&input.company)
+    .bind(&input.location)
+    .bind(record.remote_mode)
+    .bind(&input.description)
+    .bind(&input.summary)
+    .bind(input.salary_min)
+    .bind(input.salary_max)
+    .bind(&input.currency)
+    .bind(&input.seniority)
+    .bind(&input.employment_type)
+    .bind(&input.posted_at)
+    .bind(record.now)
+    .bind(&input.discovery_source)
+    .bind(&input.search_query_id)
+    .bind(record.status)
+    .execute(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ingest_job_post(
     state: State<'_, AppState>,
@@ -209,50 +300,18 @@ pub async fn ingest_job_post(
     .map(str::to_string)
     .or_else(|| input.remote_mode.clone());
 
-    sqlx::query(
-        "INSERT INTO job_posts (
-            id, profile_id, platform, external_id,
-            url, canonical_url, title, company,
-            location, remote_mode, description, summary,
-            salary_min, salary_max, currency,
-            seniority, employment_type, posted_at,
-            discovered_at, last_seen_at, discovery_source,
-            search_query_id, status
-        ) VALUES (
-            ?1,  ?2,  ?3,  ?4,
-            ?5,  ?6,  ?7,  ?8,
-            ?9,  ?10, ?11, ?12,
-            ?13, ?14, ?15,
-            ?16, ?17, ?18,
-            ?19, ?19, ?20,
-            ?21, ?22
-        )",
+    insert_job_post(
+        &state.db,
+        JobPostInsert {
+            id: &id,
+            input: &input,
+            canonical: &canonical,
+            remote_mode: &remote_mode,
+            now: &now,
+            status,
+        },
     )
-    .bind(&id)
-    .bind(&input.profile_id)
-    .bind(&input.platform)
-    .bind(&input.external_id)
-    .bind(&input.url)
-    .bind(&canonical)
-    .bind(&input.title)
-    .bind(&input.company)
-    .bind(&input.location)
-    .bind(&remote_mode)
-    .bind(&input.description)
-    .bind(&input.summary)
-    .bind(input.salary_min)
-    .bind(input.salary_max)
-    .bind(&input.currency)
-    .bind(&input.seniority)
-    .bind(&input.employment_type)
-    .bind(&input.posted_at)
-    .bind(&now)
-    .bind(&input.discovery_source)
-    .bind(&input.search_query_id)
-    .bind(status)
-    .execute(&state.db)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(IngestJobPostResult {
         id,
@@ -263,90 +322,168 @@ pub async fn ingest_job_post(
     })
 }
 
+async fn search_job_posts(
+    db: &sqlx::SqlitePool,
+    profile_id: &str,
+    status_filter: Option<&str>,
+    term: &str,
+    limit: i64,
+) -> Result<Vec<JobPostDto>, String> {
+    let match_expr = fts_query(term);
+    if match_expr.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sql = format!(
+        "{JOB_SEARCH_SELECT}
+         FROM job_posts_fts
+         JOIN job_posts jp ON jp.rowid = job_posts_fts.rowid
+         WHERE job_posts_fts MATCH ?1 AND jp.profile_id = ?2"
+    );
+    if status_filter.is_some() {
+        sql.push_str(" AND jp.status = ?3");
+    }
+    let limit_param = if status_filter.is_some() { 4 } else { 3 };
+    sql.push_str(&format!(
+        " ORDER BY bm25(job_posts_fts, 10.0, 5.0, 2.0, 1.5, 1.0) ASC LIMIT ?{limit_param}"
+    ));
+    let mut query = sqlx::query_as::<_, JobRow>(sqlx::AssertSqlSafe(sql))
+        .bind(match_expr)
+        .bind(profile_id);
+    if let Some(status) = status_filter {
+        query = query.bind(status);
+    }
+    query = query.bind(limit);
+    query
+        .fetch_all(db)
+        .await
+        .map(|rows| rows.into_iter().map(Into::into).collect())
+        .map_err(|e| e.to_string())
+}
+
+struct RecentJobPosts<'a> {
+    profile_id: &'a str,
+    status_filter: Option<&'a str>,
+    limit: i64,
+    offset: i64,
+    cursor_discovered_at: Option<&'a str>,
+    cursor_id: Option<&'a str>,
+}
+
+async fn list_recent_job_posts(
+    db: &sqlx::SqlitePool,
+    options: RecentJobPosts<'_>,
+) -> Result<Vec<JobPostDto>, String> {
+    let RecentJobPosts {
+        profile_id,
+        status_filter,
+        limit,
+        offset,
+        cursor_discovered_at,
+        cursor_id,
+    } = options;
+    let use_cursor = cursor_discovered_at.is_some() && cursor_id.is_some();
+    let use_offset = !use_cursor && offset > 0;
+    let mut sql = format!("{JOB_LIST_SELECT} FROM job_posts WHERE profile_id = ?1");
+    if status_filter.is_some() {
+        sql.push_str(" AND status = ?2");
+    }
+    let mut next_param = if status_filter.is_some() { 3 } else { 2 };
+    if use_cursor {
+        sql.push_str(&format!(
+            " AND (discovered_at < ?{next_param} OR (discovered_at = ?{next_param} AND id < ?{}))",
+            next_param + 1
+        ));
+        next_param += 2;
+    }
+    sql.push_str(&format!(
+        " ORDER BY discovered_at DESC, id DESC LIMIT ?{next_param}"
+    ));
+    if use_offset {
+        sql.push_str(&format!(" OFFSET ?{}", next_param + 1));
+    }
+
+    let mut query = sqlx::query_as::<_, JobRow>(sqlx::AssertSqlSafe(sql)).bind(profile_id);
+    if let Some(status) = status_filter {
+        query = query.bind(status);
+    }
+    if use_cursor {
+        query = query.bind(cursor_discovered_at).bind(cursor_id);
+    }
+    query = query.bind(limit);
+    if use_offset {
+        query = query.bind(offset);
+    }
+    query
+        .fetch_all(db)
+        .await
+        .map(|rows| rows.into_iter().map(Into::into).collect())
+        .map_err(|e| e.to_string())
+}
+
+// Tauri named IPC parameters are intentionally kept flat for existing clients;
+// the cursor added two fields to this boundary without changing its wire shape.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn list_job_posts(
     state: State<'_, AppState>,
-    profile_id: String,
-    status_filter: Option<String>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-    search: Option<String>,
+    input: ListJobPostsInput,
 ) -> Result<Vec<JobPostDto>, String> {
-    let lim = limit.unwrap_or(1000).min(10000);
+    let ListJobPostsInput {
+        profile_id,
+        status_filter,
+        limit,
+        offset,
+        cursor_discovered_at,
+        cursor_id,
+        search,
+    } = input;
+    let lim = limit
+        .unwrap_or(DEFAULT_JOB_PAGE_SIZE)
+        .clamp(1, MAX_JOB_PAGE_SIZE);
     let off = offset.unwrap_or(0).max(0);
 
     /* Full-text branch: a non-empty search term ranks by FTS5 relevance instead
-    of recency, so status_filter/offset don't apply to a relevance search. */
+    of recency. Status applies; cursor pagination is reserved for recency lists
+    because relevance order has no discovered_at keyset. */
     if let Some(term) = search.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let ids = JobSearchServiceImpl::new(state.db.clone())
-            .search_job_posts(&ProfileId::from(profile_id.as_str()), term, lim)
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut out = Vec::with_capacity(ids.len());
-        for id in ids {
-            /* fetch each ranked hit in order; FTS result sets are capped small (<=500) */
-            if let Some(row) = sqlx::query_as::<_, JobRow>(
-                "SELECT id, profile_id, platform, external_id,
-                        url, canonical_url, title, company,
-                        location, remote_mode, description, summary,
-                        seniority, salary_min, salary_max, currency,
-                        employment_type, discovered_at, status,
-                        search_query_id, discovery_source, contact_email
-                 FROM job_posts WHERE id = ?1",
-            )
-            .bind(&id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| e.to_string())?
-            {
-                out.push(JobPostDto::from(row));
-            }
-        }
-        return Ok(out);
+        return search_job_posts(&state.db, &profile_id, status_filter.as_deref(), term, lim).await;
     }
+    list_recent_job_posts(
+        &state.db,
+        RecentJobPosts {
+            profile_id: &profile_id,
+            status_filter: status_filter.as_deref(),
+            limit: lim,
+            offset: off,
+            cursor_discovered_at: cursor_discovered_at.as_deref(),
+            cursor_id: cursor_id.as_deref(),
+        },
+    )
+    .await
+}
 
-    let rows: Vec<JobRow> = if let Some(ref sf) = status_filter {
-        sqlx::query_as::<_, JobRow>(
-            "SELECT id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    seniority, salary_min, salary_max, currency,
-                    employment_type, discovered_at, status,
-                    search_query_id, discovery_source, contact_email
-             FROM job_posts
-             WHERE profile_id = ?1 AND status = ?2
-             ORDER BY discovered_at DESC
-             LIMIT ?3 OFFSET ?4",
-        )
-        .bind(&profile_id)
-        .bind(sf)
-        .bind(lim)
-        .bind(off)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| e.to_string())?
-    } else {
-        sqlx::query_as::<_, JobRow>(
-            "SELECT id, profile_id, platform, external_id,
-                    url, canonical_url, title, company,
-                    location, remote_mode, description, summary,
-                    seniority, salary_min, salary_max, currency,
-                    employment_type, discovered_at, status,
-                    search_query_id, discovery_source, contact_email
-             FROM job_posts
-             WHERE profile_id = ?1
-             ORDER BY discovered_at DESC
-             LIMIT ?2 OFFSET ?3",
-        )
-        .bind(&profile_id)
-        .bind(lim)
-        .bind(off)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| e.to_string())?
-    };
-
-    Ok(rows.into_iter().map(Into::into).collect())
+#[tauri::command]
+pub async fn get_job_post(
+    state: State<'_, AppState>,
+    profile_id: String,
+    job_id: String,
+) -> Result<JobPostDto, String> {
+    sqlx::query_as::<_, JobRow>(
+        "SELECT id, profile_id, platform, external_id,
+                url, canonical_url, title, company,
+                location, remote_mode, description, summary,
+                seniority, salary_min, salary_max, currency,
+                employment_type, discovered_at, status,
+                search_query_id, discovery_source, contact_email
+         FROM job_posts WHERE id = ?1 AND profile_id = ?2",
+    )
+    .bind(&job_id)
+    .bind(&profile_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| e.to_string())?
+    .map(Into::into)
+    .ok_or_else(|| format!("job post {job_id} not found"))
 }
 
 #[tauri::command]
@@ -386,6 +523,14 @@ pub async fn run_search(
 ) -> Result<u32, String> {
     JobSearchServiceImpl::new(state.db.clone())
         .run_search(&search_query_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn optimize_job_search_index(state: State<'_, AppState>) -> Result<(), String> {
+    JobSearchServiceImpl::new(state.db.clone())
+        .optimize_search_index()
         .await
         .map_err(|e| e.to_string())
 }

@@ -12,7 +12,7 @@ import { Download01Icon } from "@hugeicons/core-free-icons";
 import { Button, Icon, Input, Select } from "../../components/ui";
 import type { SelectOption } from "../../components/ui";
 import { errMessage, invokeStrict } from "../../lib/tauriInvoke";
-import { saveCvRewritePdf, type CvExportMode } from "./rewrite";
+import { saveCoverLetterPdf, saveCvRewritePdf, type CvExportMode } from "./rewrite";
 import type { CvRewriteReport } from "./types";
 
 interface CvExportButtonProps {
@@ -37,10 +37,21 @@ function exportFilename(rewrite: CvRewriteReport): string {
   return `${slug}-CV.pdf`;
 }
 
+function coverLetterFilename(rewrite: CvRewriteReport): string {
+  const base =
+    rewrite.rewrite.name.trim() ||
+    rewrite.metadata.author.trim() ||
+    rewrite.metadata.title.trim() ||
+    "cv";
+  const slug = base.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-");
+  return `${slug}-Cover-Letter.pdf`;
+}
+
 export function CvExportButton({ rewrite, className }: CvExportButtonProps) {
-  // Source present => default to reusing it; otherwise force a fresh render.
+  // Default to fresh render so exported PDF contains rewritten content.
+  // Source-PDF metadata stamping remains available through the selector.
   const canModify = rewrite.cvDocumentId != null;
-  const [mode, setMode] = useState<CvExportMode>(canModify ? "modify" : "new");
+  const [mode, setMode] = useState<CvExportMode>("new");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // CV-only appearance, seeded from the stored rewrite. Accent is a bare hex
@@ -109,6 +120,38 @@ export function CvExportButton({ rewrite, className }: CvExportButtonProps) {
           {busy ? "Exporting…" : "Export PDF"}
         </Button>
       </div>
+      {error ? (
+        <p className="cv-export__error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function CoverLetterExportButton({ rewrite }: CvExportButtonProps) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!rewrite.rewrite.coverLetter?.trim()) return null;
+
+  async function handleExport() {
+    setBusy(true);
+    setError(null);
+    try {
+      await saveCoverLetterPdf(rewrite.id, coverLetterFilename(rewrite));
+    } catch (e) {
+      setError(`Export failed: ${errMessage(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="cv-export__letter">
+      <Button size="sm" disabled={busy} onClick={handleExport}>
+        {busy ? "Exporting…" : "Export cover letter"}
+      </Button>
       {error ? (
         <p className="cv-export__error" role="alert">
           {error}

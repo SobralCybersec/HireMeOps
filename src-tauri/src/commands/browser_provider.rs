@@ -13,6 +13,13 @@ pub async fn browser_provider_login(site: String) -> Result<Vec<String>, String>
 }
 
 #[tauri::command]
+pub async fn browser_provider_logout(site: String) -> Result<(), String> {
+    browser_bridge::logout(&site)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn browser_provider_status() -> Result<Vec<BrowserProviderStatus>, String> {
     Ok(browser_bridge::status().await)
 }

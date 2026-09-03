@@ -24,17 +24,18 @@ interface DropdownProps {
  * list (the OS paints it, hence the black background), so this renders the list
  * itself. Closes on select, outside-click, or Escape.
  */
-export function Dropdown({
-  value,
-  options,
-  onChange,
-  title,
-  placeholder = "Select…",
-  disabled,
-  className,
-  style,
-  "aria-label": ariaLabel,
-}: DropdownProps) {
+export function Dropdown(props: DropdownProps) {
+  const {
+    value,
+    options,
+    onChange,
+    title,
+    placeholder = "Select…",
+    disabled,
+    className,
+    style,
+    "aria-label": ariaLabel,
+  } = props;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

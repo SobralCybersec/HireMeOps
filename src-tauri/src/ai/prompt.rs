@@ -8,6 +8,10 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "prompt_templates.rs"]
+mod prompt_templates;
+pub use prompt_templates::cv_rewrite_system;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
@@ -375,7 +379,8 @@ where
     })
 }
 
-pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v10";
+pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v14";
+pub const COVER_LETTER_PROMPT_VERSION: &str = "cover-letter-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CvSkillGroup {
@@ -414,6 +419,21 @@ pub struct CvEducationEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CvCertificate {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub issuer: String,
+    #[serde(default, alias = "credential_id")]
+    pub credential_id: String,
+    #[serde(default, alias = "issueDate", alias = "issue_date")]
+    pub date: String,
+    #[serde(default, alias = "url", alias = "credential_url")]
+    pub credential_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CvContact {
     #[serde(default)]
     pub email: String,
@@ -448,6 +468,11 @@ pub struct CvRewrite {
     #[serde(default)]
     pub education: Vec<CvEducationEntry>,
     #[serde(default)]
+    pub certificates: Vec<CvCertificate>,
+    /// AI-generated body for the standalone cover-letter PDF.
+    #[serde(default, rename = "coverLetter", alias = "cover_letter")]
+    pub cover_letter: String,
+    #[serde(default)]
     pub language: Language,
     /// Hex accent for the CV header/rules (e.g. "2B0A3D"); empty = template default.
     /// Presentation-only — the AI never fills this; the UI color picker does.
@@ -473,35 +498,35 @@ pub struct CvMetadata {
 
 impl CvRewrite {
     fn cleaned(mut self) -> CvRewrite {
-        self.name = self.name.trim().to_string();
-        self.summary = self.summary.trim().to_string();
+        self.name = strip_research_artifacts(&self.name);
+        self.summary = strip_research_artifacts(&self.summary);
         self.accent_color = self.accent_color.trim().trim_start_matches('#').to_string();
         self.photo_url = self.photo_url.trim().to_string();
         self.contact = CvContact {
-            email: self.contact.email.trim().to_string(),
-            phone: self.contact.phone.trim().to_string(),
-            location: self.contact.location.trim().to_string(),
-            linkedin: self.contact.linkedin.trim().to_string(),
-            github: self.contact.github.trim().to_string(),
-            gitlab: self.contact.gitlab.trim().to_string(),
-            website: self.contact.website.trim().to_string(),
+            email: strip_research_artifacts(&self.contact.email),
+            phone: strip_research_artifacts(&self.contact.phone),
+            location: strip_research_artifacts(&self.contact.location),
+            linkedin: strip_research_artifacts(&self.contact.linkedin),
+            github: strip_research_artifacts(&self.contact.github),
+            gitlab: strip_research_artifacts(&self.contact.gitlab),
+            website: strip_research_artifacts(&self.contact.website),
         };
         self.positions = clean(std::mem::take(&mut self.positions));
         self.skills = std::mem::take(&mut self.skills)
             .into_iter()
             .map(|g| CvSkillGroup {
-                category: g.category.trim().to_string(),
-                skills: g.skills.trim().to_string(),
+                category: strip_research_artifacts(&g.category),
+                skills: strip_research_artifacts(&g.skills),
             })
             .filter(|g| !g.category.is_empty() || !g.skills.is_empty())
             .collect();
         self.experience = std::mem::take(&mut self.experience)
             .into_iter()
             .map(|e| CvExperienceEntry {
-                title: e.title.trim().to_string(),
-                organization: e.organization.trim().to_string(),
-                location: e.location.trim().to_string(),
-                dates: e.dates.trim().to_string(),
+                title: strip_research_artifacts(&e.title),
+                organization: strip_research_artifacts(&e.organization),
+                location: strip_research_artifacts(&e.location),
+                dates: strip_research_artifacts(&e.dates),
                 bullets: clean_bullets(e.bullets),
             })
             .filter(|e| !e.title.is_empty() || !e.organization.is_empty() || !e.bullets.is_empty())
@@ -509,14 +534,32 @@ impl CvRewrite {
         self.education = std::mem::take(&mut self.education)
             .into_iter()
             .map(|e| CvEducationEntry {
-                degree: e.degree.trim().to_string(),
-                institution: e.institution.trim().to_string(),
-                location: e.location.trim().to_string(),
-                dates: e.dates.trim().to_string(),
+                degree: strip_research_artifacts(&e.degree),
+                institution: strip_research_artifacts(&e.institution),
+                location: strip_research_artifacts(&e.location),
+                dates: strip_research_artifacts(&e.dates),
                 bullets: clean_bullets(e.bullets),
             })
             .filter(|e| !e.degree.is_empty() || !e.institution.is_empty() || !e.bullets.is_empty())
             .collect();
+        self.certificates = std::mem::take(&mut self.certificates)
+            .into_iter()
+            .map(|c| CvCertificate {
+                name: strip_research_artifacts(&c.name),
+                issuer: strip_research_artifacts(&c.issuer),
+                credential_id: strip_research_artifacts(&c.credential_id),
+                date: strip_research_artifacts(&c.date),
+                credential_url: strip_research_artifacts(&c.credential_url),
+            })
+            .filter(|c| {
+                !c.name.is_empty()
+                    || !c.issuer.is_empty()
+                    || !c.credential_id.is_empty()
+                    || !c.date.is_empty()
+                    || !c.credential_url.is_empty()
+            })
+            .collect();
+        self.cover_letter = strip_research_artifacts(&self.cover_letter);
         self
     }
 
@@ -529,211 +572,6 @@ impl CvRewrite {
             description: clean_latex(&self.summary),
             category: "CV".to_string(),
         }
-    }
-}
-
-const REWRITE_JSON_SHAPE: &str = "{\"name\": <string>, \
-     \"contact\": {\"email\": <string>, \"phone\": <string>, \"location\": <string>, \
-     \"linkedin\": <string>, \"github\": <string>, \"gitlab\": <string>, \"website\": <string>}, \
-     \"positions\": [<string>], \
-     \"summary\": <string>, \"skills\": [{\"category\": <string>, \"skills\": <string>}], \
-     \"experience\": [{\"title\": <string>, \"organization\": <string>, \"location\": <string>, \
-     \"dates\": <string>, \"bullets\": [<string>]}], \"education\": [{\"degree\": <string>, \
-     \"institution\": <string>, \"location\": <string>, \"dates\": <string>, \
-     \"bullets\": [<string>]}]}";
-
-pub fn cv_rewrite_system(lang: Language) -> String {
-    match lang {
-        Language::En => format!(
-            "You are an expert CV writer. Rewrite the candidate's CV, tailored to the \
-             target role, using ONLY real facts from the source CV and candidate-supplied \
-             additional context — never invent employers, degrees, dates, or credentials. \
-             If the source CV is empty, minimal, or says this is a first CV, create a \
-             first-time CV from the candidate-supplied context, but leave unknown fields \
-             empty instead of guessing. Respond with ONLY a single JSON \
-             object (no prose, no markdown fences) of the exact shape: {REWRITE_JSON_SHAPE}. \
-             \"positions\" are the target job titles. Return AT LEAST 3 distinct, recruiter-facing \
-             headline options grounded in the source, such as \"Software Engineer\", \
-             \"Backend Software Engineer\", and \"Rust Software Engineer\"; keep every option as \
-             a professional role title, not a technology list or academic field. Write each \
-             \"position\" as the JOB TITLE \
-             HELD BY THE PERSON — a profession noun (e.g. \"Software Engineer\", \"Backend \
-             Developer\", \"Data Analyst\") — and NEVER as the name of the field, degree, or \
-             discipline (e.g. \"Software Engineering\", \"Development\", \"Data Science\" are \
-             WRONG). Each skill group's \"skills\" is one \
-             comma-separated list string. Be COMPACT with skills: use AT MOST 8 skill \
-             groups, each with 4 to 8 items (short noun phrases: tools, technologies, \
-             concepts — no sentences or verbs). Use up to 8 useful groups when the source \
-             supports them, covering categories such as Languages; Backend and Systems; \
-             Frontend; Desktop and Automation; Security; Data and Serialization; Observability \
-             and Operations; and Quality and DevOps. Remove exact \
-             and near duplicates (e.g. \"REST APIs\" and \"REST API\"; \"TypeScript\" repeated \
-             in two groups). Prioritize the strongest skills most relevant to the target \
-             role, and merge stray items into existing groups instead of creating new ones. Copy the \"contact\" block VERBATIM from the source \
-             CV or candidate-supplied context — email, phone, city/location, LinkedIn, GitHub, \
-             GitLab, and portfolio/website (a handle or full URL exactly as written); leave a field empty \
-             ONLY when neither source provides it, and NEVER invent contact details. Fill EVERY \
-             contact field the source CV or context contains: a missing phone number, \
-             GitLab/GitHub profile, or portfolio link leaves recruiters unable to reach you. \
-             For each education entry, add 1 to 2 short bullets with REAL, widely known \
-             facts about the institution and the course (e.g. a highly ranked public \
-             university known for X research; a course with emphasis on Y) — never invent \
-             dates, honorary titles, or unverifiable specifics; if unsure, omit the bullet. \
-             Expand education bullets beyond the degree name: explain the relevant curriculum \
-             focus, practical benefit, or market orientation only when supported by the source \
-             or reliable candidate context. Mention named AI tools such as Claude Code, Cursor, \
-             Gemini, or Codex ONLY when the candidate explicitly says they use them, and connect \
-             each tool to a real workflow or shipped outcome; never add a trending tool as \
-             decoration. Write ALL human-readable content — the summary, \
-             every bullet, skills, positions, titles, and organizations — in English, \
-             translating it from the source CV when the source is in another language \
-             (e.g. Portuguese). Keep bullets concise, achievement-focused, and grounded in \
-             the source CV. EVERY experience entry MUST have 3 to 5 achievement bullets \
-             (never fewer than 3 — a role with 1 or 2 lines looks thin). When a PRIOR ANALYSIS block is provided, you MUST act on it: fix \
-             every listed weakness, apply each recommendation, and weave in the missing \
-             keywords wherever the source CV truthfully supports them (never fabricate \
-             experience to match a keyword). Preserve the listed strengths. \
-             To make the CV scannable and engaging, mark the 1–3 highest-impact phrases in \
-             the summary and in EACH bullet with markdown bold using double asterisks — e.g. \
-             \"cut p99 latency by **40%**\" or \"led a team of **8 engineers**\". Favor metrics, \
-             technologies, scope, and outcomes. Never bold whole sentences, and only use bold \
-             inside the summary and the bullets — never in names, titles, dates, or skills. \
-             Make quantified impact a priority across the entire work history, not only the \
-             strongest or most recent project: actively look for truthful, source-backed \
-             numbers in every relevant project and role, including performance improvements, \
-             scale or volume, time or cost reduction, reliability, adoption, revenue, and team \
-             scope. If a number is not explicitly supported, describe the outcome qualitatively \
-             instead of inventing one. \
-             Prefer ONE primary metric or defensible scope signal per bullet, using this impact \
-             taxonomy when supported by the source: money (revenue, budget, cost saved or \
-             avoided spend, licensing cost — \"100% free\" describes pricing, while savings \
-             requires evidence of spend avoided); time (hours, days, cycle time, turnaround); \
-             performance (latency, throughput, speed, efficiency); scale (users, accounts, \
-             volume, markets, team size, scope); reliability and quality (errors, defects, \
-             downtime, accuracy, SLA/SLO, complaints); adoption and usage (activation, \
-             retention, rollout coverage, repeat use); customer and business outcomes \
-             (conversion, CSAT/NPS, renewals, churn, expansion, response time); management and \
-             process (hiring, mentoring, training, coordination, SOP/process adoption); and \
-             risk/compliance (incidents, audit results, control coverage, policy adherence). \
-             Prefer the structure action → what changed → metric/result → baseline or end state \
-             → scope. Preserve approximate language such as \"about\" or \"roughly\" when the \
-             source uses it; do not add precision. When no hard metric exists, use truthful scope \
-             signals such as frequency, markets, artifacts shipped, or process adoption. Claim \
-             personal contribution only; do not attribute team-wide outcomes without evidence. \
-             Do not stop at an activity, technology, or responsibility: state the resulting value \
-             when the source supports it. \
-             Write the professional summary in a human-centered CV voice: begin with a \
-             professional title (for example, \"Software Engineer\"), then state experience, \
-             focus, and value. Do not begin the summary with an abstract area noun such as \
-             \"Software Engineering\" or \"Systems Development\". Keep it to 2 to 4 sentences. \
-             Use quantified metrics only when present in the source or candidate context; \
-             preserve the exact unit and meaning (for example, **100% free**, **80%**, \
-             **1,100 downloads**, **2 years**). Never fabricate, inflate, or round metrics. \
-             Write bullets in implied first person led by strong past-tense action verbs \
-             (Developed, Led, Built, Implemented, Optimized) — never third-person narration like \
-             \"He developed\" or \"She led\". Vary the opening verb across bullets so they don't \
-             all start the same way."
-        ),
-        Language::Pt => format!(
-            "Você é um especialista em redação de currículos. Reescreva o currículo do \
-             candidato, adaptado à vaga-alvo, usando APENAS fatos reais do currículo de \
-             origem e do contexto adicional fornecido pelo candidato — nunca invente \
-             empregadores, formações, datas ou credenciais. Se o currículo de origem estiver \
-             vazio, mínimo ou indicar que este é o primeiro currículo, crie um primeiro \
-             currículo a partir do contexto adicional do candidato, mas deixe campos \
-             desconhecidos vazios em vez de chutar. Responda \
-             com APENAS um único objeto JSON (sem prosa, sem cercas de markdown) exatamente \
-             no formato: {REWRITE_JSON_SHAPE}. As chaves do JSON permanecem em inglês. \
-             \"positions\" são os cargos-alvo. Retorne PELO MENOS 3 opções distintas de título \
-             profissional, quando a fonte permitir, como \"Engenheiro de Software\", \
-             \"Engenheiro de Software Backend\" e \"Engenheiro de Software Rust\"; mantenha cada \
-             opção como um cargo profissional, não como uma lista de tecnologias ou área \
-             acadêmica. Escreva cada \"position\" como o NOME DO \
-             CARGO EXERCIDO PELA PESSOA — substantivo de profissão (ex.: \"Engenheiro de \
-             Software\", \"Desenvolvedor Backend\", \"Analista de Dados\") — e NUNCA como o \
-             nome da área, curso ou disciplina (ex.: \"Engenharia de Software\", \
-             \"Desenvolvimento\", \"Ciência de Dados\" são formas ERRADAS). O \"skills\" de \
-             cada grupo é uma única string \
-             com uma lista separada por vírgulas. Seja ENXUTO nas habilidades: use no MÁXIMO \
-             8 grupos, cada um com 4 a 8 itens (termos curtos: ferramentas, tecnologias, \
-             conceitos — sem frases nem verbos). Agrupe por afinidade (ex.: Linguagens; \
-             Backend e Sistemas; Frontend; Desktop e Automação; Segurança; Dados e \
-             Serialização; Observabilidade e Operação; Qualidade e DevOps). Elimine duplicatas \
-             exatas e quase-duplicatas (ex.: \"APIs REST\" e \
-             \"REST API\"; \"TypeScript\" repetido em dois grupos). Priorize as habilidades \
-             mais fortes e mais relevantes para a vaga-alvo, e mescle itens isolados em \
-             grupos já existentes em vez de criar grupos novos. Copie o bloco \"contact\" LITERALMENTE do \
-             currículo de origem ou do contexto adicional do candidato — email, telefone, \
-             cidade/localização, LinkedIn, GitHub, GitLab e portfólio/website (usuário ou URL completa, \
-             exatamente como escrito); deixe um campo vazio SOMENTE se nenhuma fonte o tiver, \
-             e NUNCA invente dados de contato. Preencha TODO campo de contato que o currículo ou \
-             o contexto contenha: um número de telefone, perfil GitLab/GitHub ou link de \
-             portfólio ausente impede recrutadores de entrar em contato com o candidato. \
-             Para cada entrada de educação, adicione 1 a 2 bullets curtos com informações \
-             REAIS e amplamente conhecidas sobre a instituição e o curso (ex.: universidade \
-             pública federal reconhecida em pesquisa de X; curso com ênfase em Y; nota alta \
-             em avaliações oficiais conhecidas) — nunca invente datas, títulos honoríficos ou \
-             detalhes específicos não verificáveis; se não tiver certeza, omita o bullet. \
-             Expanda os bullets de educação além do nome do curso: explique o foco curricular, \
-             o benefício prático ou a orientação para o mercado somente quando isso estiver \
-             sustentado pela fonte ou pelo contexto confiável do candidato. Mencione ferramentas \
-             de IA nomeadas, como Claude Code, Cursor, Gemini ou Codex, SOMENTE quando o \
-             candidato afirmar que as utiliza, conectando cada ferramenta a um fluxo de trabalho \
-             ou resultado entregue; nunca adicione uma ferramenta apenas por estar em alta. \
-             Escreva TODO o conteúdo legível — o resumo, \
-             cada bullet, habilidades, cargos, títulos e organizações — em Português (pt-BR), \
-             traduzindo do currículo de origem quando ele estiver em outro idioma. Mantenha os \
-             bullets concisos, focados em conquistas e fundamentados no currículo de origem. \
-             CADA entrada de experiência DEVE ter entre 3 e 5 bullets de conquistas (nunca \
-             menos de 3 — o currículo fica pobre com 1 ou 2 linhas). \
-             Quando um bloco PRIOR ANALYSIS for fornecido, você DEVE agir sobre ele: corrija \
-             cada fraqueza listada, aplique cada recomendação e incorpore as palavras-chave \
-             ausentes onde o currículo de origem realmente as sustente (nunca fabrique \
-             experiência para corresponder a uma palavra-chave). Preserve os pontos fortes \
-             listados. Para tornar o currículo escaneável e envolvente, destaque as 1–3 frases \
-             de maior impacto no resumo e em CADA bullet com negrito markdown usando asteriscos \
-             duplos — ex.: \"reduziu a latência p99 em **40%**\" ou \"liderou uma equipe de \
-             **8 engenheiros**\". Priorize métricas, tecnologias, escopo e resultados. Trate a \
-             inclusão de impactos quantificados como prioridade em TODO o histórico profissional, \
-             não apenas no projeto mais forte ou recente: procure ativamente números verdadeiros \
-             e sustentados pela fonte em cada projeto e cargo relevante, incluindo ganhos de \
-             performance, escala ou volume, redução de tempo ou custo, confiabilidade, adoção, \
-             receita e tamanho do time/escopo. Se um número não estiver explicitamente sustentado, \
-             descreva o resultado qualitativamente em vez de inventá-lo. \
-             Prefira UM indicador principal de impacto ou sinal de escopo defensável por bullet, \
-             usando esta taxonomia quando houver suporte na fonte: dinheiro (receita, orçamento, \
-             custo economizado ou despesa evitada, custo de licenças — \"100% gratuito\" descreve \
-             preço, enquanto economia exige evidência de despesa evitada); tempo (horas, dias, \
-             tempo de ciclo, prazo de entrega); performance (latência, throughput, velocidade, \
-             eficiência); escala (usuários, contas, volume, mercados, tamanho do time, escopo); \
-             confiabilidade e qualidade (erros, defeitos, indisponibilidade, precisão, SLA/SLO, \
-             reclamações); adoção e uso (ativação, retenção, cobertura do rollout, uso recorrente); \
-             resultados de cliente e negócio (conversão, CSAT/NPS, renovações, churn, expansão, \
-             tempo de resposta); gestão e processos (contratações, mentoria, treinamento, \
-             coordenação, adoção de SOP/processo); e risco/compliance (incidentes, auditorias, \
-             cobertura de controles, aderência a políticas). Prefira a estrutura ação → mudança → \
-             métrica/resultado → linha de base ou estado final → escopo. Preserve qualificadores \
-             aproximados como \"cerca de\" quando a fonte os usar; não adicione precisão. Sem métrica \
-             concreta, use sinais de escopo verdadeiros, como frequência, mercados, entregas ou \
-             adoção de processos. Atribua apenas a contribuição pessoal; não atribua resultados de \
-             todo o time sem evidência. Não pare na atividade, tecnologia ou responsabilidade: \
-             informe o valor gerado quando a fonte o sustentar. Nunca \
-             coloque frases inteiras em negrito, e use negrito apenas dentro do resumo e dos \
-             bullets — nunca em nomes, títulos, datas ou habilidades. Escreva os bullets de \
-             forma IMPESSOAL, começando por SUBSTANTIVOS de ação — ex.: \"Desenvolvimento de …\", \
-             \"Implementação de …\", \"Liderança de …\", \"Otimização de …\", \"Automação de …\", \
-             \"Integração de …\", \"Criação de …\", \"Gestão de …\" — e NUNCA com verbos conjugados \
-             na 3ª pessoa (\"Desenvolveu\", \"Implementou\", \"Liderou\"), que soam como se outra \
-             pessoa estivesse descrevendo o candidato. Varie o substantivo inicial entre os \
-             bullets para não repetir. O resumo deve ser centrado no profissional: comece com um \
-             título profissional (por exemplo, \"Engenheiro de Software\"), depois informe \
-             experiência, foco e valor. Não comece o resumo com um substantivo abstrato de área, \
-             como \"Engenharia de Software\" ou \"Desenvolvimento de Sistemas\". Mantenha-o entre 2 \
-             e 4 frases. Use métricas somente quando estiverem presentes na fonte ou no contexto \
-             do candidato, preservando exatamente a unidade e o sentido (por exemplo, \
-             **100% gratuito**, **80%**, **1.100 downloads**, **2 anos**). Nunca fabrique, infle ou \
-             arredonde métricas."
-        ),
     }
 }
 
@@ -783,6 +621,117 @@ pub fn cv_rewrite_prompt(
         "{target}{directive}{guidance}{extra}CV CONTENT (may be sparse for first-time CVs):\n{}",
         clip(cv_text)
     )
+}
+
+/// True when source material contains an explicit certificate/licence claim.
+/// This gate prevents a model from adding the section from skills or research alone.
+pub fn has_explicit_certificates(source: &str, extra_context: Option<&str>) -> bool {
+    let combined = format!("{}\n{}", source, extra_context.unwrap_or_default()).to_lowercase();
+    if [
+        "no certificate",
+        "no certification",
+        "no certifications",
+        "without certification",
+        "sem certificado",
+        "sem certificação",
+        "não tenho certificado",
+        "nao tenho certificado",
+    ]
+    .iter()
+    .any(|needle| combined.contains(needle))
+    {
+        return false;
+    }
+    [
+        "certificate",
+        "certification",
+        "certified",
+        "certs",
+        "credential",
+        "certificado",
+        "certificação",
+        "certificacao",
+        "certificações",
+        "certificacoes",
+        "credencial",
+        "licence",
+        "license",
+        "licença",
+        "licenca",
+    ]
+    .iter()
+    .any(|needle| combined.contains(needle))
+}
+
+pub fn cover_letter_system(lang: Language) -> String {
+    match lang {
+        Language::En => "You are an expert career writer. Write only the body of a concise, "
+            .to_string()
+            + "tailored cover letter grounded in the generated CV. Use 3 to 5 short paragraphs "
+            + "separated by blank lines. Do not add a greeting, sign-off, markdown, headings, "
+            + "placeholders, citations, or facts not present in the CV. Do not mention a company "
+            + "or job detail that was not provided. Return plain text only.",
+        Language::Pt => "Você é um especialista em redação profissional. Escreva somente o corpo "
+            .to_string()
+            + "de uma carta de apresentação concisa e adaptada, fundamentada no currículo gerado. "
+            + "Use de 3 a 5 parágrafos curtos separados por linhas em branco. Não inclua saudação, "
+            + "despedida, markdown, títulos, placeholders, citações ou fatos ausentes no currículo. "
+            + "Não mencione empresa ou detalhe de vaga que não foi fornecido. Retorne apenas texto simples.",
+    }
+}
+
+pub fn cover_letter_prompt(cv: &CvRewrite, target_title: Option<&str>, lang: Language) -> String {
+    let role = target_title
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| cv.positions.first().map(String::as_str))
+        .unwrap_or("the target role");
+    let cv_json = serde_json::to_string(cv).unwrap_or_else(|_| "{}".to_string());
+    let instruction = match lang {
+        Language::En => "Write the letter body in English.",
+        Language::Pt => "Escreva o corpo da carta em Português (pt-BR).",
+    };
+    format!("TARGET ROLE: {role}\n{instruction}\nGENERATED CV JSON (source of truth):\n{cv_json}")
+}
+
+pub fn parse_cover_letter(raw: &str) -> String {
+    let raw = raw.trim();
+    if let Some(obj) = extract_json_object(raw) {
+        #[derive(Deserialize)]
+        struct RawLetter {
+            #[serde(alias = "coverLetter")]
+            cover_letter: Option<String>,
+        }
+        if let Ok(parsed) = serde_json::from_str::<RawLetter>(obj) {
+            if let Some(letter) = parsed.cover_letter.filter(|s| !s.trim().is_empty()) {
+                return clean_cover_letter(&letter);
+            }
+        }
+    }
+    clean_cover_letter(
+        raw.trim_start_matches("```text")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim(),
+    )
+}
+
+fn clean_cover_letter(raw: &str) -> String {
+    let mut text = strip_research_artifacts(raw).trim().to_string();
+    if let Some(rest) = text.strip_prefix(":::writing") {
+        let rest = rest.trim_start();
+        text = if rest.starts_with('{') {
+            rest.find('}')
+                .map(|end| rest[end + 1..].trim_start().to_string())
+                .unwrap_or_else(|| rest.to_string())
+        } else {
+            rest.to_string()
+        };
+    }
+    text.strip_suffix(":::")
+        .map(str::trim_end)
+        .unwrap_or(&text)
+        .to_string()
 }
 
 fn cv_rewrite_analysis_block(a: &CvAnalysis) -> String {
@@ -845,7 +794,7 @@ pub fn parse_cv_rewrite(raw: &str) -> CvRewrite {
 fn clean_bullets(items: Vec<String>) -> Vec<String> {
     items
         .into_iter()
-        .map(|s| s.trim().to_string())
+        .map(|s| strip_research_artifacts(&s))
         .filter(|s| !s.is_empty())
         .collect()
 }
@@ -952,256 +901,40 @@ fn clean(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     items
         .into_iter()
-        .map(|s| s.trim().to_string())
+        .map(|s| strip_research_artifacts(&s))
         .filter(|s| !s.is_empty() && seen.insert(s.to_lowercase()))
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Strip the "research" artifacts a browsing ChatGPT injects into otherwise clean
+/// CV text when web_search is on. Removes citation tokens (`cite turn…search…`,
+/// `filecite turn1file0 L2‑L2`), reference markers (`([Estácio Blog][1])`,
+/// `[text][2]`), tracking query params (`?utm_source=chatgpt.com`), and unwraps
+/// markdown links (`[matheus@x.com](mailto:matheus@x.com)` → `matheus@x.com`;
+/// `[https://site](https://site?utm=…)` → `https://site`). Also folds the
+/// non-breaking hyphen (U+2011) the browser emits in date ranges back to a plain
+/// `-`, and NBSP to a space. Leaves `**bold**` intact on purpose — the LaTeX
+/// builder renders those spans as \textbf (see cv/latex.rs latex_escape_bold).
+fn strip_research_artifacts(s: &str) -> String {
+    use regex::Regex;
+    // Compiled per call: a rewrite is one AI round-trip (seconds+), so this is
+    // never a hot path and needs no lazy-static machinery.
+    let utm = Regex::new(r"[?&]utm_[a-z_]+=[^\s)&\]]*").unwrap();
+    let md_link = Regex::new(r"\[([^\]]+)\]\([^)]*\)").unwrap();
+    let citation = Regex::new(
+        r"(?i)\s*(?:\(?\[[^\]]*\]\[\d+\]\)?|(?:file)?cite(?:\s+turn\w+|\s+L\d+[-\x{2010}-\x{2015}]?L?\d*)+)",
+    )
+    .unwrap();
+    let dbl_space = Regex::new(r"[ \t]{2,}").unwrap();
 
-    #[test]
-    fn parses_well_formed_cv_json() {
-        let raw = r#"{"score": 82, "summary": "Strong backend CV.",
-            "optimization_needed": true, "missing_keywords": ["Kubernetes"],
-            "strengths": ["Rust", "Rust"], "weaknesses": ["No cloud"],
-            "recommendations": ["Add metrics"]}"#;
-        let a = parse_cv_analysis(raw);
-        assert_eq!(a.score, Some(82));
-        assert_eq!(a.summary, "Strong backend CV.");
-        assert!(a.optimization_needed);
-        assert_eq!(a.missing_keywords, vec!["Kubernetes"]);
-        assert_eq!(a.strengths, vec!["Rust"]);
-    }
-
-    #[test]
-    fn extracts_json_from_markdown_fence() {
-        let raw = "Here you go:\n```json\n{\"score\": 90, \"summary\": \"ok\"}\n```\nThanks!";
-        let a = parse_cv_analysis(raw);
-        assert_eq!(a.score, Some(90));
-        assert_eq!(a.summary, "ok");
-    }
-
-    #[test]
-    fn extracts_first_object_despite_trailing_prose_braces() {
-        let raw = r#"{"score": 70, "summary": "ok"}
-
-Note: feel free to use {curly braces} sparingly in your cover letter."#;
-        let a = parse_cv_analysis(raw);
-        assert_eq!(a.score, Some(70));
-        assert_eq!(a.summary, "ok");
-    }
-
-    #[test]
-    fn extracts_object_ignoring_braces_inside_string_values() {
-        let raw = r#"{"score": 60, "summary": "Uses {templates} in bullet points"}"#;
-        let a = parse_cv_analysis(raw);
-        assert_eq!(a.score, Some(60));
-        assert_eq!(a.summary, "Uses {templates} in bullet points");
-    }
-
-    #[test]
-    fn extract_json_object_none_when_unbalanced() {
-        assert_eq!(
-            extract_json_object(r#"{"score": 1, "summary": "oops"#),
-            None
-        );
-    }
-
-    #[test]
-    fn clamps_out_of_range_score() {
-        let a = parse_cv_analysis(r#"{"score": 250, "summary": "x"}"#);
-        assert_eq!(a.score, Some(100));
-    }
-
-    #[test]
-    fn parses_score_from_float_string_and_fraction() {
-        assert_eq!(
-            parse_cv_analysis(r#"{"score": 85.0, "summary": "x"}"#).score,
-            Some(85)
-        );
-        assert_eq!(
-            parse_cv_analysis(r#"{"score": 72.6, "summary": "x"}"#).score,
-            Some(73)
-        );
-        assert_eq!(
-            parse_cv_analysis(r#"{"score": "85", "summary": "x"}"#).score,
-            Some(85)
-        );
-        assert_eq!(
-            parse_cv_analysis(r#"{"score": "78/100", "summary": "x"}"#).score,
-            Some(78)
-        );
-        assert_eq!(
-            parse_cv_analysis(r#"{"score": " 90% ", "summary": "x"}"#).score,
-            Some(90)
-        );
-    }
-
-    #[test]
-    fn lenient_score_still_populates_summary_and_lists() {
-        let a =
-            parse_cv_analysis(r#"{"score": "88/100", "summary": "solid", "strengths": ["Rust"]}"#);
-        assert_eq!(a.score, Some(88));
-        assert_eq!(a.summary, "solid");
-        assert_eq!(a.strengths, vec!["Rust".to_string()]);
-    }
-
-    #[test]
-    fn unparseable_score_falls_back_to_none_not_empty_object() {
-        let a = parse_cv_analysis(r#"{"score": "excellent", "summary": "ok"}"#);
-        assert_eq!(a.score, None);
-        assert_eq!(a.summary, "ok");
-    }
-
-    #[test]
-    fn parses_object_with_trailing_commas() {
-        let a = parse_cv_analysis(r#"{"score": 77, "summary": "ok", "strengths": ["a", "b",],}"#);
-        assert_eq!(a.score, Some(77));
-        assert_eq!(a.summary, "ok");
-        assert_eq!(a.strengths, vec!["a".to_string(), "b".to_string()]);
-    }
-
-    #[test]
-    fn strip_trailing_commas_leaves_string_commas_intact() {
-        let s = r#"{"summary": "a, b, c",}"#;
-        assert_eq!(strip_trailing_commas(s), r#"{"summary": "a, b, c"}"#);
-    }
-
-    #[test]
-    fn strip_trailing_commas_preserves_multibyte_utf8() {
-        let s = r#"{"summary": "formação em projetos autônomos, aplicações escaláveis",}"#;
-        let out = strip_trailing_commas(s);
-        assert_eq!(
-            out,
-            r#"{"summary": "formação em projetos autônomos, aplicações escaláveis"}"#
-        );
-        assert!(!out.contains('Ã') && !out.contains('Â'));
-        let a = parse_cv_analysis(&out);
-        assert_eq!(
-            a.summary,
-            "formação em projetos autônomos, aplicações escaláveis"
-        );
-    }
-
-    #[test]
-    fn infers_optimization_needed_when_flag_absent() {
-        let a = parse_cv_analysis(r#"{"score": 40, "summary": "weak"}"#);
-        assert!(a.optimization_needed);
-        let b = parse_cv_analysis(r#"{"score": 95, "summary": "great"}"#);
-        assert!(!b.optimization_needed);
-    }
-
-    #[test]
-    fn degrades_gracefully_on_non_json() {
-        let a = parse_cv_analysis("The CV looks fine overall.");
-        assert_eq!(a.score, None);
-        assert_eq!(a.summary, "The CV looks fine overall.");
-        assert!(!a.optimization_needed);
-    }
-
-    #[test]
-    fn cv_prompt_includes_target_and_clips() {
-        let big = "x".repeat(20_000);
-        let p = cv_analysis_prompt(&big, Some("  Backend Engineer  "), Language::En);
-        assert!(p.contains("Backend Engineer"));
-        assert!(p.contains("[truncated]"));
-        assert!(p.len() < 13_000);
-        let p2 = cv_analysis_prompt("short", Some("   "), Language::En);
-        assert!(!p2.contains("targeting"));
-    }
-
-    #[test]
-    fn rewrite_prompt_supports_first_time_cv_context() {
-        assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v10");
-        let p = cv_rewrite_prompt(
-            "First CV",
-            Some("Junior Backend Developer"),
-            None,
-            Language::En,
-            Some("Name: Jane Doe\nProject: Rust CLI\nGitHub: https://github.com/jane"),
-        );
-        assert!(p.contains("Junior Backend Developer"));
-        assert!(p.contains("required for first-time CVs"));
-        assert!(p.contains("Name: Jane Doe"));
-        assert!(p.contains("CV CONTENT (may be sparse for first-time CVs)"));
-
-        let sys = cv_rewrite_system(Language::En);
-        assert!(sys.contains("first-time CV"));
-        assert!(sys.contains("leave unknown fields"));
-        assert!(sys.contains("across the entire work history"));
-        assert!(sys.contains("performance improvements"));
-        assert!(sys.contains("money (revenue"));
-        assert!(sys.contains("100% free"));
-        assert!(sys.contains("management and process"));
-        assert!(sys.contains("action → what changed"));
-
-        let sys_pt = cv_rewrite_system(Language::Pt);
-        assert!(sys_pt.contains("TODO o histórico profissional"));
-        assert!(sys_pt.contains("redução de tempo ou custo"));
-        assert!(sys_pt.contains("dinheiro (receita"));
-        assert!(sys_pt.contains("100% gratuito"));
-        assert!(sys_pt.contains("gestão e processos"));
-        assert!(sys_pt.contains("ação → mudança"));
-    }
-
-    #[test]
-    fn parses_well_formed_draft_json() {
-        let raw = r#"{"cover_letter": "Dear team, ...",
-            "form_answers": [{"question": "Why us?", "answer": "Because."},
-                             {"question": "", "answer": ""}],
-            "summary": "Tailored.", "optimization_notes": "Add a metric."}"#;
-        let d = parse_draft(raw);
-        assert_eq!(d.cover_letter, "Dear team, ...");
-        assert_eq!(d.form_answers.len(), 1);
-        assert_eq!(d.form_answers[0].question, "Why us?");
-        assert_eq!(d.optimization_notes, "Add a metric.");
-    }
-
-    #[test]
-    fn draft_degrades_to_raw_cover_letter() {
-        let d = parse_draft("Dear hiring manager, I am excited...");
-        assert_eq!(d.cover_letter, "Dear hiring manager, I am excited...");
-        assert!(d.form_answers.is_empty());
-        let d2 = parse_draft(r#"{"summary": "no letter here"}"#);
-        assert!(d2.cover_letter.contains("no letter here"));
-    }
-
-    #[test]
-    fn draft_prompt_includes_all_present_sections() {
-        let input = DraftInput {
-            job_title: "Senior Rust Engineer",
-            company: "Acme",
-            job_location: Some("Remote"),
-            job_description: "Build backends.",
-            candidate_name: "Jane Doe",
-            candidate_summary: Some("10y backend."),
-            cv_text: Some("EXPERIENCE: Rust everywhere."),
-            variant_target: Some("Backend Engineer"),
-            hr_name: Some("Alice Wong"),
-            hr_link: Some("https://linkedin.com/in/awong"),
-        };
-        let p = draft_prompt(&input);
-        assert!(p.contains("Senior Rust Engineer"));
-        assert!(p.contains("Acme"));
-        assert!(p.contains("Remote"));
-        assert!(p.contains("Jane Doe"));
-        assert!(p.contains("Backend Engineer"));
-        assert!(p.contains("10y backend."));
-        assert!(p.contains("EXPERIENCE: Rust everywhere."));
-    }
-
-    #[test]
-    fn indeed_answer_prompt_carries_question_and_grounding() {
-        let p = indeed_answer_prompt(
-            "Por que você quer esta vaga?",
-            "Backend dev, 8y.",
-            "EXPERIENCE: Rust, Go.",
-        );
-        assert!(p.contains("Por que você quer esta vaga?"));
-        assert!(p.contains("Backend dev, 8y."));
-        assert!(p.contains("EXPERIENCE: Rust, Go."));
-        assert!(indeed_answer_system().contains(NEEDS_HUMAN_SENTINEL));
-    }
+    let mut out = s.replace('\u{2011}', "-").replace('\u{00A0}', " ");
+    out = utm.replace_all(&out, "").into_owned();
+    out = md_link.replace_all(&out, "$1").into_owned();
+    out = citation.replace_all(&out, "").into_owned();
+    out = dbl_space.replace_all(&out, " ").into_owned();
+    out.trim().to_string()
 }
+
+#[cfg(test)]
+#[path = "prompt_tests.rs"]
+mod tests;

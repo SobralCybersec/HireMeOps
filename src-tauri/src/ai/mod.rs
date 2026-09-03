@@ -1,7 +1,7 @@
 //! AI provider backends + the ai_cache caching layer.
 //!
 //! Key: Provider — enum dispatching to the Browser/Unsupported/Disabled backends
-//! Key: complete_cached — cache-checked entry point services call to run a completion
+//! Key: complete_cached / complete_fresh — cached and provider-fresh completion entry points
 //! Key: provider_from_settings — maps a stored AiProviderSettings to a live Provider
 //! Key: select_provider_resolved — resolves credentials and picks the default provider
 //! Key: resolve_api_key — resolves an OAuth access token or a keyring/env API key
@@ -226,42 +226,63 @@ pub async fn complete_cached<P: AiProvider>(
     provider: &P,
     req: CompletionRequest,
 ) -> DomainResult<CompletionResponse> {
+    complete_with_cache(pool, provider, req, true).await
+}
+
+/// Run a provider completion without reading an existing cached response.
+/// The fresh response still updates the matching cache entry for later reads.
+pub async fn complete_fresh<P: AiProvider>(
+    pool: &SqlitePool,
+    provider: &P,
+    req: CompletionRequest,
+) -> DomainResult<CompletionResponse> {
+    complete_with_cache(pool, provider, req, false).await
+}
+
+async fn complete_with_cache<P: AiProvider>(
+    pool: &SqlitePool,
+    provider: &P,
+    req: CompletionRequest,
+    read_cache: bool,
+) -> DomainResult<CompletionResponse> {
     let namespace = provider.cache_namespace();
     let content_hash = prompt_hash(req.system.as_deref(), &req.prompt);
     let ph = sha256_hex(&format!("{namespace}\u{1f}{content_hash}"));
 
-    if let Some(text) = sqlx::query_scalar::<_, String>(
-        "SELECT response_text FROM ai_cache \
-         WHERE model_name = ?1 AND prompt_hash = ?2 AND input_hash = ?3",
-    )
-    .bind(&req.model)
-    .bind(&ph)
-    .bind(&req.input_hash)
-    .fetch_optional(pool)
-    .await?
-    {
-        if text.trim().is_empty() {
-            sqlx::query(
-                "DELETE FROM ai_cache \
-                 WHERE model_name = ?1 AND prompt_hash = ?2 AND input_hash = ?3",
-            )
-            .bind(&req.model)
-            .bind(&ph)
-            .bind(&req.input_hash)
-            .execute(pool)
-            .await?;
-        } else {
-            sqlx::query(
-                "UPDATE ai_cache SET last_used_at = ?1 \
-                 WHERE model_name = ?2 AND prompt_hash = ?3 AND input_hash = ?4",
-            )
-            .bind(now_iso())
-            .bind(&req.model)
-            .bind(&ph)
-            .bind(&req.input_hash)
-            .execute(pool)
-            .await?;
-            return Ok(CompletionResponse { text, cached: true });
+    if read_cache {
+        if let Some(text) = sqlx::query_scalar::<_, String>(
+            "SELECT response_text FROM ai_cache \
+             WHERE model_name = ?1 AND prompt_hash = ?2 AND input_hash = ?3",
+        )
+        .bind(&req.model)
+        .bind(&ph)
+        .bind(&req.input_hash)
+        .fetch_optional(pool)
+        .await?
+        {
+            if text.trim().is_empty() {
+                sqlx::query(
+                    "DELETE FROM ai_cache \
+                     WHERE model_name = ?1 AND prompt_hash = ?2 AND input_hash = ?3",
+                )
+                .bind(&req.model)
+                .bind(&ph)
+                .bind(&req.input_hash)
+                .execute(pool)
+                .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE ai_cache SET last_used_at = ?1 \
+                     WHERE model_name = ?2 AND prompt_hash = ?3 AND input_hash = ?4",
+                )
+                .bind(now_iso())
+                .bind(&req.model)
+                .bind(&ph)
+                .bind(&req.input_hash)
+                .execute(pool)
+                .await?;
+                return Ok(CompletionResponse { text, cached: true });
+            }
         }
     }
 

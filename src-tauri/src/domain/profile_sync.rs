@@ -146,6 +146,57 @@ fn education_body(entry: &crate::ai::prompt::CvEducationEntry) -> String {
     lines.join("\n")
 }
 
+fn education_sections(variant: &ProfileVariantDto) -> Vec<SyncSection> {
+    variant
+        .education
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| !entry.institution.trim().is_empty())
+        .map(|(i, entry)| SyncSection {
+            id: format!("education-{i}"),
+            kind: SyncSectionKind::Education,
+            label: format!("Education — {}", entry.institution.trim()),
+            edit_url: URL_PROFILE_ROOT.to_string(),
+            copy_text: education_body(entry),
+            char_limit: None,
+            over_limit: false,
+            metadata: serde_json::to_string(entry).ok(),
+        })
+        .collect()
+}
+
+fn experience_sections(variant: &ProfileVariantDto) -> Vec<SyncSection> {
+    variant
+        .experience
+        .iter()
+        .enumerate()
+        .filter_map(|(i, entry)| {
+            let body = experience_body(entry);
+            if body.is_empty() {
+                return None;
+            }
+            let title = entry.title.trim();
+            let org = entry.organization.trim();
+            let label = match (title.is_empty(), org.is_empty()) {
+                (false, false) => format!("Experience — {title} @ {org}"),
+                (false, true) => format!("Experience — {title}"),
+                (true, false) => format!("Experience — {org}"),
+                (true, true) => format!("Experience #{}", i + 1),
+            };
+            Some(SyncSection {
+                id: format!("experience-{i}"),
+                kind: SyncSectionKind::Experience,
+                label,
+                edit_url: URL_PROFILE_ROOT.to_string(),
+                copy_text: body,
+                char_limit: Some(EXPERIENCE_DESC_MAX),
+                over_limit: false,
+                metadata: serde_json::to_string(entry).ok(),
+            })
+        })
+        .collect()
+}
+
 pub fn plan_from_variant(variant: &ProfileVariantDto) -> ProfileSyncPlan {
     let mut sections: Vec<SyncSection> = Vec::new();
 
@@ -189,49 +240,8 @@ pub fn plan_from_variant(variant: &ProfileVariantDto) -> ProfileSyncPlan {
         });
     }
 
-    for (i, entry) in variant.education.iter().enumerate() {
-        if entry.institution.trim().is_empty() {
-            continue;
-        }
-        let label = format!("Education — {}", entry.institution.trim());
-        let copy_text = education_body(entry);
-        let metadata = serde_json::to_string(entry).ok();
-        sections.push(SyncSection {
-            id: format!("education-{i}"),
-            kind: SyncSectionKind::Education,
-            label,
-            edit_url: URL_PROFILE_ROOT.to_string(),
-            copy_text,
-            char_limit: None,
-            over_limit: false,
-            metadata,
-        });
-    }
-
-    for (i, entry) in variant.experience.iter().enumerate() {
-        let body = experience_body(entry);
-        if body.is_empty() {
-            continue;
-        }
-        let title = entry.title.trim();
-        let org = entry.organization.trim();
-        let label = match (title.is_empty(), org.is_empty()) {
-            (false, false) => format!("Experience — {title} @ {org}"),
-            (false, true) => format!("Experience — {title}"),
-            (true, false) => format!("Experience — {org}"),
-            (true, true) => format!("Experience #{}", i + 1),
-        };
-        sections.push(SyncSection {
-            id: format!("experience-{i}"),
-            kind: SyncSectionKind::Experience,
-            label,
-            edit_url: URL_PROFILE_ROOT.to_string(),
-            copy_text: body,
-            char_limit: Some(EXPERIENCE_DESC_MAX),
-            over_limit: false,
-            metadata: serde_json::to_string(entry).ok(),
-        });
-    }
+    sections.extend(education_sections(variant));
+    sections.extend(experience_sections(variant));
 
     ProfileSyncPlan {
         variant_id: variant.id.clone(),

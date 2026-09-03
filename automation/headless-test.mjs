@@ -127,58 +127,59 @@ function withTimeout(promise, ms, label) {
 const results = [];
 
 // ── module phase ──────────────────────────────────────────────────────────
+async function launchModuleContext() {
+  try {
+    return await chromium.launchPersistentContext(
+      profileDir,
+      baseLaunchOptions({ headless: !headed, executablePath: "/usr/bin/chromium" }),
+    );
+  } catch {
+    return chromium.launchPersistentContext(profileDir, baseLaunchOptions({ headless: !headed }));
+  }
+}
+
+async function runModuleSite(ctx, site) {
+  const page = await ctx.newPage();
+  attachDiagnostics(page);
+  const t0 = Date.now();
+  const rec = {
+    name: site.name,
+    ms: 0,
+    count: 0,
+    sample: null,
+    error: null,
+    login: site.login,
+  };
+  try {
+    const out = await withTimeout(site.fn(page, { query, maxPages: 1 }), PER_SITE_TIMEOUT_MS, site.name);
+    const jobs = Array.isArray(out?.jobs) ? out.jobs : [];
+    rec.count = jobs.length;
+    rec.sample = jobs.find((j) => j.title)?.title ?? null;
+  } catch (e) {
+    rec.error = e?.message || String(e);
+  } finally {
+    rec.ms = Date.now() - t0;
+    const cap = await captureDom(page, `headless-${site.name}`, {
+      headless: !headed,
+      query,
+      jobCount: rec.count,
+      error: rec.error,
+    });
+    rec.proof = cap && !cap.error ? { html: cap.html, png: cap.png, pdf: cap.pdf } : null;
+    results.push(rec);
+    await page.close().catch(() => {});
+  }
+}
+
 async function runModulePhase() {
   if (!moduleSites.length) return;
   // Launch the SAME stealthy way the worker does (worker.js cmdOpen), otherwise
   // WAF-fronted boards (Catho) 403 the bare headless client and the harness
   // under-reports what the real app can scrape.
-  let ctx;
-  try {
-    ctx = await chromium.launchPersistentContext(
-      profileDir,
-      baseLaunchOptions({ headless: !headed, executablePath: "/usr/bin/chromium" }),
-    );
-  } catch {
-    ctx = await chromium.launchPersistentContext(profileDir, baseLaunchOptions({ headless: !headed }));
-  }
+  const ctx = await launchModuleContext();
   attachNetworkCapture(ctx);
   try {
-    for (const site of moduleSites) {
-      const page = await ctx.newPage();
-      attachDiagnostics(page);
-      const t0 = Date.now();
-      const rec = {
-        name: site.name,
-        ms: 0,
-        count: 0,
-        sample: null,
-        error: null,
-        login: site.login,
-      };
-      try {
-        const out = await withTimeout(
-          site.fn(page, { query, maxPages: 1 }),
-          PER_SITE_TIMEOUT_MS,
-          site.name,
-        );
-        const jobs = Array.isArray(out?.jobs) ? out.jobs : [];
-        rec.count = jobs.length;
-        rec.sample = jobs.find((j) => j.title)?.title ?? null;
-      } catch (e) {
-        rec.error = e?.message || String(e);
-      } finally {
-        rec.ms = Date.now() - t0;
-        const cap = await captureDom(page, `headless-${site.name}`, {
-          headless: !headed,
-          query,
-          jobCount: rec.count,
-          error: rec.error,
-        });
-        rec.proof = cap && !cap.error ? { html: cap.html, png: cap.png, pdf: cap.pdf } : null;
-        results.push(rec);
-        await page.close().catch(() => {});
-      }
-    }
+    for (const site of moduleSites) await runModuleSite(ctx, site);
   } finally {
     await ctx.close().catch(() => {});
   }
@@ -217,50 +218,52 @@ function makeWorker() {
   return { proc, send };
 }
 
+async function openRpcSite(send) {
+  const reply = await send({ cmd: "open", user_data_dir: profileDir, extensions: [], headless: !headed }, 30_000);
+  if (!reply.ok || !reply.handle) throw new Error(reply.error || "open failed (no handle)");
+  return reply.handle;
+}
+
+function rpcReplyItems(reply, site) {
+  return Array.isArray(reply[site.pick]) ? reply[site.pick] : [];
+}
+
+function recordRpcCapture(rec, reply) {
+  const cap = reply.capture;
+  rec.proof = cap && !cap.error ? { html: cap.html, png: cap.png, pdf: cap.pdf } : null;
+}
+
+async function readRpcSite(send, site, handle, rec) {
+  const reply = await send({ cmd: site.cmd, handle, ...site.params(query) }, PER_SITE_TIMEOUT_MS);
+  if (!reply.ok) throw new Error(reply.error || `${site.cmd} failed`);
+  const arr = rpcReplyItems(reply, site);
+  rec.count = arr.length;
+  rec.sample = arr.find((j) => j.title)?.title ?? arr[0]?.title ?? null;
+  recordRpcCapture(rec, reply);
+}
+
+async function runRpcSite(send, site) {
+  const t0 = Date.now();
+  const rec = { name: site.name, ms: 0, count: 0, sample: null, error: null, login: site.login };
+  let handle = null;
+  try {
+    handle = await openRpcSite(send);
+    await readRpcSite(send, site, handle, rec);
+  } catch (e) {
+    rec.error = e?.message || String(e);
+    rec.throwProof = `${CAPTURE_DIR}/*-${site.cmd}_throw.{html,png,pdf}`;
+  } finally {
+    rec.ms = Date.now() - t0;
+    if (handle) await send({ cmd: "close", handle }, 15_000).catch(() => {});
+    results.push(rec);
+  }
+}
+
 async function runRpcPhase() {
   if (!rpcSites.length) return;
   const { proc, send } = makeWorker();
   try {
-    for (const site of rpcSites) {
-      const t0 = Date.now();
-      const rec = {
-        name: site.name,
-        ms: 0,
-        count: 0,
-        sample: null,
-        error: null,
-        login: site.login,
-      };
-      let handle = null;
-      try {
-        const open = await send(
-          { cmd: "open", user_data_dir: profileDir, extensions: [], headless: !headed },
-          30_000,
-        );
-        if (!open.ok || !open.handle) throw new Error(open.error || "open failed (no handle)");
-        handle = open.handle;
-        const reply = await send(
-          { cmd: site.cmd, handle, ...site.params(query) },
-          PER_SITE_TIMEOUT_MS,
-        );
-        if (!reply.ok) throw new Error(reply.error || `${site.cmd} failed`);
-        const arr = Array.isArray(reply[site.pick]) ? reply[site.pick] : [];
-        rec.count = arr.length;
-        rec.sample = arr.find((j) => j.title)?.title ?? arr[0]?.title ?? null;
-        // The worker auto-captures CAPTURE_CMDS and returns the paths inline.
-        const cap = reply.capture;
-        rec.proof = cap && !cap.error ? { html: cap.html, png: cap.png, pdf: cap.pdf } : null;
-      } catch (e) {
-        rec.error = e?.message || String(e);
-        // A thrown search still leaves evidence: the worker's dispatch writes a
-        // `<cmd>_throw` bundle on error. Point at it so the proof isn't "missing".
-        rec.throwProof = `${CAPTURE_DIR}/*-${site.cmd}_throw.{html,png,pdf}`;
-      } finally {
-        rec.ms = Date.now() - t0;
-        if (handle) await send({ cmd: "close", handle }, 15_000).catch(() => {});
-        results.push(rec);
-      }
-    }
+    for (const site of rpcSites) await runRpcSite(send, site);
   } finally {
     await send({ cmd: "shutdown" }, 5_000).catch(() => {});
     proc.stdin.end();

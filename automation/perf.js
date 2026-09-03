@@ -30,12 +30,17 @@ function pssKb(pid) {
 }
 
 export function descendantPids(root) {
+  const kids = readProcessTree();
+  return kids ? walkProcessTree(kids, root) : [];
+}
+
+function readProcessTree() {
   const kids = new Map();
   let entries;
   try {
     entries = fs.readdirSync("/proc");
   } catch {
-    return [];
+    return null;
   }
   for (const name of entries) {
     if (!/^\d+$/.test(name)) continue;
@@ -49,6 +54,10 @@ export function descendantPids(root) {
     } catch {
     }
   }
+  return kids;
+}
+
+function walkProcessTree(kids, root) {
   const out = [];
   const stack = [root];
   while (stack.length) {

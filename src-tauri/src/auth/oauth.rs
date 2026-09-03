@@ -481,37 +481,48 @@ async fn finish_login(
     code: String,
     state: Option<String>,
 ) -> DomainResult<OAuthStatus> {
-    let verifier = {
-        let mut guard = pending().lock().unwrap();
-        let key = match &state {
-            Some(st) => {
-                if !guard.contains_key(st) {
-                    return Err(DomainError::InvalidInput(
-                        "state mismatch — restart the login".into(),
-                    ));
-                }
-                st.clone()
-            }
-            None => guard
-                .iter()
-                .find(|(_, p)| p.kind == cfg.kind)
-                .map(|(k, _)| k.clone())
-                .ok_or_else(|| {
-                    DomainError::InvalidInput("no pending login — start again".into())
-                })?,
-        };
-        let p = guard
-            .remove(&key)
-            .ok_or_else(|| DomainError::InvalidInput("pending login entry vanished".into()))?;
-        if p.kind != cfg.kind {
-            return Err(DomainError::InvalidInput(
-                "state does not match provider".into(),
-            ));
-        }
-        p.verifier
-    };
+    let verifier = take_pending_verifier(cfg, state.as_deref())?;
+    let params = authorization_code_params(cfg, code, verifier, state);
+    let tokens = post_token(cfg, params, None).await?;
+    store_tokens(cfg.kind, &tokens)?;
+    Ok(status_from_tokens(Some(&tokens)))
+}
 
-    let mut params: Vec<(&str, String)> = vec![
+fn take_pending_verifier(cfg: &OAuthProviderConfig, state: Option<&str>) -> DomainResult<String> {
+    let mut guard = pending().lock().unwrap();
+    let key = match state {
+        Some(st) => {
+            if !guard.contains_key(st) {
+                return Err(DomainError::InvalidInput(
+                    "state mismatch — restart the login".into(),
+                ));
+            }
+            st.to_string()
+        }
+        None => guard
+            .iter()
+            .find(|(_, p)| p.kind == cfg.kind)
+            .map(|(k, _)| k.clone())
+            .ok_or_else(|| DomainError::InvalidInput("no pending login — start again".into()))?,
+    };
+    let p = guard
+        .remove(&key)
+        .ok_or_else(|| DomainError::InvalidInput("pending login entry vanished".into()))?;
+    if p.kind != cfg.kind {
+        return Err(DomainError::InvalidInput(
+            "state does not match provider".into(),
+        ));
+    }
+    Ok(p.verifier)
+}
+
+fn authorization_code_params(
+    cfg: &OAuthProviderConfig,
+    code: String,
+    verifier: String,
+    state: Option<String>,
+) -> Vec<(&'static str, String)> {
+    let mut params = vec![
         ("grant_type", "authorization_code".to_string()),
         ("code", code),
         ("redirect_uri", cfg.redirect_uri.to_string()),
@@ -519,17 +530,18 @@ async fn finish_login(
         ("code_verifier", verifier),
     ];
     if cfg.token_includes_state {
-        if let Some(st) = state {
-            params.push(("state", st));
+        if let Some(state) = state {
+            params.push(("state", state));
         }
     }
+    append_client_secret(cfg, &mut params);
+    params
+}
+
+fn append_client_secret<'a>(cfg: &OAuthProviderConfig, params: &mut Vec<(&'a str, String)>) {
     if let Some(secret) = cfg.client_secret {
         params.push(("client_secret", secret.to_string()));
     }
-
-    let tokens = post_token(cfg, params, None).await?;
-    store_tokens(cfg.kind, &tokens)?;
-    Ok(status_from_tokens(Some(&tokens)))
 }
 
 fn parse_request_target(target: &str) -> Option<(String, Option<String>)> {
@@ -551,24 +563,29 @@ fn parse_request_target(target: &str) -> Option<(String, Option<String>)> {
 pub async fn refresh(kind: &str) -> DomainResult<TokenSet> {
     let cfg = provider_config(kind)
         .ok_or_else(|| DomainError::InvalidInput(format!("{kind} does not support OAuth login")))?;
-    let current = load_tokens(cfg.kind)?
-        .ok_or_else(|| DomainError::InvalidInput(format!("{kind} is not connected")))?;
-    let refresh_token = current.refresh_token.clone().ok_or_else(|| {
-        DomainError::InvalidInput(format!("{kind} has no refresh token — reconnect"))
-    })?;
-
-    let mut params: Vec<(&str, String)> = vec![
-        ("grant_type", "refresh_token".to_string()),
-        ("refresh_token", refresh_token.clone()),
-        ("client_id", cfg.client_id.to_string()),
-    ];
-    if let Some(secret) = cfg.client_secret {
-        params.push(("client_secret", secret.to_string()));
-    }
-
+    let refresh_token = load_refresh_token(kind, cfg.kind)?;
+    let params = refresh_params(&cfg, &refresh_token);
     let tokens = post_token(&cfg, params, Some(refresh_token)).await?;
     store_tokens(cfg.kind, &tokens)?;
     Ok(tokens)
+}
+
+fn load_refresh_token(kind: &str, provider_kind: &str) -> DomainResult<String> {
+    let current = load_tokens(provider_kind)?
+        .ok_or_else(|| DomainError::InvalidInput(format!("{kind} is not connected")))?;
+    current.refresh_token.ok_or_else(|| {
+        DomainError::InvalidInput(format!("{kind} has no refresh token — reconnect"))
+    })
+}
+
+fn refresh_params(cfg: &OAuthProviderConfig, refresh_token: &str) -> Vec<(&'static str, String)> {
+    let mut params = vec![
+        ("grant_type", "refresh_token".to_string()),
+        ("refresh_token", refresh_token.to_string()),
+        ("client_id", cfg.client_id.to_string()),
+    ];
+    append_client_secret(cfg, &mut params);
+    params
 }
 
 pub async fn valid_access_token(kind: &str) -> DomainResult<Option<String>> {

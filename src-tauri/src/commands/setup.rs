@@ -160,94 +160,100 @@ pub async fn install_dependencies() -> Result<String, String> {
 /// … (fonts are bundled locally). On Windows, MiKTeX auto-fetches exactly the
 /// used packages on first compile, so it's minimal by design. Separate from
 /// `install_dependencies` because it's larger and only needed for PDF export.
+fn install_miktex(report: &mut String) -> Result<(), String> {
+    if !probe("winget", "--version") {
+        return Err("winget not available — install MiKTeX from \
+            https://miktex.org (it fetches only the packages used), then retry"
+            .into());
+    }
+    run(
+        "winget",
+        &[
+            "install",
+            "-e",
+            "--id",
+            "MiKTeX.MiKTeX",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ],
+    )
+    .map_err(|e| format!("{report}MiKTeX install failed:\n{e}"))?;
+    let _ = run("initexmf", &["--set-config-value", "[MPM]AutoInstall=1"]);
+    report.push_str("MiKTeX installed — auto-fetches only the template's packages ✓\n");
+    Ok(())
+}
+
+fn install_texlive(report: &mut String) -> Result<(), String> {
+    let mgr = linux_pkg_mgr().ok_or_else(|| {
+        "no supported package manager — install `texlive-xetex` (+ latex-extra, \
+         fontawesome) manually"
+            .to_string()
+    })?;
+    if !probe("pkexec", "--version") {
+        return Err(format!(
+            "graphical sudo (pkexec) not available — run the texlive install for \
+             {mgr} in a terminal, then retry"
+        ));
+    }
+    let pkgs: Vec<&str> = match mgr {
+        "pacman" => vec![
+            "pacman",
+            "-S",
+            "--noconfirm",
+            "texlive-xetex",
+            "texlive-latexextra",
+            "texlive-latexrecommended",
+            "texlive-fontsextra",
+            "texlive-fontsrecommended",
+            "texlive-mathscience",
+        ],
+        "dnf" => vec![
+            "dnf",
+            "install",
+            "-y",
+            "texlive-xetex",
+            "texlive-collection-latexextra",
+            "texlive-collection-fontsrecommended",
+            "texlive-collection-fontsextra",
+        ],
+        _ => vec![
+            "apt-get",
+            "install",
+            "-y",
+            "texlive-xetex",
+            "texlive-latex-extra",
+            "texlive-latex-recommended",
+            "texlive-fonts-recommended",
+            "texlive-fonts-extra",
+        ],
+    };
+    run("pkexec", &pkgs).map_err(|e| format!("{report}LaTeX install failed:\n{e}"))?;
+    report.push_str("LaTeX (xelatex + CV-template packages) installed ✓\n");
+    Ok(())
+}
+
+fn install_latex_blocking() -> Result<String, String> {
+    if probe("xelatex", "--version") {
+        return Ok("xelatex is already installed ✓".to_string());
+    }
+    let mut report = String::from("Installing the LaTeX set the CV template needs…\n");
+    match std::env::consts::OS {
+        "windows" => install_miktex(&mut report)?,
+        "linux" => install_texlive(&mut report)?,
+        other => return Err(format!("LaTeX auto-install not supported on {other}")),
+    }
+    if !probe("xelatex", "--version") {
+        return Err(format!(
+            "{report}xelatex isn't on PATH yet — reopen the app, then try CV PDF export."
+        ));
+    }
+    Ok(format!("{report}xelatex ready ✓"))
+}
+
 #[tauri::command]
 pub async fn install_latex() -> Result<String, String> {
-    tokio::task::spawn_blocking(|| {
-        if probe("xelatex", "--version") {
-            return Ok("xelatex is already installed ✓".to_string());
-        }
-        let mut report = String::from("Installing the LaTeX set the CV template needs…\n");
-        match std::env::consts::OS {
-            "windows" => {
-                if !probe("winget", "--version") {
-                    return Err("winget not available — install MiKTeX from \
-                        https://miktex.org (it fetches only the packages used), then retry"
-                        .into());
-                }
-                run(
-                    "winget",
-                    &[
-                        "install",
-                        "-e",
-                        "--id",
-                        "MiKTeX.MiKTeX",
-                        "--silent",
-                        "--accept-package-agreements",
-                        "--accept-source-agreements",
-                    ],
-                )
-                .map_err(|e| format!("{report}MiKTeX install failed:\n{e}"))?;
-                // Let MiKTeX pull missing packages unattended on first compile.
-                let _ = run("initexmf", &["--set-config-value", "[MPM]AutoInstall=1"]);
-                report.push_str("MiKTeX installed — auto-fetches only the template's packages ✓\n");
-            }
-            "linux" => {
-                let mgr = linux_pkg_mgr().ok_or_else(|| {
-                    "no supported package manager — install `texlive-xetex` (+ latex-extra, \
-                     fontawesome) manually"
-                        .to_string()
-                })?;
-                if !probe("pkexec", "--version") {
-                    return Err(format!(
-                        "graphical sudo (pkexec) not available — run the texlive install for \
-                         {mgr} in a terminal, then retry"
-                    ));
-                }
-                // Only the collections curriculo.cls pulls in — NOT texlive-full.
-                let pkgs: Vec<&str> = match mgr {
-                    "pacman" => vec![
-                        "pacman",
-                        "-S",
-                        "--noconfirm",
-                        "texlive-xetex",
-                        "texlive-latexextra",
-                        "texlive-latexrecommended",
-                        "texlive-fontsextra",
-                        "texlive-fontsrecommended",
-                        "texlive-mathscience",
-                    ],
-                    "dnf" => vec![
-                        "dnf",
-                        "install",
-                        "-y",
-                        "texlive-xetex",
-                        "texlive-collection-latexextra",
-                        "texlive-collection-fontsrecommended",
-                        "texlive-collection-fontsextra",
-                    ],
-                    _ => vec![
-                        "apt-get",
-                        "install",
-                        "-y",
-                        "texlive-xetex",
-                        "texlive-latex-extra",
-                        "texlive-latex-recommended",
-                        "texlive-fonts-recommended",
-                        "texlive-fonts-extra",
-                    ],
-                };
-                run("pkexec", &pkgs).map_err(|e| format!("{report}LaTeX install failed:\n{e}"))?;
-                report.push_str("LaTeX (xelatex + CV-template packages) installed ✓\n");
-            }
-            other => return Err(format!("LaTeX auto-install not supported on {other}")),
-        }
-        if !probe("xelatex", "--version") {
-            return Err(format!(
-                "{report}xelatex isn't on PATH yet — reopen the app, then try CV PDF export."
-            ));
-        }
-        Ok(format!("{report}xelatex ready ✓"))
-    })
-    .await
-    .map_err(|e| format!("install task panicked: {e}"))?
+    tokio::task::spawn_blocking(install_latex_blocking)
+        .await
+        .map_err(|e| format!("install task panicked: {e}"))?
 }

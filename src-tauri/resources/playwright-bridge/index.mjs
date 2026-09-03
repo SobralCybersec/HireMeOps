@@ -177,6 +177,14 @@ function sleep(ms) {
 // logged-in tab. Generous by default (5 min) and overridable for tests.
 const LOGIN_WAIT_MS = Number(process.env.HIREMEOPS_BROWSER_LOGIN_TIMEOUT_MS) || 300000
 
+// How long the Node-layer POST to ChatGPT's conversation endpoint may stream
+// before Playwright aborts it. Reasoning models stream for minutes on a heavy
+// prompt (a full CV rewrite), so the old 120s cap aborted requests whose answer
+// had in fact fully generated ("apiRequestContext.post: Timeout 120000ms
+// exceeded"). Kept just under the Rust bridge's DEFAULT_BRIDGE_TIMEOUT_MS so this
+// inner limit surfaces a clean error before the outer RPC gives up.
+const CHAT_REQUEST_TIMEOUT_MS = Number(process.env.HIREMEOPS_CHAT_REQUEST_TIMEOUT_MS) || 300000
+
 function send(id, result = null, error = null) {
   process.stdout.write(`${JSON.stringify({ id, result, error })}\n`)
 }
@@ -186,6 +194,7 @@ const state = {
     context: null,
     page: null,
     headless: null,
+    authenticated: false,
     cachedHeaders: null,
     lastHeadersTime: 0,
   },
@@ -193,6 +202,13 @@ const state = {
 
 function ensureSessionText(value, fallback) {
   return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+async function hasChatGPTSession() {
+  const context = state.chatgpt.context
+  if (!context) return false
+  const cookies = await context.cookies('https://chatgpt.com').catch(() => [])
+  return cookies.some((cookie) => /session-token/i.test(cookie.name) && cookie.value)
 }
 
 // Default in-session model id per browser site. Used as the fallback id when the
@@ -267,6 +283,13 @@ function modelListResponse(ids, provider, fallbackModel) {
 
 function addKnownChatGPTModels(target) {
   for (const id of [
+    'gpt-5-6-thinking',
+    'gpt-5-5-thinking',
+    'gpt-5-4-thinking',
+    'gpt-5-3-thinking',
+    'gpt-5-6',
+    'gpt-5-5',
+    'gpt-5-4',
     'gpt-5-3',
     'gpt-5.5',
     'gpt-5.5-thinking',
@@ -470,13 +493,23 @@ async function initChatGPT({ runtime_dir, headless, browser }) {
   // `chromium_headless_shell`. executablePath and channel are mutually
   // exclusive, so drop the channel whenever we resolve an explicit binary.
   const executablePath = engine === chromium ? resolveChromiumExecutable() : undefined
+  // Headless Chromium announces "HeadlessChrome/<major>" in BOTH navigator.userAgent
+  // AND the Sec-CH-UA client hints — a hard Cloudflare 403 at auth.openai.com
+  // (verified: HeadlessChrome UA → 403 "Just a moment"; identical request with the
+  // token stripped → the API's own 400/200). Override the UA at the BROWSER level
+  // (the --user-agent flag, not the context `userAgent` option, so Sec-CH-UA stays
+  // coherent) to strip only "Headless", on a Linux UA that matches this binary's
+  // platform and major. Headed launches keep the genuine UA (a visible window is
+  // never "HeadlessChrome"). Mirrors automation/browser-launch.js HEADLESS_UA.
+  // ponytail: bump the major when the system Chromium jumps a major.
+  const uaArgs = headless
+    ? ['--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36']
+    : []
   state.chatgpt.context = await engine.launchPersistentContext(chatgptProfileDir, {
     headless,
     channel: executablePath ? undefined : channel,
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
     ignoreDefaultArgs: ['--enable-automation'],
-    args: stealthArgs(),
+    args: [...stealthArgs(), ...uaArgs],
     executablePath,
   })
   await applyStealthScripts(state.chatgpt.context)
@@ -484,6 +517,7 @@ async function initChatGPT({ runtime_dir, headless, browser }) {
   state.chatgpt.headless = headless
   state.chatgpt.runtimeDir = runtime_dir
   state.chatgpt.browserChoice = browser
+  state.chatgpt.authenticated = await hasChatGPTSession()
 }
 
 async function captureChatGPTTemplate(forceNew = false) {
@@ -793,7 +827,7 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
       {
         headers: requestHeaders,
         data: JSON.stringify(payload),
-        timeout: 120_000,
+        timeout: CHAT_REQUEST_TIMEOUT_MS,
       },
     )
     const bodyText = await apiResp.text()
@@ -881,7 +915,6 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
 async function openChatGPTLogin({ runtime_dir, browser }) {
   await initChatGPT({ runtime_dir, headless: false, browser })
   const page = state.chatgpt.page
-  const context = state.chatgpt.context
   await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
   // Block until the user has ACTUALLY authenticated. DOM heuristics are useless
   // here: ChatGPT's logged-OUT landing renders the same composer/textarea, and a
@@ -892,9 +925,9 @@ async function openChatGPTLogin({ runtime_dir, browser }) {
   const deadline = Date.now() + LOGIN_WAIT_MS
   let loggedIn = false
   while (Date.now() < deadline) {
-    const cookies = await context.cookies('https://chatgpt.com').catch(() => [])
-    if (cookies.some((c) => /session-token/i.test(c.name) && c.value)) {
+    if (await hasChatGPTSession()) {
       loggedIn = true
+      state.chatgpt.authenticated = true
       break
     }
     await sleep(1500)
@@ -907,6 +940,50 @@ async function openChatGPTLogin({ runtime_dir, browser }) {
   return listChatGPTModels()
 }
 
+async function logoutChatGPT() {
+  const session = state.chatgpt
+  if (!session.runtimeDir) {
+    session.authenticated = false
+    return { ok: true, logged_in: false }
+  }
+
+  try {
+    await ensureLiveSession('chatgpt')
+    const context = session.context
+    if (!context) throw new Error('ChatGPT Playwright session is unavailable')
+
+    const cookies = await context.cookies()
+    for (const cookie of cookies) {
+      if (cookie.domain !== 'chatgpt.com' && !cookie.domain.endsWith('.chatgpt.com')) continue
+      await context.clearCookies({ name: cookie.name, domain: cookie.domain, path: cookie.path })
+    }
+
+    if (session.page && !session.page.isClosed()) {
+      await session.page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' }).catch(() => {})
+    }
+
+    session.authenticated = await hasChatGPTSession()
+    if (session.authenticated) {
+      throw new Error('ChatGPT logout failed — session cookie is still present')
+    }
+    return { ok: true, logged_in: false }
+  } finally {
+    await releaseChatgptIfShared()
+  }
+}
+
+async function chatGPTStatus() {
+  try {
+    if (!state.chatgpt.context && state.chatgpt.runtimeDir) {
+      await ensureLiveSession('chatgpt')
+    }
+    state.chatgpt.authenticated = await hasChatGPTSession()
+    return { logged_in: state.chatgpt.authenticated }
+  } finally {
+    await releaseChatgptIfShared()
+  }
+}
+
 async function closeAll() {
   for (const key of ['chatgpt']) {
     if (state[key].context) {
@@ -914,6 +991,7 @@ async function closeAll() {
       state[key].context = null
       state[key].page = null
       state[key].headless = null
+      state[key].authenticated = false
       state[key].cachedHeaders = null
       state[key].lastHeadersTime = 0
     }
@@ -940,6 +1018,10 @@ async function handle(method, provider, params) {
       await releaseChatgptIfShared()
       return r
     }
+    case 'chatgpt:logout':
+      return logoutChatGPT()
+    case 'chatgpt:status':
+      return chatGPTStatus()
     case 'chatgpt:list_models':
       return listChatGPTModels()
     case 'chatgpt:chat': {

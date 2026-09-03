@@ -24,14 +24,8 @@ interface KpiCardProps {
  * Single metric tile for the stat grid. Wrap a set of these in
  * `<div className="stat-grid">`. Uses `.stat-tile` + `.stat-tile--*`.
  */
-export function KpiCard({
-  label,
-  value,
-  meta,
-  tone = "default",
-  className,
-  accessibleValue,
-}: KpiCardProps) {
+export function KpiCard(props: KpiCardProps) {
+  const { label, value, meta, tone = "default", className, accessibleValue } = props;
   const cls = ["stat-tile", tone !== "default" ? `stat-tile--${tone}` : null, className]
     .filter(Boolean)
     .join(" ");

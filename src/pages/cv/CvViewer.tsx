@@ -422,48 +422,23 @@ export function CvViewer({ cv, loader, onClose }: CvViewerProps) {
   // Keyboard controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case "Escape":
-          e.preventDefault();
-          onClose();
-          break;
-        case "ArrowRight":
-        case "PageDown":
-          e.preventDefault();
-          goToPage(current + 1, pageCount);
-          break;
-        case "ArrowLeft":
-        case "PageUp":
-          e.preventDefault();
-          goToPage(current - 1, pageCount);
-          break;
-        case "Home":
-          e.preventDefault();
-          goToPage(1, pageCount);
-          break;
-        case "End":
-          e.preventDefault();
-          goToPage(pageCount, pageCount);
-          break;
-        case "+":
-        case "=":
-          e.preventDefault();
-          stepZoom(1);
-          break;
-        case "-":
-          e.preventDefault();
-          stepZoom(-1);
-          break;
-        case "0":
-          // Reset to fit-width (matches "0 = actual size" convention adjusted
-          // for a modal viewer where "actual" isn't meaningful - fit-width is
-          // the useful home).
-          e.preventDefault();
-          setZoomMode(ZOOM_FIT);
-          break;
-        default:
-          break;
-      }
+      const actions: Record<string, () => void> = {
+        Escape: onClose,
+        ArrowRight: () => goToPage(current + 1, pageCount),
+        PageDown: () => goToPage(current + 1, pageCount),
+        ArrowLeft: () => goToPage(current - 1, pageCount),
+        PageUp: () => goToPage(current - 1, pageCount),
+        Home: () => goToPage(1, pageCount),
+        End: () => goToPage(pageCount, pageCount),
+        "+": () => stepZoom(1),
+        "=": () => stepZoom(1),
+        "-": () => stepZoom(-1),
+        "0": () => setZoomMode(ZOOM_FIT),
+      };
+      const action = actions[e.key];
+      if (!action) return;
+      e.preventDefault();
+      action();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

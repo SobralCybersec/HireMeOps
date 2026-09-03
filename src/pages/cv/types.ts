@@ -96,6 +96,15 @@ export interface CvEducationEntry {
   bullets: string[];
 }
 
+/** One explicitly supplied certificate rendered in the CV honors section. */
+export interface CvCertificate {
+  name: string;
+  issuer: string;
+  credentialId: string;
+  date: string;
+  credentialUrl: string;
+}
+
 /**
  * A fully REWRITTEN CV tailored to a target role - real rewritten content, not
  * a critique. Mirrors `ai::prompt::CvRewrite`. Structured to round-trip through
@@ -110,6 +119,9 @@ export interface CvRewrite {
   skills: CvSkillGroup[];
   experience: CvExperienceEntry[];
   education: CvEducationEntry[];
+  certificates: CvCertificate[];
+  /** Generated after the CV rewrite; exported as its own PDF. */
+  coverLetter: string;
   /** Output language stamped by the domain layer — "pt" or "en". Defaults to "pt" when absent (old rows). */
   language?: CvLanguage;
   /** Hex accent for the rendered CV header/rules (no leading `#`), e.g. "2B0A3D". Empty/absent = template default. */
@@ -133,9 +145,8 @@ export interface CvMetadata {
 }
 
 /**
- * One persisted CV rewrite run, exactly as the backend emits it
- * (`domain/cv.rs::CvRewriteReport`, serialized `camelCase`). Listed newest-first.
- * Additive alongside `CvAnalysisReport` - a rewrite is the tailored CV itself.
+ * One persisted CV rewrite detail, returned by `get_cv_rewrite`.
+ * The list endpoint returns `CvRewriteSummary` instead.
  */
 export interface CvRewriteReport {
   id: string;
@@ -157,6 +168,20 @@ export interface CvRewriteReport {
    *  the CV Library comparison. Null for rewrites made before this was stored. */
   sourceText?: string | null;
   /** ISO timestamp the rewrite was persisted. */
+  createdAt: string;
+}
+
+/** Lightweight rewrite row returned by the history list. Full JSON/source text
+ * is loaded only when a rewrite is opened or exported. */
+export interface CvRewriteSummary {
+  id: string;
+  cvDocumentId: string | null;
+  cvFileName: string;
+  roleVariantId: string | null;
+  variantName: string | null;
+  modelProvider: string;
+  modelName: string;
+  language?: CvLanguage | null;
   createdAt: string;
 }
 

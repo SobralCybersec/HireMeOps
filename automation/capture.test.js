@@ -14,7 +14,8 @@ function fakeContext() {
   };
 }
 
-function fakeResponse({ url = "https://x/api", method = "GET", status = 200, type = "fetch", ct = "application/json", body = "{}", contentLength } = {}) {
+function fakeResponse(options = {}) {
+  const { url = "https://x/api", method = "GET", status = 200, type = "fetch", ct = "application/json", body = "{}", contentLength } = options;
   const headers = { "content-type": ct };
   if (contentLength != null) headers["content-length"] = String(contentLength);
   return {

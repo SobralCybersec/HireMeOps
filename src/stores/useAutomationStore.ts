@@ -50,20 +50,7 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
   error: null,
   detail: null,
 
-  // NOTE: the command handlers below only ever set the OPTIMISTIC ack state
-  // (e.g. "PreparingBrowser") once the backend accepts the command. The real
-  // lifecycle - PreparingBrowser → Searching → ... → Completed/Failed/Stopped -
-  // is driven exclusively by `applyServerState`, fed from the backend's
-  // `automation.state` events. This split is the whole fix for the stuck
-  // "Preparing Browser" bug: the UI acks the click, then follows the engine.
   start: async () => {
-    // Paint the optimistic ack BEFORE awaiting the command. The backend emits
-    // its authoritative `automation.state` events (PreparingBrowser →...→
-    // Completed/Failed) while this invoke is in flight, and the feature-off
-    // engine reaches a terminal state in microseconds. If we set the optimistic
-    // ack *after* the await, that late set clobbers the terminal state the
-    // events already applied - wedging the cockpit at "PreparingBrowser" with a
-    // null detail forever. Setting it first lets every backend event win.
     set({
       state: "PreparingBrowser",
       error: null,
@@ -103,10 +90,6 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
     }
   },
 
-  // Authoritative lifecycle transition, driven by the backend engine's
-  // `automation.state` events. Unlike the command handlers this NEVER guesses -
-  // it reflects exactly what the engine reports. A terminal state
-  // (Completed/Failed/Stopped) clears the task binding.
   applyServerState: (state, taskId, detail, watchUrl) =>
     set((prev) => {
       const isTerminal = state === "Completed" || state === "Failed" || state === "Stopped";
@@ -114,7 +97,6 @@ export const useAutomationStore = create<AutomationStoreState>((set) => ({
         state,
         detail,
         currentTaskId: taskId ?? (isTerminal ? null : prev.currentTaskId),
-        // Keep the last live URL so the Cockpit shows where the run ended.
         watchUrl: watchUrl !== undefined ? watchUrl : prev.watchUrl,
       };
     }),
