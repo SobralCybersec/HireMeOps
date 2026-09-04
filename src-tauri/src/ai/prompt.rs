@@ -379,7 +379,7 @@ where
     })
 }
 
-pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v14";
+pub const CV_REWRITE_PROMPT_VERSION: &str = "cv-rewrite-v15";
 pub const COVER_LETTER_PROMPT_VERSION: &str = "cover-letter-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -594,6 +594,10 @@ pub fn cv_rewrite_prompt(
         Language::En => "Write the entire rewritten CV in English.\n\n",
         Language::Pt => "Escreva todo o currículo reescrito em Português (pt-BR).\n\n",
     };
+    let recruiter_focus = match lang {
+        Language::En => "RECRUITER-FIRST ADAPTATION:\nTreat `summary` as a 3–5 sentence Professional Profile that states the candidate's direction, evidence, working style, and value. In `experience`, lead every entry with one verified relevance/context bullet, then prove capabilities through distinct actions and outcomes. Prefer evidence over adjectives and keywords; preserve source metrics exactly and omit unsupported claims.\n\n",
+        Language::Pt => "ADAPTAÇÃO RECRUITER-FIRST:\nTrate `summary` como um Professional Profile de 3–5 frases que apresente a direção, as evidências, a forma de trabalho e o valor do candidato. Em `experience`, comece cada entrada com um bullet de relevância/contexto verificado e depois prove as capacidades por ações e resultados distintos. Prefira evidências a adjetivos e palavras-chave; preserve exatamente as métricas da fonte e omita afirmações sem suporte.\n\n",
+    };
     let guidance = analysis.map(cv_rewrite_analysis_block).unwrap_or_default();
     let extra = extra_context
         .map(str::trim)
@@ -618,7 +622,7 @@ pub fn cv_rewrite_prompt(
         })
         .unwrap_or_default();
     format!(
-        "{target}{directive}{guidance}{extra}CV CONTENT (may be sparse for first-time CVs):\n{}",
+        "{target}{directive}{recruiter_focus}{guidance}{extra}CV CONTENT (may be sparse for first-time CVs):\n{}",
         clip(cv_text)
     )
 }
@@ -738,7 +742,7 @@ fn cv_rewrite_analysis_block(a: &CvAnalysis) -> String {
     let mut lines: Vec<String> = Vec::new();
     if let Some(score) = a.score {
         lines.push(format!(
-            "This CV scored {score}/100 in a prior review{}.",
+            "This CV scored {score}/100 in a prior review{}; use this only as guidance and verify every claim against the source.",
             if a.optimization_needed {
                 " and REQUIRES optimization"
             } else {
@@ -761,7 +765,7 @@ fn cv_rewrite_analysis_block(a: &CvAnalysis) -> String {
         lines.push(l);
     }
     if let Some(l) = list(
-        "MISSING KEYWORDS to weave in where truthful",
+        "MISSING ROLE SIGNALS to include only when truthfully supported",
         &a.missing_keywords,
     ) {
         lines.push(l);

@@ -1,0 +1,580 @@
+{
+  "generatedAt": "2026-08-27T17:59:22.546Z",
+  "commits": {
+    "baselineRef": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "baselineCommit": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "candidateRef": null,
+    "candidateCommit": null,
+    "candidateTree": "32989283f15478a88d612b897a9afc380f43aae5",
+    "dirtyWorktree": true
+  },
+  "baseline": {
+    "path": "/tmp/hiremeops-old-clone-hkM7gI",
+    "files": "git archive cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "commit": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "verified": true,
+    "temporary": true,
+    "source": "git archive cfda4b06a51343db960e318a23f16a309bd01a1c"
+  },
+  "environment": {
+    "host": {
+      "platform": "linux",
+      "release": "7.1.9-arch1-2",
+      "arch": "x64",
+      "cpuCount": 12,
+      "cpuModel": "AMD Ryzen 5 5600GT with Radeon Graphics",
+      "totalMemoryBytes": 33506824192
+    },
+    "runtime": {
+      "packageManager": "pnpm@11.9.0",
+      "node": "v25.8.0",
+      "sqlite": "3.51.2",
+      "sqlx": "0.9"
+    },
+    "benchmark": {
+      "cwd": "/home/satu/Documents/HireMeOps",
+      "profile": "smoke",
+      "poolSize": "default",
+      "statementCacheCapacity": "default",
+      "cacheSize": "-16384 KiB",
+      "mmapSize": "default",
+      "tempStore": "2 (memory)",
+      "walAutocheckpoint": "default",
+      "journalMode": "WAL for persisted fixture; MEMORY for in-memory cases",
+      "synchronous": "NORMAL for persisted fixture; OFF during seed only"
+    },
+    "userHome": "/home/satu"
+  },
+  "startup": {
+    "command": "/home/satu/.local/share/mise/installs/node/25.8.0/bin/node /home/satu/Documents/HireMeOps/scripts/benchmark-changes.mjs --help",
+    "timing": {
+      "samples": 5,
+      "minMs": 27.267,
+      "p50Ms": 29.309,
+      "p90Ms": 31.547,
+      "p95Ms": 31.547,
+      "p99Ms": 31.547,
+      "maxMs": 31.547,
+      "meanMs": 29.463,
+      "stddevMs": 1.746
+    }
+  },
+  "artifacts": {
+    "frontendDistBytes": 5162726,
+    "baselineFrontendDistBytes": 0,
+    "releaseBuilds": {
+      "status": "not-run",
+      "reason": "pass --build-release"
+    }
+  },
+  "fixture": {
+    "path": "/home/satu/Documents/HireMeOps/reports/todo-performance/sanitized-fixture.sqlite3",
+    "sanitized": true,
+    "rows": 5000,
+    "sha256": "0888397fafe8da185d3afb003cec5302040dbad8db7b6eb68238af2c02201bb0",
+    "metadata": {
+      "pragmas": {
+        "pageSize": 4096,
+        "journalMode": "wal",
+        "synchronous": 1,
+        "cacheSize": -16384,
+        "mmapSize": 0,
+        "tempStore": 2,
+        "walAutocheckpoint": 1000,
+        "pageCount": 2361
+      },
+      "databaseBytes": 9670656,
+      "walBytes": 0,
+      "shmBytes": 0,
+      "ftsBytes": 3649536,
+      "beforeCheckpoint": {
+        "databaseBytes": 4096,
+        "walBytes": 9801512,
+        "shmBytes": 32768
+      }
+    },
+    "ftsProfile": {
+      "timing": {
+        "samples": 5,
+        "minMs": 789.121,
+        "p50Ms": 789.777,
+        "p90Ms": 812.066,
+        "p95Ms": 812.066,
+        "p99Ms": 812.066,
+        "maxMs": 812.066,
+        "meanMs": 794.38,
+        "stddevMs": 8.877
+      },
+      "resultRows": 200,
+      "plan": [
+        "8 | 0 | 62 | SEARCH jp USING INDEX idx_jobs_profile_status_discovered_id (profile_id=?)",
+        "15 | 0 | 99 | SCAN job_posts_fts VIRTUAL TABLE INDEX 0:=M5",
+        "46 | 0 | 0 | USE TEMP B-TREE FOR ORDER BY"
+      ]
+    }
+  },
+  "ftsDiagnostics": {
+    "baseline": {
+      "plan": [
+        "8 | 0 | 62 | SEARCH jp USING INDEX idx_jobs_profile_status (profile_id=?)",
+        "15 | 0 | 99 | SCAN job_posts_fts VIRTUAL TABLE INDEX 0:=M5",
+        "33 | 0 | 0 | USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "ftsBytes": 1019904
+    },
+    "current": {
+      "plan": [
+        "8 | 0 | 62 | SEARCH jp USING INDEX idx_jobs_profile_status_discovered_id (profile_id=?)",
+        "15 | 0 | 99 | SCAN job_posts_fts VIRTUAL TABLE INDEX 0:=M5",
+        "46 | 0 | 0 | USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "ftsBytes": 3649536
+    }
+  },
+  "config": {
+    "rows": 5000,
+    "rewrites": 500,
+    "warmup": 2,
+    "iterations": 5,
+    "profile": "smoke",
+    "output": "reports/todo-performance/benchmark-results.json",
+    "baselineRef": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "candidateRef": null,
+    "fixture": "reports/todo-performance/sanitized-fixture.sqlite3",
+    "buildRelease": false,
+    "createClone": false,
+    "keepClone": true
+  },
+  "cases": [
+    {
+      "name": "fts-search-join-vs-n-plus-one",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 1845.246,
+          "p50Ms": 1864.164,
+          "p90Ms": 1878.68,
+          "p95Ms": 1878.68,
+          "p99Ms": 1878.68,
+          "maxMs": 1878.68,
+          "meanMs": 1861.802,
+          "stddevMs": 11.22
+        },
+        "rowCount": 200,
+        "payloadBytes": 177384
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 790.974,
+          "p50Ms": 792.103,
+          "p90Ms": 796.757,
+          "p95Ms": 796.757,
+          "p99Ms": 796.757,
+          "maxMs": 796.757,
+          "meanMs": 793.048,
+          "stddevMs": 2.173
+        },
+        "rowCount": 200,
+        "payloadBytes": 121384
+      },
+      "equivalence": {
+        "orderedIdsSha256": "5ebe7cfd28b8882cfdb4bc64dc6477d6e23bde06f7427e73fd69a449db1715bd",
+        "requiredFieldsSha256": "79b6673c6dd21990cb13986df41651cebb1c1f06ab7311e99a45033b021b7465",
+        "boundaries": {
+          "first": {
+            "id": "job-000005",
+            "discoveredAt": "099995",
+            "createdAt": null
+          },
+          "last": {
+            "id": "job-001120",
+            "discoveredAt": "098880",
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "rows/sec",
+        "baseline": 107.287,
+        "current": 252.492
+      },
+      "resources": {
+        "rssBeforeBytes": 85983232,
+        "peakRssBytes": 102244352,
+        "rssAfterBytes": 102244352,
+        "rssDeltaBytes": 16261120
+      },
+      "speedup": 2.353,
+      "payloadReduction": 0.316
+    },
+    {
+      "name": "job-list-bounded-summary",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 0.891,
+          "p50Ms": 0.983,
+          "p90Ms": 1.054,
+          "p95Ms": 1.054,
+          "p99Ms": 1.054,
+          "maxMs": 1.054,
+          "meanMs": 0.976,
+          "stddevMs": 0.065
+        },
+        "rowCount": 50,
+        "payloadBytes": 44091
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 0.199,
+          "p50Ms": 0.209,
+          "p90Ms": 0.298,
+          "p95Ms": 0.298,
+          "p99Ms": 0.298,
+          "maxMs": 0.298,
+          "meanMs": 0.226,
+          "stddevMs": 0.037
+        },
+        "rowCount": 50,
+        "payloadBytes": 30091
+      },
+      "equivalence": {
+        "orderedIdsSha256": "75636923307550b3ec3cef68d3e5687169fab55d45b46fa83a25fd1474abe1ad",
+        "requiredFieldsSha256": "b2c52730f357d8fb6b9dec5c337b106e345a1c8ce3e73af21e5b19658d2f60ce",
+        "boundaries": {
+          "first": {
+            "id": "job-000000",
+            "discoveredAt": "100000",
+            "createdAt": null
+          },
+          "last": {
+            "id": "job-000049",
+            "discoveredAt": "099951",
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "rows/sec",
+        "baseline": 50864.7,
+        "current": 239234.45
+      },
+      "resources": {
+        "rssBeforeBytes": 102244352,
+        "peakRssBytes": 102637568,
+        "rssAfterBytes": 102768640,
+        "rssDeltaBytes": 524288
+      },
+      "speedup": 4.703,
+      "payloadReduction": 0.318
+    },
+    {
+      "name": "job-list-deep-keyset-vs-offset",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 4.056,
+          "p50Ms": 4.115,
+          "p90Ms": 4.356,
+          "p95Ms": 4.356,
+          "p99Ms": 4.356,
+          "maxMs": 4.356,
+          "meanMs": 4.173,
+          "stddevMs": 0.112
+        },
+        "rowCount": 50,
+        "payloadBytes": 44201
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 0.438,
+          "p50Ms": 0.444,
+          "p90Ms": 0.581,
+          "p95Ms": 0.581,
+          "p99Ms": 0.581,
+          "maxMs": 0.581,
+          "meanMs": 0.475,
+          "stddevMs": 0.054
+        },
+        "rowCount": 50,
+        "payloadBytes": 30201
+      },
+      "equivalence": {
+        "orderedIdsSha256": "254169a53ed4039f3d1dde1fcae353392389db811046e52042c144af70f7ae53",
+        "requiredFieldsSha256": "d3a1ce96d7e563864b534a286185d1539190ec87085bbba8da2da1b846aa81d0",
+        "boundaries": {
+          "first": {
+            "id": "job-003750",
+            "discoveredAt": "096250",
+            "createdAt": null
+          },
+          "last": {
+            "id": "job-003799",
+            "discoveredAt": "096201",
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "rows/sec",
+        "baseline": 12150.668,
+        "current": 112612.613
+      },
+      "resources": {
+        "rssBeforeBytes": 102768640,
+        "peakRssBytes": 105652224,
+        "rssAfterBytes": 105652224,
+        "rssDeltaBytes": 2883584
+      },
+      "speedup": 9.268,
+      "payloadReduction": 0.317
+    },
+    {
+      "name": "search-batch-preload-vs-per-row-reads",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 5.785,
+          "p50Ms": 6.186,
+          "p90Ms": 7.001,
+          "p95Ms": 7.001,
+          "p99Ms": 7.001,
+          "maxMs": 7.001,
+          "meanMs": 6.247,
+          "stddevMs": 0.406
+        },
+        "rowCount": 555,
+        "payloadBytes": 531399
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 3.012,
+          "p50Ms": 3.302,
+          "p90Ms": 4.043,
+          "p95Ms": 4.043,
+          "p99Ms": 4.043,
+          "maxMs": 4.043,
+          "meanMs": 3.417,
+          "stddevMs": 0.343
+        },
+        "rowCount": 555,
+        "payloadBytes": 531399
+      },
+      "equivalence": {
+        "orderedIdsSha256": "f301ed28604192389f58e2265adaa2a408a48f76f3f4613ed7a04a272d0c4919",
+        "requiredFieldsSha256": "989c8295ec640dd91a884afe861954e736a8b56e1a95472f26e8d4455f16ecf1",
+        "boundaries": {
+          "first": {
+            "id": "job-004993",
+            "discoveredAt": "095007",
+            "createdAt": null
+          },
+          "last": {
+            "id": "job-000001",
+            "discoveredAt": "099999",
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "rows/sec",
+        "baseline": 89718.72,
+        "current": 168079.952
+      },
+      "resources": {
+        "rssBeforeBytes": 105652224,
+        "peakRssBytes": 112918528,
+        "rssAfterBytes": 112029696,
+        "rssDeltaBytes": 6377472
+      },
+      "speedup": 1.873,
+      "payloadReduction": 0
+    },
+    {
+      "name": "cv-rewrite-summary-vs-full-history",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 10.031,
+          "p50Ms": 10.301,
+          "p90Ms": 10.504,
+          "p95Ms": 10.504,
+          "p99Ms": 10.504,
+          "maxMs": 10.504,
+          "meanMs": 10.254,
+          "stddevMs": 0.193
+        },
+        "rowCount": 500,
+        "payloadBytes": 5958001
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 0.991,
+          "p50Ms": 1.197,
+          "p90Ms": 1.209,
+          "p95Ms": 1.209,
+          "p99Ms": 1.209,
+          "maxMs": 1.209,
+          "meanMs": 1.123,
+          "stddevMs": 0.101
+        },
+        "rowCount": 500,
+        "payloadBytes": 104001
+      },
+      "equivalence": {
+        "orderedIdsSha256": "723433d60e66e6a2182e1fac8cb76bdbafadaf306b1d3ca0330bda1f9d50a37d",
+        "requiredFieldsSha256": "2357c5f768f7abe36c212e424cbafc41252ebef6a7147ae19c679d8ec42968d5",
+        "boundaries": {
+          "first": {
+            "id": "rewrite-000000",
+            "discoveredAt": null,
+            "createdAt": "100000"
+          },
+          "last": {
+            "id": "rewrite-000499",
+            "discoveredAt": null,
+            "createdAt": "099501"
+          }
+        }
+      },
+      "throughput": {
+        "unit": "rows/sec",
+        "baseline": 48538.977,
+        "current": 417710.944
+      },
+      "resources": {
+        "rssBeforeBytes": 112029696,
+        "peakRssBytes": 135020544,
+        "rssAfterBytes": 135020544,
+        "rssDeltaBytes": 22990848
+      },
+      "speedup": 8.606,
+      "payloadReduction": 0.983
+    }
+  ],
+  "throughputCases": [
+    {
+      "name": "job-import-throughput",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 2.721,
+          "p50Ms": 2.777,
+          "p90Ms": 2.908,
+          "p95Ms": 2.908,
+          "p99Ms": 2.908,
+          "maxMs": 2.908,
+          "meanMs": 2.81,
+          "stddevMs": 0.072
+        },
+        "rowCount": 1000
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 2.218,
+          "p50Ms": 2.285,
+          "p90Ms": 2.484,
+          "p95Ms": 2.484,
+          "p99Ms": 2.484,
+          "maxMs": 2.484,
+          "meanMs": 2.299,
+          "stddevMs": 0.097
+        },
+        "rowCount": 1000
+      },
+      "equivalence": {
+        "orderedIdsSha256": "c83c0231c75d56ec71e54f3a99e88508025dc16d847ba5f0beef9c14da9628a6",
+        "requiredFieldsSha256": "f3319c832d108cbad57c04d6562a898963cf3c8911c44a27e0d95858a2586198",
+        "boundaries": {
+          "first": {
+            "id": "batch-4-0000",
+            "discoveredAt": null,
+            "createdAt": null
+          },
+          "last": {
+            "id": "batch-4-0999",
+            "discoveredAt": null,
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "imported rows/sec",
+        "batchSize": 1000,
+        "baseline": 360100.828,
+        "current": 437636.761
+      },
+      "resources": {
+        "rssBeforeBytes": 135020544,
+        "peakRssBytes": 135020544,
+        "rssAfterBytes": 130150400,
+        "rssDeltaBytes": -4870144
+      }
+    },
+    {
+      "name": "batched-match-write-throughput",
+      "baseline": {
+        "timing": {
+          "samples": 5,
+          "minMs": 3.516,
+          "p50Ms": 3.699,
+          "p90Ms": 3.747,
+          "p95Ms": 3.747,
+          "p99Ms": 3.747,
+          "maxMs": 3.747,
+          "meanMs": 3.641,
+          "stddevMs": 0.101
+        },
+        "rowCount": 1000
+      },
+      "current": {
+        "timing": {
+          "samples": 5,
+          "minMs": 2.986,
+          "p50Ms": 3.133,
+          "p90Ms": 3.429,
+          "p95Ms": 3.429,
+          "p99Ms": 3.429,
+          "maxMs": 3.429,
+          "meanMs": 3.16,
+          "stddevMs": 0.146
+        },
+        "rowCount": 1000
+      },
+      "equivalence": {
+        "orderedIdsSha256": "c83c0231c75d56ec71e54f3a99e88508025dc16d847ba5f0beef9c14da9628a6",
+        "requiredFieldsSha256": "f3319c832d108cbad57c04d6562a898963cf3c8911c44a27e0d95858a2586198",
+        "boundaries": {
+          "first": {
+            "id": "batch-4-0000",
+            "discoveredAt": null,
+            "createdAt": null
+          },
+          "last": {
+            "id": "batch-4-0999",
+            "discoveredAt": null,
+            "createdAt": null
+          }
+        }
+      },
+      "throughput": {
+        "unit": "matched rows/sec",
+        "batchSize": 1000,
+        "baseline": 270343.336,
+        "current": 319182.892
+      },
+      "resources": {
+        "rssBeforeBytes": 130150400,
+        "peakRssBytes": 131198976,
+        "rssAfterBytes": 131198976,
+        "rssDeltaBytes": 1048576
+      }
+    }
+  ]
+}

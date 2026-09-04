@@ -1,0 +1,2388 @@
+diff --git c/PROGRESS.md w/PROGRESS.md
+index 6cb6c38..da7ee42 100644
+--- c/PROGRESS.md
++++ w/PROGRESS.md
+@@ -1,19 +1,52 @@
+ # Progress
+ 
+-Current goal: Configure Codex to use local OpenAI-compatible proxy.
++Goal: complete `TODO.md` performance work and verify repository state.
+ 
+-Files touched:
+-- /home/satu/.codex/config.toml
+-- /home/satu/.codex/config.toml.bak_20260806_proxy
+-- PROGRESS.md
++## Checklist
+ 
+-Decisions made:
+-- Set active model to `gpt-5.6-sol`.
+-- Set active model provider to `local_proxy`.
+-- Added `[model_providers.local_proxy]` with `base_url = "http://127.0.0.1:10531/v1"`, `wire_api = "responses"`, and `requires_openai_auth = false` because proxy needs no API key.
++- [x] 1 — Completed: replaced FTS ID-then-fetch loop with one ranked FTS5 + `job_posts` join.
++- [x] 2 — Completed: default job page is 50, hard cap 200; list rows use bounded summaries; `get_job_post` serves detail text.
++- [x] 3 — Completed: added `(discovered_at, id)` keyset cursor and UI Load more path; legacy offset remains compatible.
++- [x] 4 — Completed: added profile/status/order-aligned job indexes.
++- [x] 5 — Completed: enabled SQLx pool acquire timing and slow-acquire WARN threshold.
++- [x] 6 — Completed: in-flight rewrite-list requests collapse duplicate React/dev calls.
++- [x] 7 — Completed: split CV rewrite history metadata from `get_cv_rewrite` detail payload.
++- [x] 8 — Completed: `run_search` preloads preference, variants, and jobs; scores in memory; persists one transaction.
++- [x] 9 — Completed: added periodic passive WAL observation and maintenance; no extra writer actor added.
++- [x] 10 — Completed: batch write transaction now covers search match inserts/status updates; import paths retain their existing per-row contract.
++- [x] 11 — Completed: added search/profile, analysis/document, preference/profile, variant/profile, and drafts/job indexes.
++- [x] 12 — Completed: FTS prefix index rebuilt with `prefix='2 3 4'`.
++- [x] 13 — Completed: FTS input uses 2-character minimum and 200ms debounce; explicit optimize command added.
++- [x] 14 — Completed: release profile uses `opt-level = 3`; `perf` profile added.
++- [x] 15 — Completed: added benchmark matrix for pool 2/3/4/5, statement cache, cache size, mmap, and temp store.
++- [x] 16 — Completed: `PRAGMA optimize` runs after migrations, periodically, and on SQLx connection close.
++- [x] 17 — Completed: logs SQLite version, passive checkpoint tuple, and WAL byte size.
++- [x] 18 — Completed: pool size is configurable with `HIREMEOPS_DB_MAX_CONNECTIONS`; default remains 5.
++- [x] 19 — Completed: statement cache is configurable with `HIREMEOPS_DB_STATEMENT_CACHE_CAPACITY`; default is 256.
++- [x] 20 — Completed: cache, mmap, and temp-store knobs are configurable for A/B runs.
++- [x] 21 — Completed: stale scan cleanup uses indexed `NOT EXISTS` probes and adds `application_drafts(job_id)`.
++- [x] 22 — Completed: Rust performance profile changed from size-first to runtime optimization.
++- [x] 23 — Completed: UUID/TEXT schema reviewed; migration deliberately kept out of this performance pass.
++- [x] 24 — Completed: `WITHOUT ROWID` reviewed and kept out because external FTS depends on `rowid`.
+ 
+-Verified checks:
+-- [x] `rtk codex --strict-config doctor --summary` loaded config and provider; only failure was `TERM=dumb` in non-interactive shell
++## Changed files
+ 
+-Remaining work:
+-- [ ] Restart Codex session to pick up config
++- `src-tauri/migrations/0011_performance_paths.sql`
++- `src-tauri/src/storage/db.rs`, `src-tauri/src/lib.rs`
++- `src-tauri/src/commands/jobs/{mod.rs,queries.rs}`
++- `src-tauri/src/domain/{jobs.rs,cv.rs}` and `src-tauri/src/commands/cv.rs`
++- `src-tauri/Cargo.toml`
++- `src/pages/JobSearch.tsx`, `src/stores/useJobStore.ts`, related tests
++- `src/pages/cv/*`, `src/pages/CvLibrary.tsx`, `src/pages/ProfileVariants.tsx`
++- `scripts/benchmark-sqlite.sh`
++
++## Verification
++
++- Baseline: 255 frontend tests, 199 Rust tests, typecheck/lint/quality passed.
++- Current: 257 frontend unit tests and 199 Rust tests passed.
++- Current: `npm run typecheck` passed.
++- Current: `cargo fmt -- --check` passed.
++- Current: `npm run format:check` passed.
++- `scripts/benchmark-sqlite.sh` syntax checked; run it with a repeatable app/benchmark command to collect elapsed/RSS results.
++
++Original-file hashes and rollback copies: `reports/todo-performance/original.sha256` and `reports/todo-performance/original/`.
+diff --git c/src-tauri/Cargo.toml w/src-tauri/Cargo.toml
+index d8ca0da..3cac06f 100644
+--- c/src-tauri/Cargo.toml
++++ w/src-tauri/Cargo.toml
+@@ -19,6 +19,7 @@ tauri = { version = "2", features = ["unstable"] }
+ tauri-plugin-opener = "2"
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
++regex = "1" # strip web-search citation artifacts from AI CV-rewrite output
+ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time", "net", "io-util", "process"] }
+ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+ anyhow = "1"
+@@ -80,7 +81,11 @@ debug = false
+ # Smaller, faster release binary. `lto = "thin"` keeps link times reasonable
+ # vs. `fat` while still inlining across crates; single codegen-unit maximizes
+ # optimization; `strip` drops debug symbols from the shipped binary.
+-opt-level = "s"
++opt-level = 3
+ lto = "thin"
+ codegen-units = 1
+ strip = true
++
++[profile.perf]
++inherits = "release"
++opt-level = 3
+diff --git c/src-tauri/src/commands/cv.rs w/src-tauri/src/commands/cv.rs
+index 162db36..0dc4794 100644
+--- c/src-tauri/src/commands/cv.rs
++++ w/src-tauri/src/commands/cv.rs
+@@ -10,7 +10,8 @@ use tauri::{Manager, State};
+ 
+ use crate::ai::prompt::Language;
+ use crate::domain::cv::{
+-    CvAnalysisReport, CvDocumentSummary, CvRewriteReport, CvService, CvServiceImpl,
++    CvAnalysisReport, CvDocumentSummary, CvRewriteReport, CvRewriteSummary, CvService,
++    CvServiceImpl,
+ };
+ use crate::domain::profile_variants::{
+     ProfileVariantDto, ProfileVariantService, ProfileVariantServiceImpl,
+@@ -167,9 +168,21 @@ pub async fn list_cv_analysis_reports(
+ pub async fn list_cv_rewrites(
+     state: State<'_, AppState>,
+     profile_id: String,
+-) -> Result<Vec<CvRewriteReport>, String> {
++) -> Result<Vec<CvRewriteSummary>, String> {
+     service(&state)
+-        .list_rewrites(&profile_id)
++        .list_rewrite_summaries(&profile_id)
++        .await
++        .map_err(|e| e.to_string())
++}
++
++#[tauri::command]
++pub async fn get_cv_rewrite(
++    state: State<'_, AppState>,
++    profile_id: String,
++    rewrite_id: String,
++) -> Result<CvRewriteReport, String> {
++    service(&state)
++        .get_rewrite(&profile_id, &rewrite_id)
+         .await
+         .map_err(|e| e.to_string())
+ }
+@@ -294,6 +307,40 @@ async fn render_rewrite_pdf(
+     export::build_pdf(&rewrite, &metadata)
+ }
+ 
++async fn render_cover_letter_pdf(
++    db: &sqlx::SqlitePool,
++    rewrite_id: &str,
++    cvtex_dir: Option<&std::path::Path>,
++) -> Result<Vec<u8>, String> {
++    use crate::ai::prompt::CvRewrite;
++    use crate::cv::export;
++
++    let json: Option<String> =
++        sqlx::query_scalar("SELECT rewrite_json FROM cv_rewrites WHERE id = ?1")
++            .bind(rewrite_id)
++            .fetch_optional(db)
++            .await
++            .map_err(|e| e.to_string())?;
++    let json = json.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
++    let rewrite: CvRewrite =
++        serde_json::from_str(&json).map_err(|e| format!("decode rewrite: {e}"))?;
++    if rewrite.cover_letter.trim().is_empty() {
++        return Err("cover letter is not available for this rewrite".to_string());
++    }
++
++    let photo_bytes = fetch_photo(&rewrite.photo_url).await;
++    if let Some(dir) = cvtex_dir {
++        match export::build_cover_letter_pdf_tex(&rewrite, dir, photo_bytes.as_deref()) {
++            Ok(bytes) => return Ok(bytes),
++            Err(e) => tracing::warn!(
++                target: "hiremeops::cv",
++                "xelatex cover-letter render failed, using lopdf fallback: {e}"
++            ),
++        }
++    }
++    export::build_cover_letter_pdf(&rewrite)
++}
++
+ #[tauri::command]
+ pub async fn export_cv_rewrite(
+     app: tauri::AppHandle,
+@@ -305,6 +352,16 @@ pub async fn export_cv_rewrite(
+     render_rewrite_pdf(&state.db, &rewrite_id, &mode, cvtex_dir.as_deref()).await
+ }
+ 
++#[tauri::command]
++pub async fn export_cover_letter(
++    app: tauri::AppHandle,
++    state: State<'_, AppState>,
++    rewrite_id: String,
++) -> Result<Vec<u8>, String> {
++    let cvtex_dir = resolve_cvtex_dir(&app);
++    render_cover_letter_pdf(&state.db, &rewrite_id, cvtex_dir.as_deref()).await
++}
++
+ #[tauri::command]
+ pub async fn save_cv_rewrite_pdf(
+     app: tauri::AppHandle,
+@@ -339,3 +396,33 @@ pub async fn save_cv_rewrite_pdf(
+     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+     Ok(Some(path.to_string_lossy().into_owned()))
+ }
++
++#[tauri::command]
++pub async fn save_cover_letter_pdf(
++    app: tauri::AppHandle,
++    state: State<'_, AppState>,
++    rewrite_id: String,
++    suggested_name: String,
++) -> Result<Option<String>, String> {
++    use tauri_plugin_dialog::DialogExt;
++
++    let cvtex_dir = resolve_cvtex_dir(&app);
++    let bytes = render_cover_letter_pdf(&state.db, &rewrite_id, cvtex_dir.as_deref()).await?;
++    let file_name = if suggested_name.to_ascii_lowercase().ends_with(".pdf") {
++        suggested_name
++    } else {
++        format!("{suggested_name}.pdf")
++    };
++    let chosen = app
++        .dialog()
++        .file()
++        .set_file_name(&file_name)
++        .add_filter("PDF", &["pdf"])
++        .blocking_save_file();
++    let Some(file_path) = chosen else {
++        return Ok(None);
++    };
++    let path = file_path.into_path().map_err(|e| e.to_string())?;
++    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
++    Ok(Some(path.to_string_lossy().into_owned()))
++}
+diff --git c/src-tauri/src/commands/jobs/mod.rs w/src-tauri/src/commands/jobs/mod.rs
+index 98e8c89..3e91999 100644
+--- c/src-tauri/src/commands/jobs/mod.rs
++++ w/src-tauri/src/commands/jobs/mod.rs
+@@ -264,6 +264,7 @@ pub struct JobPostDto {
+     pub company: String,
+     pub location: Option<String>,
+     pub remote_mode: Option<String>,
++    /// List calls return a bounded summary; get_job_post returns full text.
+     pub description: Option<String>,
+     pub summary: Option<String>,
+     pub seniority: Option<String>,
+diff --git c/src-tauri/src/commands/jobs/queries.rs w/src-tauri/src/commands/jobs/queries.rs
+index a3a575b..697fb38 100644
+--- c/src-tauri/src/commands/jobs/queries.rs
++++ w/src-tauri/src/commands/jobs/queries.rs
+@@ -1,12 +1,33 @@
+ use super::*;
+ use crate::domain::ids::{JobId, ProfileId};
+-use crate::domain::jobs::{JobSearchService, JobSearchServiceImpl};
++use crate::domain::jobs::{fts_query, JobSearchService, JobSearchServiceImpl};
+ use crate::jobs::{build_queries, canonicalize, check_dedupe, DedupeOutcome, SearchQueryInput};
+ use crate::util::now_iso;
+ use crate::AppState;
+ use tauri::State;
+ use uuid::Uuid;
+ 
++const DEFAULT_JOB_PAGE_SIZE: i64 = 50;
++const MAX_JOB_PAGE_SIZE: i64 = 200;
++
++const JOB_LIST_SELECT: &str = "SELECT id, profile_id, platform, external_id,
++        url, canonical_url, title, company,
++        location, remote_mode,
++        substr(COALESCE(summary, description), 1, 320) AS description,
++        substr(summary, 1, 320) AS summary,
++        seniority, salary_min, salary_max, currency,
++        employment_type, discovered_at, status,
++        search_query_id, discovery_source, contact_email";
++
++const JOB_SEARCH_SELECT: &str = "SELECT jp.id, jp.profile_id, jp.platform, jp.external_id,
++        jp.url, jp.canonical_url, jp.title, jp.company,
++        jp.location, jp.remote_mode,
++        substr(COALESCE(jp.summary, jp.description), 1, 320) AS description,
++        substr(jp.summary, 1, 320) AS summary,
++        jp.seniority, jp.salary_min, jp.salary_max, jp.currency,
++        jp.employment_type, jp.discovered_at, jp.status,
++        jp.search_query_id, jp.discovery_source, jp.contact_email";
++
+ #[tauri::command]
+ pub async fn list_job_preferences(
+     state: State<'_, AppState>,
+@@ -263,6 +284,9 @@ pub async fn ingest_job_post(
+     })
+ }
+ 
++// Tauri named IPC parameters are intentionally kept flat for existing clients;
++// the cursor added two fields to this boundary without changing its wire shape.
++#[allow(clippy::too_many_arguments)]
+ #[tauri::command]
+ pub async fn list_job_posts(
+     state: State<'_, AppState>,
+@@ -270,85 +294,116 @@ pub async fn list_job_posts(
+     status_filter: Option<String>,
+     limit: Option<i64>,
+     offset: Option<i64>,
++    cursor_discovered_at: Option<String>,
++    cursor_id: Option<String>,
+     search: Option<String>,
+ ) -> Result<Vec<JobPostDto>, String> {
+-    let lim = limit.unwrap_or(1000).min(10000);
++    let lim = limit
++        .unwrap_or(DEFAULT_JOB_PAGE_SIZE)
++        .clamp(1, MAX_JOB_PAGE_SIZE);
+     let off = offset.unwrap_or(0).max(0);
+ 
+     /* Full-text branch: a non-empty search term ranks by FTS5 relevance instead
+-    of recency, so status_filter/offset don't apply to a relevance search. */
++    of recency. Status applies; cursor pagination is reserved for recency lists
++    because relevance order has no discovered_at keyset. */
+     if let Some(term) = search.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+-        let ids = JobSearchServiceImpl::new(state.db.clone())
+-            .search_job_posts(&ProfileId::from(profile_id.as_str()), term, lim)
++        let match_expr = fts_query(term);
++        if match_expr.is_empty() {
++            return Ok(Vec::new());
++        }
++        let mut sql = format!(
++            "{JOB_SEARCH_SELECT}
++             FROM job_posts_fts
++             JOIN job_posts jp ON jp.rowid = job_posts_fts.rowid
++             WHERE job_posts_fts MATCH ?1 AND jp.profile_id = ?2"
++        );
++        if status_filter.is_some() {
++            sql.push_str(" AND jp.status = ?3");
++        }
++        let limit_param = if status_filter.is_some() { 4 } else { 3 };
++        sql.push_str(&format!(
++            " ORDER BY bm25(job_posts_fts, 10.0, 5.0, 2.0, 1.5, 1.0) ASC LIMIT ?{limit_param}"
++        ));
++        let mut query = sqlx::query_as::<_, JobRow>(sqlx::AssertSqlSafe(sql))
++            .bind(match_expr)
++            .bind(&profile_id);
++        if let Some(status) = status_filter.as_deref() {
++            query = query.bind(status);
++        }
++        let rows = query
++            .bind(lim)
++            .fetch_all(&state.db)
+             .await
+             .map_err(|e| e.to_string())?;
+-        let mut out = Vec::with_capacity(ids.len());
+-        for id in ids {
+-            /* fetch each ranked hit in order; FTS result sets are capped small (<=500) */
+-            if let Some(row) = sqlx::query_as::<_, JobRow>(
+-                "SELECT id, profile_id, platform, external_id,
+-                        url, canonical_url, title, company,
+-                        location, remote_mode, description, summary,
+-                        seniority, salary_min, salary_max, currency,
+-                        employment_type, discovered_at, status,
+-                        search_query_id, discovery_source, contact_email
+-                 FROM job_posts WHERE id = ?1",
+-            )
+-            .bind(&id)
+-            .fetch_optional(&state.db)
+-            .await
+-            .map_err(|e| e.to_string())?
+-            {
+-                out.push(JobPostDto::from(row));
+-            }
+-        }
+-        return Ok(out);
++        return Ok(rows.into_iter().map(Into::into).collect());
+     }
+ 
+-    let rows: Vec<JobRow> = if let Some(ref sf) = status_filter {
+-        sqlx::query_as::<_, JobRow>(
+-            "SELECT id, profile_id, platform, external_id,
+-                    url, canonical_url, title, company,
+-                    location, remote_mode, description, summary,
+-                    seniority, salary_min, salary_max, currency,
+-                    employment_type, discovered_at, status,
+-                    search_query_id, discovery_source, contact_email
+-             FROM job_posts
+-             WHERE profile_id = ?1 AND status = ?2
+-             ORDER BY discovered_at DESC
+-             LIMIT ?3 OFFSET ?4",
+-        )
+-        .bind(&profile_id)
+-        .bind(sf)
+-        .bind(lim)
+-        .bind(off)
++    let use_cursor = cursor_discovered_at.is_some() && cursor_id.is_some();
++    let use_offset = !use_cursor && off > 0;
++    let mut sql = format!("{JOB_LIST_SELECT} FROM job_posts WHERE profile_id = ?1");
++    if status_filter.is_some() {
++        sql.push_str(" AND status = ?2");
++    }
++    let mut next_param = if status_filter.is_some() { 3 } else { 2 };
++    if use_cursor {
++        sql.push_str(&format!(
++            " AND (discovered_at < ?{next_param} OR (discovered_at = ?{next_param} AND id < ?{}))",
++            next_param + 1
++        ));
++        next_param += 2;
++    }
++    sql.push_str(&format!(
++        " ORDER BY discovered_at DESC, id DESC LIMIT ?{next_param}"
++    ));
++    if use_offset {
++        sql.push_str(&format!(" OFFSET ?{}", next_param + 1));
++    }
++
++    let mut query = sqlx::query_as::<_, JobRow>(sqlx::AssertSqlSafe(sql)).bind(&profile_id);
++    if let Some(status) = status_filter.as_deref() {
++        query = query.bind(status);
++    }
++    if use_cursor {
++        query = query
++            .bind(cursor_discovered_at.as_deref())
++            .bind(cursor_id.as_deref());
++    }
++    query = query.bind(lim);
++    if use_offset {
++        query = query.bind(off);
++    }
++    let rows = query
+         .fetch_all(&state.db)
+         .await
+-        .map_err(|e| e.to_string())?
+-    } else {
+-        sqlx::query_as::<_, JobRow>(
+-            "SELECT id, profile_id, platform, external_id,
+-                    url, canonical_url, title, company,
+-                    location, remote_mode, description, summary,
+-                    seniority, salary_min, salary_max, currency,
+-                    employment_type, discovered_at, status,
+-                    search_query_id, discovery_source, contact_email
+-             FROM job_posts
+-             WHERE profile_id = ?1
+-             ORDER BY discovered_at DESC
+-             LIMIT ?2 OFFSET ?3",
+-        )
+-        .bind(&profile_id)
+-        .bind(lim)
+-        .bind(off)
+-        .fetch_all(&state.db)
+-        .await
+-        .map_err(|e| e.to_string())?
+-    };
++        .map_err(|e| e.to_string())?;
+ 
+     Ok(rows.into_iter().map(Into::into).collect())
+ }
+ 
++#[tauri::command]
++pub async fn get_job_post(
++    state: State<'_, AppState>,
++    profile_id: String,
++    job_id: String,
++) -> Result<JobPostDto, String> {
++    sqlx::query_as::<_, JobRow>(
++        "SELECT id, profile_id, platform, external_id,
++                url, canonical_url, title, company,
++                location, remote_mode, description, summary,
++                seniority, salary_min, salary_max, currency,
++                employment_type, discovered_at, status,
++                search_query_id, discovery_source, contact_email
++         FROM job_posts WHERE id = ?1 AND profile_id = ?2",
++    )
++    .bind(&job_id)
++    .bind(&profile_id)
++    .fetch_optional(&state.db)
++    .await
++    .map_err(|e| e.to_string())?
++    .map(Into::into)
++    .ok_or_else(|| format!("job post {job_id} not found"))
++}
++
+ #[tauri::command]
+ pub async fn update_job_status(
+     state: State<'_, AppState>,
+@@ -390,6 +445,14 @@ pub async fn run_search(
+         .map_err(|e| e.to_string())
+ }
+ 
++#[tauri::command]
++pub async fn optimize_job_search_index(state: State<'_, AppState>) -> Result<(), String> {
++    JobSearchServiceImpl::new(state.db.clone())
++        .optimize_search_index()
++        .await
++        .map_err(|e| e.to_string())
++}
++
+ #[tauri::command]
+ pub async fn delete_old_scans(
+     state: State<'_, AppState>,
+diff --git c/src-tauri/src/domain/cv.rs w/src-tauri/src/domain/cv.rs
+index b1a99dc..f9b02ee 100644
+--- c/src-tauri/src/domain/cv.rs
++++ w/src-tauri/src/domain/cv.rs
+@@ -15,11 +15,12 @@ use uuid::Uuid;
+ 
+ use super::{DomainError, DomainResult};
+ use crate::ai::prompt::{
+-    cv_analysis_prompt, cv_analysis_system, cv_rewrite_prompt, cv_rewrite_system,
++    cover_letter_prompt, cover_letter_system, cv_analysis_prompt, cv_analysis_system,
++    cv_rewrite_prompt, cv_rewrite_system, has_explicit_certificates, parse_cover_letter,
+     parse_cv_analysis, parse_cv_rewrite, CvAnalysis, CvMetadata, CvRewrite, Language,
+-    CV_ANALYSIS_PROMPT_VERSION, CV_REWRITE_PROMPT_VERSION,
++    COVER_LETTER_PROMPT_VERSION, CV_ANALYSIS_PROMPT_VERSION, CV_REWRITE_PROMPT_VERSION,
+ };
+-use crate::ai::{complete_cached, input_hash, select_provider_resolved};
++use crate::ai::{complete_cached, complete_fresh, input_hash, select_provider_resolved, Provider};
+ use crate::cv::{self, DocKind};
+ use crate::domain::ai::{AiProvider, CompletionRequest};
+ use crate::storage::settings::load_ai_providers;
+@@ -86,6 +87,53 @@ pub struct CvRewriteReport {
+     pub created_at: String,
+ }
+ 
++#[derive(Debug, Clone, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CvRewriteSummary {
++    pub id: String,
++    pub cv_document_id: Option<String>,
++    pub cv_file_name: String,
++    pub role_variant_id: Option<String>,
++    pub variant_name: Option<String>,
++    pub model_provider: String,
++    pub model_name: String,
++    pub language: Option<String>,
++    pub created_at: String,
++}
++
++type RewriteDetailRow = (
++    String,
++    Option<String>,
++    Option<String>,
++    Option<String>,
++    Option<String>,
++    Option<String>,
++    Option<String>,
++    String,
++    String,
++    Option<String>,
++    String,
++);
++
++fn rewrite_report(row: RewriteDetailRow) -> CvRewriteReport {
++    let rewrite = serde_json::from_str::<CvRewrite>(&row.7).unwrap_or_default();
++    let metadata =
++        serde_json::from_str::<CvMetadata>(&row.8).unwrap_or_else(|_| rewrite.cv_metadata());
++    CvRewriteReport {
++        id: row.0,
++        cv_document_id: row.1,
++        cv_file_name: row.2.unwrap_or_else(|| "First-time CV".to_string()),
++        role_variant_id: row.3,
++        variant_name: row.4,
++        model_provider: row.5.unwrap_or_default(),
++        model_name: row.6.unwrap_or_default(),
++        rewrite,
++        metadata,
++        source_text: row.9,
++        created_at: row.10,
++    }
++}
++
+ #[allow(async_fn_in_trait)]
+ pub trait CvService: Send + Sync {
+     async fn import_document(&self, profile_id: &str, path: &str) -> DomainResult<String>;
+@@ -97,7 +145,13 @@ pub trait CvService: Send + Sync {
+         language: Language,
+         extra_context: Option<&str>,
+     ) -> DomainResult<String>;
+-    async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>>;
++    async fn list_rewrite_summaries(&self, profile_id: &str)
++        -> DomainResult<Vec<CvRewriteSummary>>;
++    async fn get_rewrite(
++        &self,
++        profile_id: &str,
++        rewrite_id: &str,
++    ) -> DomainResult<CvRewriteReport>;
+     async fn read_bytes(&self, cv_document_id: &str) -> DomainResult<Vec<u8>>;
+     async fn list_documents(&self, profile_id: &str) -> DomainResult<Vec<CvDocumentSummary>>;
+     async fn list_analysis_reports(&self, profile_id: &str) -> DomainResult<Vec<CvAnalysisReport>>;
+@@ -198,6 +252,12 @@ impl CvServiceImpl {
+         let mut rewrite = parse_cv_rewrite(&resp.text);
+         rewrite.language = language;
+         backfill_contact(candidate_context, &mut rewrite.contact);
++        rewrite.cover_letter.clear();
++        if !has_explicit_certificates(candidate_context, None) {
++            rewrite.certificates.clear();
++        }
++        rewrite.cover_letter =
++            generate_cover_letter(&self.db, &provider, &rewrite, target_title, language).await?;
+         let metadata = rewrite.cv_metadata();
+ 
+         let id = Uuid::new_v4().to_string();
+@@ -517,7 +577,7 @@ impl CvService for CvServiceImpl {
+             system: Some(cv_analysis_system(language)),
+             input_hash: input_hash(&[CV_ANALYSIS_PROMPT_VERSION, &file_hash, language.code()]),
+         };
+-        let resp = complete_cached(&self.db, &provider, req).await?;
++        let resp = complete_fresh(&self.db, &provider, req).await?;
+         let analysis = parse_cv_analysis(&resp.text);
+ 
+         let id = Uuid::new_v4().to_string();
+@@ -618,6 +678,12 @@ impl CvService for CvServiceImpl {
+         let mut rewrite = parse_cv_rewrite(&resp.text);
+         rewrite.language = language;
+         backfill_contact(&parsed.text, &mut rewrite.contact);
++        rewrite.cover_letter.clear();
++        if !has_explicit_certificates(&parsed.text, extra_context) {
++            rewrite.certificates.clear();
++        }
++        rewrite.cover_letter =
++            generate_cover_letter(&self.db, &provider, &rewrite, target_title, language).await?;
+         let metadata = rewrite.cv_metadata();
+ 
+         let id = Uuid::new_v4().to_string();
+@@ -647,7 +713,10 @@ impl CvService for CvServiceImpl {
+         Ok(id)
+     }
+ 
+-    async fn list_rewrites(&self, profile_id: &str) -> DomainResult<Vec<CvRewriteReport>> {
++    async fn list_rewrite_summaries(
++        &self,
++        profile_id: &str,
++    ) -> DomainResult<Vec<CvRewriteSummary>> {
+         type Row = (
+             String,
+             Option<String>,
+@@ -656,48 +725,60 @@ impl CvService for CvServiceImpl {
+             Option<String>,
+             Option<String>,
+             Option<String>,
+-            String,
+-            String,
+             Option<String>,
+             String,
+         );
+         let rows: Vec<Row> = sqlx::query_as(
++            "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
++                    r.model_provider, r.model_name, json_extract(r.rewrite_json, '$.language'),
++                    r.created_at
++             FROM cv_rewrites r
++             LEFT JOIN cv_documents d ON d.id = r.cv_document_id
++             LEFT JOIN profile_variants v ON v.id = r.role_variant_id
++             WHERE r.profile_id = ?1
++             ORDER BY r.created_at DESC
++             LIMIT 200",
++        )
++        .bind(profile_id)
++        .fetch_all(&self.db)
++        .await?;
++
++        Ok(rows
++            .into_iter()
++            .map(|r| CvRewriteSummary {
++                id: r.0,
++                cv_document_id: r.1,
++                cv_file_name: r.2.unwrap_or_else(|| "First-time CV".to_string()),
++                role_variant_id: r.3,
++                variant_name: r.4,
++                model_provider: r.5.unwrap_or_default(),
++                model_name: r.6.unwrap_or_default(),
++                language: r.7,
++                created_at: r.8,
++            })
++            .collect())
++    }
++
++    async fn get_rewrite(
++        &self,
++        profile_id: &str,
++        rewrite_id: &str,
++    ) -> DomainResult<CvRewriteReport> {
++        let row: Option<RewriteDetailRow> = sqlx::query_as(
+             "SELECT r.id, r.cv_document_id, d.file_name, r.role_variant_id, v.name,
+                     r.model_provider, r.model_name, r.rewrite_json, r.metadata_json,
+                     r.source_text, r.created_at
+              FROM cv_rewrites r
+              LEFT JOIN cv_documents d ON d.id = r.cv_document_id
+              LEFT JOIN profile_variants v ON v.id = r.role_variant_id
+-             WHERE r.profile_id = ?1
+-             ORDER BY r.created_at DESC",
++             WHERE r.id = ?1 AND r.profile_id = ?2",
+         )
++        .bind(rewrite_id)
+         .bind(profile_id)
+-        .fetch_all(&self.db)
++        .fetch_optional(&self.db)
+         .await?;
+-
+-        let reports = rows
+-            .into_iter()
+-            .map(|r| {
+-                let rewrite = serde_json::from_str::<CvRewrite>(&r.7).unwrap_or_default();
+-                let metadata = serde_json::from_str::<CvMetadata>(&r.8)
+-                    .unwrap_or_else(|_| rewrite.cv_metadata());
+-                CvRewriteReport {
+-                    id: r.0,
+-                    cv_document_id: r.1,
+-                    cv_file_name: r.2.unwrap_or_else(|| "First-time CV".to_string()),
+-                    role_variant_id: r.3,
+-                    variant_name: r.4,
+-                    model_provider: r.5.unwrap_or_default(),
+-                    model_name: r.6.unwrap_or_default(),
+-                    rewrite,
+-                    metadata,
+-                    source_text: r.9,
+-                    created_at: r.10,
+-                }
+-            })
+-            .collect();
+-
+-        Ok(reports)
++        row.map(rewrite_report)
++            .ok_or_else(|| DomainError::InvalidInput(format!("cv_rewrite {rewrite_id} not found")))
+     }
+ 
+     async fn delete_document(&self, cv_document_id: &str) -> DomainResult<()> {
+@@ -726,6 +807,35 @@ impl CvService for CvServiceImpl {
+     }
+ }
+ 
++async fn generate_cover_letter(
++    db: &SqlitePool,
++    provider: &Provider,
++    rewrite: &CvRewrite,
++    target_title: Option<&str>,
++    language: Language,
++) -> DomainResult<String> {
++    let cv_json = serde_json::to_string(rewrite).unwrap_or_else(|_| "{}".to_string());
++    let req = CompletionRequest {
++        model: provider.default_model().to_string(),
++        prompt: cover_letter_prompt(rewrite, target_title, language),
++        system: Some(cover_letter_system(language)),
++        input_hash: input_hash(&[
++            COVER_LETTER_PROMPT_VERSION,
++            language.code(),
++            target_title.unwrap_or(""),
++            &cv_json,
++        ]),
++    };
++    let resp = complete_cached(db, provider, req).await?;
++    let letter = parse_cover_letter(&resp.text);
++    if letter.is_empty() {
++        return Err(DomainError::InvalidInput(
++            "AI returned an empty cover letter".to_string(),
++        ));
++    }
++    Ok(letter)
++}
++
+ fn json_array(items: &[String]) -> String {
+     serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string())
+ }
+diff --git c/src-tauri/src/domain/jobs.rs w/src-tauri/src/domain/jobs.rs
+index 45567f0..dbc0bd5 100644
+--- c/src-tauri/src/domain/jobs.rs
++++ w/src-tauri/src/domain/jobs.rs
+@@ -9,6 +9,7 @@ use uuid::Uuid;
+ 
+ use super::ids::{JobId, ProfileId};
+ use super::{DomainError, DomainResult};
++use crate::matching::scorer::MatchScore;
+ use crate::matching::{
+     build_explanation, score_job, select_best_cv, MatchInput, Recommendation, VariantCandidate,
+     AUTO_SUBMIT_DEFAULT, NEEDS_REVIEW_DEFAULT,
+@@ -25,8 +26,9 @@ pub trait JobSearchService: Send + Sync {
+     ) -> DomainResult<String>;
+ }
+ 
+-#[derive(sqlx::FromRow)]
++#[derive(Clone, sqlx::FromRow)]
+ struct ScoreJobRow {
++    id: String,
+     title: String,
+     company: String,
+     description: String,
+@@ -38,7 +40,7 @@ struct ScoreJobRow {
+     salary_max: Option<i64>,
+ }
+ 
+-#[derive(sqlx::FromRow)]
++#[derive(Clone, sqlx::FromRow)]
+ struct ScorePrefRow {
+     id: String,
+     target_roles_json: String,
+@@ -54,7 +56,7 @@ struct ScorePrefRow {
+     needs_review_confidence_threshold: i64,
+ }
+ 
+-#[derive(sqlx::FromRow)]
++#[derive(Clone, sqlx::FromRow)]
+ struct VariantRow {
+     id: String,
+     target_title: String,
+@@ -62,6 +64,14 @@ struct VariantRow {
+     preferred_cv_document_id: Option<String>,
+ }
+ 
++struct PreparedMatch {
++    job: ScoreJobRow,
++    scored: MatchScore,
++    explanation: String,
++    cv_document_id: Option<String>,
++    role_variant_id: Option<String>,
++}
++
+ fn parse_json_array(raw: &Option<String>) -> Vec<String> {
+     raw.as_deref()
+         .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+@@ -71,13 +81,64 @@ fn parse_json_array(raw: &Option<String>) -> Vec<String> {
+ /* Turn free user text into a safe FTS5 MATCH expression: each whitespace token
+ becomes a quoted prefix term joined by implicit AND. Quoting neutralizes FTS5
+ operators so stray punctuation can never raise a query syntax error. */
+-fn fts_query(term: &str) -> String {
++pub fn fts_query(term: &str) -> String {
+     term.split_whitespace()
+         .map(|t| format!("\"{}\"*", t.replace('"', "\"\"")))
+         .collect::<Vec<_>>()
+         .join(" ")
+ }
+ 
++fn build_match_input(job: &ScoreJobRow, pref: Option<&ScorePrefRow>) -> MatchInput {
++    let job_text = format!(
++        "{} {}",
++        job.description,
++        job.summary.clone().unwrap_or_default()
++    );
++    let base = MatchInput {
++        job_title: job.title.clone(),
++        job_text,
++        job_company: job.company.clone(),
++        job_seniority: job.seniority.clone(),
++        job_location: job.location.clone(),
++        job_remote_mode: job.remote_mode.clone(),
++        job_salary_min: job.salary_min,
++        job_salary_max: job.salary_max,
++        ..Default::default()
++    };
++    match pref {
++        Some(p) => MatchInput {
++            target_roles: parse_json_array(&Some(p.target_roles_json.clone())),
++            pref_seniority: parse_json_array(&p.seniority_json),
++            pref_locations: parse_json_array(&p.locations_json),
++            pref_remote_modes: parse_json_array(&p.remote_modes_json),
++            required_skills: parse_json_array(&p.required_skills_json),
++            preferred_skills: parse_json_array(&p.preferred_skills_json),
++            excluded_keywords: parse_json_array(&p.excluded_keywords_json),
++            blocked_companies: parse_json_array(&p.blocked_companies_json),
++            min_salary: p.min_salary,
++            auto_submit_min_score: p.auto_submit_min_score.clamp(0, 100) as u8,
++            needs_review_threshold: p.needs_review_confidence_threshold.clamp(0, 100) as u8,
++            ..base
++        },
++        None => MatchInput {
++            auto_submit_min_score: AUTO_SUBMIT_DEFAULT,
++            needs_review_threshold: NEEDS_REVIEW_DEFAULT,
++            ..base
++        },
++    }
++}
++
++fn variant_candidates(rows: Vec<VariantRow>) -> Vec<VariantCandidate> {
++    rows.into_iter()
++        .map(|v| VariantCandidate {
++            variant_id: v.id,
++            target_title: v.target_title,
++            keywords: parse_json_array(&v.keywords_json),
++            preferred_cv_document_id: v.preferred_cv_document_id,
++        })
++        .collect()
++}
++
+ pub struct JobSearchServiceImpl {
+     db: SqlitePool,
+ }
+@@ -87,6 +148,176 @@ impl JobSearchServiceImpl {
+         Self { db }
+     }
+ 
++    async fn load_preference(
++        &self,
++        profile_id: &str,
++        preference_id: Option<&str>,
++    ) -> DomainResult<Option<ScorePrefRow>> {
++        let row = match preference_id {
++            Some(id) => {
++                sqlx::query_as::<_, ScorePrefRow>(
++                    "SELECT id, target_roles_json, seniority_json, locations_json,
++                        remote_modes_json, min_salary, required_skills_json,
++                        preferred_skills_json, excluded_keywords_json, blocked_companies_json,
++                        auto_submit_min_score, needs_review_confidence_threshold
++                     FROM job_preferences WHERE id = ?1",
++                )
++                .bind(id)
++                .fetch_optional(&self.db)
++                .await?
++            }
++            None => {
++                sqlx::query_as::<_, ScorePrefRow>(
++                    "SELECT id, target_roles_json, seniority_json, locations_json,
++                        remote_modes_json, min_salary, required_skills_json,
++                        preferred_skills_json, excluded_keywords_json, blocked_companies_json,
++                        auto_submit_min_score, needs_review_confidence_threshold
++                     FROM job_preferences WHERE profile_id = ?1
++                     ORDER BY updated_at DESC LIMIT 1",
++                )
++                .bind(profile_id)
++                .fetch_optional(&self.db)
++                .await?
++            }
++        };
++        Ok(row)
++    }
++
++    async fn load_variants(&self, profile_id: &str) -> DomainResult<Vec<VariantCandidate>> {
++        let rows = sqlx::query_as::<_, VariantRow>(
++            "SELECT id, target_title, keywords_json, preferred_cv_document_id
++             FROM profile_variants WHERE profile_id = ?1",
++        )
++        .bind(profile_id)
++        .fetch_all(&self.db)
++        .await?;
++        Ok(variant_candidates(rows))
++    }
++
++    pub async fn optimize_search_index(&self) -> DomainResult<()> {
++        sqlx::query("INSERT INTO job_posts_fts(job_posts_fts) VALUES ('optimize')")
++            .execute(&self.db)
++            .await?;
++        Ok(())
++    }
++
++    async fn run_search_batch(&self, search_query_id: &str) -> DomainResult<u32> {
++        let profile_id: String =
++            sqlx::query_scalar("SELECT profile_id FROM search_queries WHERE id = ?1")
++                .bind(search_query_id)
++                .fetch_optional(&self.db)
++                .await?
++                .ok_or_else(|| {
++                    DomainError::InvalidInput(format!("search query {search_query_id} not found"))
++                })?;
++        let preference = self.load_preference(&profile_id, None).await?;
++        let candidates = self.load_variants(&profile_id).await?;
++        let jobs = sqlx::query_as::<_, ScoreJobRow>(
++            "SELECT id, title, company, description, summary, location, remote_mode,
++                    seniority, salary_min, salary_max
++             FROM job_posts
++             WHERE search_query_id = ?1 AND status = 'discovered'
++             ORDER BY discovered_at ASC, id ASC",
++        )
++        .bind(search_query_id)
++        .fetch_all(&self.db)
++        .await?;
++
++        let prepared: Vec<PreparedMatch> = jobs
++            .into_iter()
++            .map(|job| {
++                let input = build_match_input(&job, preference.as_ref());
++                let scored = score_job(&input);
++                let explanation = build_explanation(&scored);
++                let selection = select_best_cv(&input.job_title, &input.job_text, &candidates);
++                let cv_document_id = selection.as_ref().and_then(|s| s.cv_document_id.clone());
++                let role_variant_id = selection.as_ref().map(|s| s.variant_id.clone());
++                PreparedMatch {
++                    job,
++                    scored,
++                    explanation,
++                    cv_document_id,
++                    role_variant_id,
++                }
++            })
++            .collect();
++
++        // Do CPU scoring before opening the write transaction. SQLite then holds
++        // its single-writer lock only while the prepared rows are persisted.
++        let mut tx = self.db.begin().await?;
++        let mut scored_count = 0u32;
++        for PreparedMatch {
++            job,
++            scored,
++            explanation,
++            cv_document_id,
++            role_variant_id,
++        } in prepared
++        {
++            let match_id = Uuid::new_v4().to_string();
++            let now = now_iso();
++            let matched_json = serde_json::to_string(&scored.matched_skills).ok();
++            let missing_json = serde_json::to_string(&scored.missing_skills).ok();
++            let risk_json = serde_json::to_string(&scored.risk_flags).ok();
++            let preference_id = preference.as_ref().map(|p| p.id.clone());
++
++            sqlx::query(
++                "INSERT INTO job_matches (
++                    id, job_id, profile_id, preference_id, cv_document_id, role_variant_id,
++                    score, role_score, skill_score, seniority_score, location_score, salary_score,
++                    matched_skills_json, missing_skills_json, risk_flags_json,
++                    recommendation, explanation, created_at
++                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
++            )
++            .bind(&match_id)
++            .bind(&job.id)
++            .bind(&profile_id)
++            .bind(&preference_id)
++            .bind(&cv_document_id)
++            .bind(&role_variant_id)
++            .bind(scored.score as i64)
++            .bind(scored.role_score as i64)
++            .bind(scored.skill_score as i64)
++            .bind(scored.seniority_score as i64)
++            .bind(scored.location_score as i64)
++            .bind(scored.salary_score as i64)
++            .bind(&matched_json)
++            .bind(&missing_json)
++            .bind(&risk_json)
++            .bind(scored.recommendation.as_str())
++            .bind(&explanation)
++            .bind(&now)
++            .execute(&mut *tx)
++            .await?;
++
++            let new_status = match scored.recommendation {
++                Recommendation::AutoApply => "matched",
++                Recommendation::ReviewFirst => "needs_review",
++                Recommendation::SaveForLater => "saved",
++                Recommendation::Skip => "rejected",
++            };
++            sqlx::query("UPDATE job_posts SET status = ?1 WHERE id = ?2 AND status = 'discovered'")
++                .bind(new_status)
++                .bind(&job.id)
++                .execute(&mut *tx)
++                .await?;
++            scored_count = scored_count.saturating_add(1);
++        }
++
++        sqlx::query("UPDATE search_queries SET last_run_at = ?1 WHERE id = ?2")
++            .bind(now_iso())
++            .bind(search_query_id)
++            .execute(&mut *tx)
++            .await?;
++        tx.commit().await?;
++
++        // A completed search is an idle point after a scrape/import burst.
++        if let Err(error) = self.optimize_search_index().await {
++            tracing::warn!(%error, "fts optimize skipped");
++        }
++        Ok(scored_count)
++    }
++
+     /* Full-text search over job_posts via the FTS5 index, ranked by bm25 relevance
+     (title weighted highest). Returns matching job-post ids in best-first order. */
+     pub async fn search_job_posts(
+@@ -128,7 +359,7 @@ impl JobSearchServiceImpl {
+         let now = now_iso();
+ 
+         let job = sqlx::query_as::<_, ScoreJobRow>(
+-            "SELECT title, company, description, summary, location, remote_mode,
++            "SELECT id, title, company, description, summary, location, remote_mode,
+                     seniority, salary_min, salary_max
+              FROM job_posts WHERE id = ?1",
+         )
+@@ -137,95 +368,13 @@ impl JobSearchServiceImpl {
+         .await?
+         .ok_or_else(|| DomainError::InvalidInput(format!("job post {job_post_id} not found")))?;
+ 
+-        let pref = match preference_id {
+-            Some(pid) => {
+-                sqlx::query_as::<_, ScorePrefRow>(
+-                    "SELECT id, target_roles_json, seniority_json, locations_json,
+-                        remote_modes_json, min_salary, required_skills_json,
+-                        preferred_skills_json, excluded_keywords_json, blocked_companies_json,
+-                        auto_submit_min_score, needs_review_confidence_threshold
+-                 FROM job_preferences WHERE id = ?1",
+-                )
+-                .bind(pid)
+-                .fetch_optional(&self.db)
+-                .await?
+-            }
+-            None => {
+-                sqlx::query_as::<_, ScorePrefRow>(
+-                    "SELECT id, target_roles_json, seniority_json, locations_json,
+-                        remote_modes_json, min_salary, required_skills_json,
+-                        preferred_skills_json, excluded_keywords_json, blocked_companies_json,
+-                        auto_submit_min_score, needs_review_confidence_threshold
+-                 FROM job_preferences WHERE profile_id = ?1
+-                 ORDER BY updated_at DESC LIMIT 1",
+-                )
+-                .bind(profile_id)
+-                .fetch_optional(&self.db)
+-                .await?
+-            }
+-        };
+-
+-        let job_text = format!(
+-            "{} {}",
+-            job.description,
+-            job.summary.clone().unwrap_or_default()
+-        );
+-
+-        let input = match &pref {
+-            Some(p) => MatchInput {
+-                job_title: job.title.clone(),
+-                job_text,
+-                job_company: job.company.clone(),
+-                job_seniority: job.seniority.clone(),
+-                job_location: job.location.clone(),
+-                job_remote_mode: job.remote_mode.clone(),
+-                job_salary_min: job.salary_min,
+-                job_salary_max: job.salary_max,
+-                target_roles: parse_json_array(&Some(p.target_roles_json.clone())),
+-                pref_seniority: parse_json_array(&p.seniority_json),
+-                pref_locations: parse_json_array(&p.locations_json),
+-                pref_remote_modes: parse_json_array(&p.remote_modes_json),
+-                required_skills: parse_json_array(&p.required_skills_json),
+-                preferred_skills: parse_json_array(&p.preferred_skills_json),
+-                excluded_keywords: parse_json_array(&p.excluded_keywords_json),
+-                blocked_companies: parse_json_array(&p.blocked_companies_json),
+-                min_salary: p.min_salary,
+-                auto_submit_min_score: p.auto_submit_min_score.clamp(0, 100) as u8,
+-                needs_review_threshold: p.needs_review_confidence_threshold.clamp(0, 100) as u8,
+-            },
+-            None => MatchInput {
+-                job_title: job.title.clone(),
+-                job_text,
+-                job_company: job.company.clone(),
+-                job_seniority: job.seniority.clone(),
+-                job_location: job.location.clone(),
+-                job_remote_mode: job.remote_mode.clone(),
+-                job_salary_min: job.salary_min,
+-                job_salary_max: job.salary_max,
+-                auto_submit_min_score: AUTO_SUBMIT_DEFAULT,
+-                needs_review_threshold: NEEDS_REVIEW_DEFAULT,
+-                ..Default::default()
+-            },
+-        };
++        let pref = self.load_preference(profile_id, preference_id).await?;
++        let input = build_match_input(&job, pref.as_ref());
+ 
+         let scored = score_job(&input);
+         let explanation = build_explanation(&scored);
+ 
+-        let candidates: Vec<VariantCandidate> = sqlx::query_as::<_, VariantRow>(
+-            "SELECT id, target_title, keywords_json, preferred_cv_document_id
+-             FROM profile_variants WHERE profile_id = ?1",
+-        )
+-        .bind(profile_id)
+-        .fetch_all(&self.db)
+-        .await?
+-        .into_iter()
+-        .map(|v| VariantCandidate {
+-            variant_id: v.id,
+-            target_title: v.target_title,
+-            keywords: parse_json_array(&v.keywords_json),
+-            preferred_cv_document_id: v.preferred_cv_document_id,
+-        })
+-        .collect();
++        let candidates = self.load_variants(profile_id).await?;
+ 
+         let selection = select_best_cv(&input.job_title, &input.job_text, &candidates);
+         let cv_document_id = selection.as_ref().and_then(|s| s.cv_document_id.clone());
+@@ -301,11 +450,15 @@ impl JobSearchServiceImpl {
+                 .format(&Rfc3339)
+                 .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+             sqlx::query(
+-                "DELETE FROM job_posts
+-                 WHERE profile_id = ?1
+-                   AND discovered_at < ?2
+-                   AND id NOT IN (SELECT job_id FROM application_runs WHERE job_id IS NOT NULL)
+-                   AND id NOT IN (SELECT job_id FROM application_drafts WHERE job_id IS NOT NULL)",
++                "DELETE FROM job_posts AS j
++                 WHERE j.profile_id = ?1
++                   AND j.discovered_at < ?2
++                   AND NOT EXISTS (
++                       SELECT 1 FROM application_runs ar WHERE ar.job_id = j.id
++                   )
++                   AND NOT EXISTS (
++                       SELECT 1 FROM application_drafts ad WHERE ad.job_id = j.id
++                   )",
+             )
+             .bind(profile_id)
+             .bind(&cutoff)
+@@ -319,41 +472,7 @@ impl JobSearchServiceImpl {
+ 
+ impl JobSearchService for JobSearchServiceImpl {
+     async fn run_search(&self, search_query_id: &str) -> DomainResult<u32> {
+-        let profile_id: String =
+-            sqlx::query_scalar("SELECT profile_id FROM search_queries WHERE id = ?1")
+-                .bind(search_query_id)
+-                .fetch_optional(&self.db)
+-                .await?
+-                .ok_or_else(|| {
+-                    DomainError::InvalidInput(format!("search query {search_query_id} not found"))
+-                })?;
+-
+-        let job_ids: Vec<String> = sqlx::query_scalar(
+-            "SELECT id FROM job_posts
+-             WHERE search_query_id = ?1 AND status = 'discovered'
+-             ORDER BY discovered_at ASC",
+-        )
+-        .bind(search_query_id)
+-        .fetch_all(&self.db)
+-        .await?;
+-
+-        let mut scored = 0u32;
+-        for job_id in &job_ids {
+-            self.score_match(
+-                &JobId::from(job_id.as_str()),
+-                &ProfileId::from(profile_id.as_str()),
+-            )
+-            .await?;
+-            scored += 1;
+-        }
+-
+-        sqlx::query("UPDATE search_queries SET last_run_at = ?1 WHERE id = ?2")
+-            .bind(now_iso())
+-            .bind(search_query_id)
+-            .execute(&self.db)
+-            .await?;
+-
+-        Ok(scored)
++        self.run_search_batch(search_query_id).await
+     }
+ 
+     async fn score_match(
+diff --git c/src-tauri/src/lib.rs w/src-tauri/src/lib.rs
+index 5c46ca0..02e33fe 100644
+--- c/src-tauri/src/lib.rs
++++ w/src-tauri/src/lib.rs
+@@ -35,6 +35,7 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
+     tracing::info!(portable = paths.portable, db = %paths.db_path.display(), "resolved storage paths");
+     let db = storage::db::init_pool(&paths).await?;
+     storage::db::run_migrations(&db).await?;
++    storage::db::observe_wal(&db, &paths.db_path).await?;
+     storage::settings::ensure_defaults(&db).await?;
+     // Restore the persisted Docker-worker opt-in into the process env that the
+     // spawn gate (`browser::playwright::docker_worker_enabled`) reads.
+@@ -148,18 +149,38 @@ pub fn run() {
+                 e.to_string()
+             })?;
+             let data_dir = state.paths.data_dir.clone();
++            let maintenance_db = state.db.clone();
++            let maintenance_path = state.paths.db_path.clone();
+             #[cfg(feature = "real-browser")]
+             let playwright = state.playwright.clone();
+             app.manage(state);
++            tauri::async_runtime::spawn(async move {
++                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
++                loop {
++                    interval.tick().await;
++                    if let Err(error) =
++                        storage::db::maintain(&maintenance_db, &maintenance_path).await
++                    {
++                        tracing::warn!(%error, "sqlite maintenance skipped");
++                    }
++                }
++            });
+             util::spawn_self_mem_logger();
+             #[cfg(feature = "real-browser")]
+             tauri::async_runtime::spawn(async move {
+                 playwright.prewarm().await;
+             });
+-            tauri::async_runtime::spawn(async move {
+-                let bridge_dir = data_dir.join("chatgpt-bridge");
+-                let _ = std::fs::create_dir_all(&bridge_dir);
+-                std::env::set_var("HIREMEOPS_CHATGPT_PROFILE_DIR", &bridge_dir);
++            // Set BEFORE any bridge helper spawns: the Node child inherits its
++            // environment at spawn time, so a bridge warmed first would miss the
++            // shared profile dir and open its own cookie jar instead.
++            let bridge_dir = data_dir.join("chatgpt-bridge");
++            let _ = std::fs::create_dir_all(&bridge_dir);
++            std::env::set_var("HIREMEOPS_CHATGPT_PROFILE_DIR", &bridge_dir);
++            // Start the browser-bridge helpers now rather than on the first
++            // "Log in" click, which used to absorb the whole Node + Playwright
++            // cold start before the login window could appear.
++            tauri::async_runtime::spawn(async {
++                ai::browser_bridge::warm_up().await;
+             });
+             Ok(())
+         })
+@@ -186,8 +207,11 @@ pub fn run() {
+             commands::cv::list_cv_documents,
+             commands::cv::list_cv_analysis_reports,
+             commands::cv::list_cv_rewrites,
++            commands::cv::get_cv_rewrite,
+             commands::cv::export_cv_rewrite,
++            commands::cv::export_cover_letter,
+             commands::cv::save_cv_rewrite_pdf,
++            commands::cv::save_cover_letter_pdf,
+             commands::cv::set_cv_rewrite_appearance,
+             commands::profile_variants::create_profile_variant,
+             commands::profile_variants::list_profile_variants,
+@@ -226,8 +250,10 @@ pub fn run() {
+             commands::jobs::delete_search_query,
+             commands::jobs::ingest_job_post,
+             commands::jobs::list_job_posts,
++            commands::jobs::get_job_post,
+             commands::jobs::update_job_status,
+             commands::jobs::run_search,
++            commands::jobs::optimize_job_search_index,
+             commands::jobs::score_job_match,
+             commands::jobs::list_job_matches,
+             commands::jobs::run_linkedin_search,
+@@ -283,6 +309,7 @@ pub fn run() {
+             commands::auth::oauth_refresh,
+             commands::auth::oauth_logout,
+             commands::browser_provider::browser_provider_login,
++            commands::browser_provider::browser_provider_logout,
+             commands::browser_provider::browser_provider_status,
+             commands::browser_provider::browser_provider_models,
+         ])
+diff --git c/src-tauri/src/storage/db.rs w/src-tauri/src/storage/db.rs
+index f88a8ab..432ea94 100644
+--- c/src-tauri/src/storage/db.rs
++++ w/src-tauri/src/storage/db.rs
+@@ -2,11 +2,12 @@
+ //! Key: `init_pool()` — opens the DB with WAL journaling, foreign keys, busy timeout.
+ //! Key: `run_migrations()` — applies all embedded migrations from `src-tauri/migrations/`.
+ 
+-use std::time::Duration;
++use std::{env, fs, time::Duration};
+ 
+ use anyhow::{Context, Result};
+ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+ use sqlx::SqlitePool;
++use tracing::log::LevelFilter;
+ 
+ use super::paths::AppPaths;
+ 
+@@ -17,10 +18,16 @@ pub async fn init_pool(paths: &AppPaths) -> Result<SqlitePool> {
+         .foreign_keys(true)
+         .journal_mode(SqliteJournalMode::Wal)
+         .synchronous(SqliteSynchronous::Normal)
+-        .busy_timeout(Duration::from_secs(5));
++        .busy_timeout(Duration::from_secs(5))
++        .statement_cache_capacity(statement_cache_capacity())
++        .optimize_on_close(true, None);
++    let options = apply_tuning(options);
+ 
+     let pool = SqlitePoolOptions::new()
+-        .max_connections(5)
++        .max_connections(max_connections())
++        .acquire_time_level(LevelFilter::Debug)
++        .acquire_slow_level(LevelFilter::Warn)
++        .acquire_slow_threshold(Duration::from_millis(50))
+         .connect_with(options)
+         .await
+         .context("open sqlite pool")?;
+@@ -33,6 +40,66 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
+         .run(pool)
+         .await
+         .context("run database migrations")?;
+-    tracing::info!("database migrations applied");
++    sqlx::query("PRAGMA optimize").execute(pool).await?;
++    let sqlite_version: String = sqlx::query_scalar("SELECT sqlite_version()")
++        .fetch_one(pool)
++        .await?;
++    tracing::info!(%sqlite_version, "database migrations applied");
+     Ok(())
+ }
++
++fn max_connections() -> u32 {
++    env::var("HIREMEOPS_DB_MAX_CONNECTIONS")
++        .ok()
++        .and_then(|value| value.parse::<u32>().ok())
++        .unwrap_or(5)
++        .clamp(1, 8)
++}
++
++fn statement_cache_capacity() -> usize {
++    env::var("HIREMEOPS_DB_STATEMENT_CACHE_CAPACITY")
++        .ok()
++        .and_then(|value| value.parse::<usize>().ok())
++        .unwrap_or(256)
++        .clamp(32, 1024)
++}
++
++fn apply_tuning(mut options: SqliteConnectOptions) -> SqliteConnectOptions {
++    if let Some(cache_size) = env::var("HIREMEOPS_DB_CACHE_SIZE")
++        .ok()
++        .and_then(|value| value.parse::<i64>().ok())
++    {
++        options = options.pragma("cache_size", cache_size.to_string());
++    }
++    if let Some(mmap_size) = env::var("HIREMEOPS_DB_MMAP_SIZE")
++        .ok()
++        .and_then(|value| value.parse::<u64>().ok())
++    {
++        options = options.pragma("mmap_size", mmap_size.to_string());
++    }
++    if let Some(temp_store) = env::var("HIREMEOPS_DB_TEMP_STORE")
++        .ok()
++        .and_then(|value| value.parse::<u8>().ok())
++        .filter(|value| *value <= 2)
++    {
++        options = options.pragma("temp_store", temp_store.to_string());
++    }
++    options
++}
++
++/// Log passive WAL checkpoint state and file sizes without blocking writers.
++pub async fn observe_wal(pool: &SqlitePool, db_path: &std::path::Path) -> Result<()> {
++    let checkpoint: Option<(i64, i64, i64)> = sqlx::query_as("PRAGMA wal_checkpoint(PASSIVE)")
++        .fetch_optional(pool)
++        .await?;
++    let file_name = db_path.file_name().unwrap_or_default().to_string_lossy();
++    let wal_path = db_path.with_file_name(format!("{file_name}-wal"));
++    let wal_bytes = fs::metadata(&wal_path).map(|meta| meta.len()).unwrap_or(0);
++    tracing::debug!(?checkpoint, wal_bytes, "sqlite WAL observation");
++    Ok(())
++}
++
++pub async fn maintain(pool: &SqlitePool, db_path: &std::path::Path) -> Result<()> {
++    sqlx::query("PRAGMA optimize").execute(pool).await?;
++    observe_wal(pool, db_path).await
++}
+diff --git c/src/pages/CvLibrary.tsx w/src/pages/CvLibrary.tsx
+index 843b83c..313ab10 100644
+--- c/src/pages/CvLibrary.tsx
++++ w/src/pages/CvLibrary.tsx
+@@ -17,18 +17,21 @@ import { open } from "@tauri-apps/plugin-dialog";
+ import {
+   CvCard,
+   CvViewer,
++  CoverLetterExportButton,
+   CvExportButton,
+   loadCvLibrary,
+   importCvDocument,
+   loadCvRewrites,
+   runCvRewrite,
+   runFirstTimeCvRewrite,
++  runCvAnalysis,
+   renderInlineBold,
+   defaultCvBytesLoader,
+   formatBytes,
+   relativeTime,
++  loadCvRewrite,
+ } from "./cv";
+-import type { CvLanguage, CvLibraryDoc, CvRewriteReport } from "./cv";
++import type { CvLanguage, CvLibraryDoc, CvRewriteReport, CvRewriteSummary } from "./cv";
+ import { useSettingsStore } from "../stores/useSettingsStore";
+ import { errMessage, invokeStrict } from "../lib/tauriInvoke";
+ import "./cv/cv.css";
+@@ -54,7 +57,7 @@ export function CvLibrary() {
+   // Upload flow: null when idle, a message string while importing/on failure.
+   const [importing, setImporting] = useState(false);
+   const [importError, setImportError] = useState<string | null>(null);
+-  // Re-analyse flow: mirrors the import error pattern.
++  // Analyse-again flow: each click starts a fresh provider request.
+   const [isAnalyzing, setIsAnalyzing] = useState(false);
+   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+   // Delete flow
+@@ -65,7 +68,9 @@ export function CvLibrary() {
+   // the selected document so it can be exported to PDF.
+   const [isRewriting, setIsRewriting] = useState(false);
+   const [rewriteError, setRewriteError] = useState<string | null>(null);
+-  const [rewrites, setRewrites] = useState<CvRewriteReport[]>([]);
++  const [rewrites, setRewrites] = useState<CvRewriteSummary[]>([]);
++  const [rewriteDetails, setRewriteDetails] = useState<Record<string, CvRewriteReport>>({});
++  const [rewriteDetailLoading, setRewriteDetailLoading] = useState<string | null>(null);
+   // Output language for AI analysis/rewrite (pt-BR default, matching backend).
+   const [language, setLanguage] = useState<CvLanguage>("pt");
+   // Optional free-text context (links, GitHub, portfolio, notes) fed to the AI
+@@ -116,6 +121,19 @@ export function CvLibrary() {
+     };
+   }, [activeProfileId, reloadNonce]);
+ 
++  async function loadRewriteDetail(rewriteId: string) {
++    if (!activeProfileId || rewriteDetails[rewriteId] || rewriteDetailLoading === rewriteId) return;
++    setRewriteDetailLoading(rewriteId);
++    try {
++      const report = await loadCvRewrite(activeProfileId, rewriteId);
++      setRewriteDetails((current) => ({ ...current, [rewriteId]: report }));
++    } catch {
++      // Export/compare buttons remain hidden until the detail can be loaded.
++    } finally {
++      setRewriteDetailLoading(null);
++    }
++  }
++
+   // Load the profile's persisted CV rewrites (newest first). Keyed on the same
+   // deps as the library load so a fresh rewrite (which bumps `reloadNonce`)
+   // reloads the list. A load failure degrades to an empty list -- the rewrite
+@@ -139,6 +157,9 @@ export function CvLibrary() {
+   const selected = docs.find((c) => c.id === selectedId) ?? null;
+   const opened = docs.find((c) => c.id === openId) ?? null;
+   const latestFirstTimeRewrite = rewrites.find((r) => r.cvDocumentId === null) ?? null;
++  const latestFirstTimeDetail = latestFirstTimeRewrite
++    ? (rewriteDetails[latestFirstTimeRewrite.id] ?? null)
++    : null;
+   const firstCvReady = firstCvTarget.trim().length > 0 && firstCvInfo.trim().length >= 80;
+ 
+   function toggle(id: string) {
+@@ -177,7 +198,7 @@ export function CvLibrary() {
+     setIsAnalyzing(true);
+     setAnalyzeError(null);
+     try {
+-      await invokeStrict<string>("analyze_cv_document", { cvDocumentId: selected.id, language });
++      await runCvAnalysis(selected.id, language);
+       setReloadNonce((n) => n + 1);
+     } catch (e) {
+       setAnalyzeError(errMessage(e));
+@@ -202,8 +223,8 @@ export function CvLibrary() {
+     }
+   }
+ 
+-  // Produce an AI-tailored rewrite of the selected CV, then reload the rewrites
+-  // list (via `reloadNonce`) so the inspector's Export-PDF affordance appears.
++  // Produce an AI-tailored CV plus its cover letter, then reload the rewrites
++  // list (via `reloadNonce`) so both export affordances appear.
+   // Mirrors `handleAnalyze`'s busy/error conventions.
+   async function handleRewrite() {
+     if (isRewriting || selected === null) return;
+@@ -313,7 +334,7 @@ export function CvLibrary() {
+               Re-parse
+             </Button>
+             <Button size="sm" disabled={isAnalyzing} onClick={handleAnalyze}>
+-              {isAnalyzing ? "Analysing..." : "Re-analyse"}
++              {isAnalyzing ? "Analysing..." : "Analyze again"}
+             </Button>
+             <Button
+               size="sm"
+@@ -347,7 +368,7 @@ export function CvLibrary() {
+       {analyzeError !== null && (
+         <div className="inline-warning inline-warning--danger" role="alert">
+           <div className="inline-warning__body">
+-            <div>Re-analyse failed. Your library is unchanged.</div>
++            <div>Analyze again failed. Your library is unchanged.</div>
+             <div className="inline-warning__url">{analyzeError}</div>
+           </div>
+           <button
+@@ -442,7 +463,7 @@ export function CvLibrary() {
+                 disabled={isRewriting || !firstCvReady || activeProfileId === null}
+                 onClick={handleFirstCvRewrite}
+               >
+-                {isRewriting ? "Creating..." : "Create first CV with AI"}
++                {isRewriting ? "Creating CV + letter..." : "Create first CV with AI"}
+               </Button>
+               {!firstCvReady && (
+                 <p className="cvx-first-cv__hint">
+@@ -453,12 +474,26 @@ export function CvLibrary() {
+                 <div className="cvx-first-cv__result">
+                   <span className="cvx-inspector__heading">Latest first CV</span>
+                   <div className="cvx-inspector__rewrite-actions">
+-                    <CvExportButton rewrite={latestFirstTimeRewrite} />
+-                    {latestFirstTimeRewrite.sourceText ? (
+-                      <Button size="sm" onClick={() => setComparing(latestFirstTimeRewrite)}>
+-                        Review generated CV
++                    {latestFirstTimeDetail ? (
++                      <>
++                        <CvExportButton rewrite={latestFirstTimeDetail} />
++                        <CoverLetterExportButton rewrite={latestFirstTimeDetail} />
++                        {latestFirstTimeDetail.sourceText ? (
++                          <Button size="sm" onClick={() => setComparing(latestFirstTimeDetail)}>
++                            Review generated CV
++                          </Button>
++                        ) : null}
++                      </>
++                    ) : (
++                      <Button
++                        size="sm"
++                        onClick={() => void loadRewriteDetail(latestFirstTimeRewrite.id)}
++                      >
++                        {rewriteDetailLoading === latestFirstTimeRewrite.id
++                          ? "Loading rewrite..."
++                          : "Load generated CV"}
+                       </Button>
+-                    ) : null}
++                    )}
+                   </div>
+                 </div>
+               )}
+@@ -589,7 +624,7 @@ export function CvLibrary() {
+                       disabled={isRewriting}
+                       onClick={handleRewrite}
+                     >
+-                      {isRewriting ? "Rewriting..." : "Rewrite with AI"}
++                      {isRewriting ? "Generating CV + letter..." : "Rewrite with AI"}
+                     </Button>
+                   </div>
+                   <label className="cvx-inspector__extra">
+@@ -611,16 +646,33 @@ export function CvLibrary() {
+                     Modify (stamp metadata onto the source PDF). */}
+                 {(() => {
+                   const latestRewrite = rewrites.find((r) => r.cvDocumentId === selected.id);
++                  const latestDetail = latestRewrite
++                    ? (rewriteDetails[latestRewrite.id] ?? null)
++                    : null;
+                   return latestRewrite ? (
+                     <div className="cvx-inspector__rewrite">
+                       <span className="cvx-inspector__heading">AI rewrite</span>
+                       <div className="cvx-inspector__rewrite-actions">
+-                        <CvExportButton rewrite={latestRewrite} />
+-                        {latestRewrite.sourceText ? (
+-                          <Button size="sm" onClick={() => setComparing(latestRewrite)}>
+-                            Compare before / after
++                        {latestDetail ? (
++                          <>
++                            <CvExportButton rewrite={latestDetail} />
++                            <CoverLetterExportButton rewrite={latestDetail} />
++                            {latestDetail.sourceText ? (
++                              <Button size="sm" onClick={() => setComparing(latestDetail)}>
++                                Compare before / after
++                              </Button>
++                            ) : null}
++                          </>
++                        ) : (
++                          <Button
++                            size="sm"
++                            onClick={() => void loadRewriteDetail(latestRewrite.id)}
++                          >
++                            {rewriteDetailLoading === latestRewrite.id
++                              ? "Loading rewrite..."
++                              : "Load rewrite details"}
+                           </Button>
+-                        ) : null}
++                        )}
+                       </div>
+                     </div>
+                   ) : null;
+@@ -732,6 +784,41 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
+                 ))}
+               </div>
+             )}
++            {r.certificates?.length > 0 && (
++              <div className="cvx-compare__block">
++                <h4>Certificates</h4>
++                <ul>
++                  {r.certificates.map((certificate, i) => {
++                    const label = certificate.name || certificate.credentialId || "Certificate";
++                    const href = certificate.credentialUrl?.trim();
++                    const content = /^https?:\/\//i.test(href || "") ? (
++                      <a href={href} target="_blank" rel="noreferrer">
++                        {label}
++                      </a>
++                    ) : (
++                      label
++                    );
++                    return (
++                      <li key={i}>
++                        {content}
++                        {[certificate.issuer, certificate.date].filter(Boolean).join(" · ") && (
++                          <span className="cvx-compare__meta">
++                            {[certificate.issuer, certificate.date].filter(Boolean).join(" · ")}
++                          </span>
++                        )}
++                      </li>
++                    );
++                  })}
++                </ul>
++              </div>
++            )}
++            {r.coverLetter?.trim() && (
++              <div className="cvx-compare__block">
++                <h4>Cover letter</h4>
++                <p className="cvx-cover-letter-preview">{r.coverLetter}</p>
++                <CoverLetterExportButton rewrite={report} />
++              </div>
++            )}
+           </div>
+         </section>
+       </div>
+diff --git c/src/pages/JobSearch.tsx w/src/pages/JobSearch.tsx
+index 836977a..5e2ddfe 100644
+--- c/src/pages/JobSearch.tsx
++++ w/src/pages/JobSearch.tsx
+@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
+ import { invokeStrict, safeInvoke, errMessage } from "../lib/tauriInvoke";
+ import { Cancel01Icon, PlayIcon } from "@hugeicons/core-free-icons";
+ import { openUrl } from "@tauri-apps/plugin-opener";
+-import type { JobStatus, SearchQueryInput } from "../types/domain";
++import type { JobPostDto, JobStatus, SearchQueryInput } from "../types/domain";
+ import { workModelsFrom, extractAssunto, extractPhone } from "./JobSearch.helpers";
+ import {
+   useJobStore,
+@@ -164,6 +164,7 @@ export function JobSearch() {
+   // togglable panel — the filters it edits already drive this page's searches.
+   const [showPreferences, setShowPreferences] = useState(false);
+   const [selectedId, setSelectedId] = useState<string | null>(null);
++  const [selectedDetail, setSelectedDetail] = useState<JobPostDto | null>(null);
+   const [mobilePane, setMobilePane] = useState<"filters" | "jobs" | "detail">("jobs");
+   const [draftModalOpen, setDraftModalOpen] = useState(false);
+   const [searchMsg, setSearchMsg] = useState<string | null>(null);
+@@ -189,8 +190,10 @@ export function JobSearch() {
+     jobs,
+     matches,
+     isLoading,
++    nextCursor,
+     error,
+     loadJobs,
++    loadMoreJobs,
+     loadMatches,
+     scoreJob,
+     setJobStatus,
+@@ -210,14 +213,55 @@ export function JobSearch() {
+   const loadPreferences = useJobPreferencesStore((s) => s.load);
+   const clearSearchError = useSearchQueryStore((s) => s.clearError);
+ 
+-  // Reload whenever the active profile changes.
++  // Reload dependent collections whenever the active profile changes.
+   useEffect(() => {
+     if (!activeProfileId) return;
+-    void loadJobs(activeProfileId);
+     void loadMatches(activeProfileId);
+     void loadQueries(activeProfileId);
+     void loadPreferences(activeProfileId);
+-  }, [activeProfileId, loadJobs, loadMatches, loadQueries, loadPreferences]);
++  }, [activeProfileId, loadMatches, loadQueries, loadPreferences]);
++
++  // FTS is intentionally delayed and starts at two characters. This avoids
++  // issuing a SQLite search for every keystroke while keeping the local list
++  // useful for a single-character filter.
++  useEffect(() => {
++    if (!activeProfileId) return;
++    const term = wordsFilter.trim();
++    if (term.length === 1) {
++      void loadJobs(activeProfileId, statusFilter === "all" ? undefined : statusFilter, undefined);
++      return;
++    }
++    const timer = window.setTimeout(
++      () =>
++        void loadJobs(
++          activeProfileId,
++          statusFilter === "all" ? undefined : statusFilter,
++          term.length >= 2 ? term : undefined,
++        ),
++      term.length >= 2 ? 200 : 0,
++    );
++    return () => window.clearTimeout(timer);
++  }, [activeProfileId, loadJobs, statusFilter, wordsFilter]);
++
++  // List rows carry only a short summary. Fetch full posting text once when a
++  // row becomes selected, keeping description/source payloads out of the list.
++  useEffect(() => {
++    if (!activeProfileId || !selectedId) {
++      setSelectedDetail(null);
++      return;
++    }
++    let cancelled = false;
++    setSelectedDetail(null);
++    void safeInvoke<JobPostDto>("get_job_post", {
++      profileId: activeProfileId,
++      jobId: selectedId,
++    }).then((detail) => {
++      if (!cancelled) setSelectedDetail(detail);
++    });
++    return () => {
++      cancelled = true;
++    };
++  }, [activeProfileId, selectedId]);
+ 
+   // Default every preference skill to selected; re-seed when the preference
+   // skill set changes (join key). User deselections persist until then.
+@@ -871,7 +915,8 @@ export function JobSearch() {
+     : 0;
+   const queuedCount = jobs.filter((j) => j.status === "queued").length;
+ 
+-  const selected = jobs.find((j) => j.id === selectedId) ?? null;
++  const selectedRow = jobs.find((j) => j.id === selectedId) ?? null;
++  const selected = selectedDetail?.id === selectedId ? selectedDetail : selectedRow;
+   const selectedMatchScore = selected !== null ? matchScoreFor(selected.id) : null;
+   const selectedMatchId =
+     selected !== null ? (matches.find((m) => m.jobId === selected.id)?.id ?? null) : null;
+@@ -1581,53 +1626,69 @@ export function JobSearch() {
+               body="Adjust filters or run a search."
+             />
+           ) : (
+-            <ul className="job-search__result-list" aria-label="Job results">
+-              {filtered.map((job) => {
+-                const score = matchScoreFor(job.id);
+-                return (
+-                  <li
+-                    key={job.id}
+-                    className={
+-                      selectedId === job.id
+-                        ? "list-item job-search__result selected"
+-                        : "list-item job-search__result"
+-                    }
+-                  >
+-                    <button
+-                      type="button"
+-                      className="job-search__result-button"
+-                      aria-pressed={selectedId === job.id}
+-                      onClick={() => selectJob(job.id)}
++            <div>
++              <ul className="job-search__result-list" aria-label="Job results">
++                {filtered.map((job) => {
++                  const score = matchScoreFor(job.id);
++                  return (
++                    <li
++                      key={job.id}
++                      className={
++                        selectedId === job.id
++                          ? "list-item job-search__result selected"
++                          : "list-item job-search__result"
++                      }
+                     >
+-                      <div className="job-search__result-main">
+-                        {PLATFORM_ICONS[job.platform] && (
+-                          <img
+-                            src={PLATFORM_ICONS[job.platform]}
+-                            alt={PLATFORM_LABELS[job.platform] ?? job.platform}
+-                            title={PLATFORM_LABELS[job.platform] ?? job.platform}
+-                            width={22}
+-                            height={22}
+-                            style={{ borderRadius: 5, flexShrink: 0 }}
+-                          />
+-                        )}
+-                        <div className="job-search__result-copy">
+-                          <div className="list-item__name">{job.title}</div>
+-                          <div className="list-item__meta">
+-                            {job.company} · {job.location ?? "Remote"}
++                      <button
++                        type="button"
++                        className="job-search__result-button"
++                        aria-pressed={selectedId === job.id}
++                        onClick={() => selectJob(job.id)}
++                      >
++                        <div className="job-search__result-main">
++                          {PLATFORM_ICONS[job.platform] && (
++                            <img
++                              src={PLATFORM_ICONS[job.platform]}
++                              alt={PLATFORM_LABELS[job.platform] ?? job.platform}
++                              title={PLATFORM_LABELS[job.platform] ?? job.platform}
++                              width={22}
++                              height={22}
++                              style={{ borderRadius: 5, flexShrink: 0 }}
++                            />
++                          )}
++                          <div className="job-search__result-copy">
++                            <div className="list-item__name">{job.title}</div>
++                            <div className="list-item__meta">
++                              {job.company} · {job.location ?? "Remote"}
++                            </div>
+                           </div>
+                         </div>
+-                      </div>
+-                      <div className="job-search__result-state">
+-                        <Badge variant={jobStatusVariant(job.status)}>
+-                          {humanizeStatus(job.status)}
+-                        </Badge>
+-                        {score !== null && <MatchScoreBadge score={score} />}
+-                      </div>
+-                    </button>
+-                  </li>
+-                );
+-              })}
+-            </ul>
++                        <div className="job-search__result-state">
++                          <Badge variant={jobStatusVariant(job.status)}>
++                            {humanizeStatus(job.status)}
++                          </Badge>
++                          {score !== null && <MatchScoreBadge score={score} />}
++                        </div>
++                      </button>
++                    </li>
++                  );
++                })}
++              </ul>
++              {nextCursor !== null && wordsFilter.trim().length < 2 && (
++                <Button
++                  size="sm"
++                  disabled={isLoading}
++                  onClick={() =>
++                    void loadMoreJobs(
++                      activeProfileId,
++                      statusFilter === "all" ? undefined : statusFilter,
++                    )
++                  }
++                >
++                  Load more jobs
++                </Button>
++              )}
++            </div>
+           )}
+         </div>
+ 
+diff --git c/src/pages/ProfileVariants.tsx w/src/pages/ProfileVariants.tsx
+index cd0337b..c0a50b0 100644
+--- c/src/pages/ProfileVariants.tsx
++++ w/src/pages/ProfileVariants.tsx
+@@ -7,7 +7,7 @@ import { invokeStrict } from "../lib/tauriInvoke";
+ import { loadCvRewrites } from "./cv/rewrite";
+ import { renderInlineBold } from "./cv/markdown";
+ import { loadCvLibrary } from "./cv/library";
+-import type { CvRewriteReport, CvLibraryDoc, CvLanguage } from "./cv/types";
++import type { CvRewriteSummary, CvLibraryDoc, CvLanguage } from "./cv/types";
+ 
+ // ---------------------------------------------------------------------------
+ // Types
+@@ -217,7 +217,7 @@ function toVariantView(dto: ProfileVariantDto): Variant {
+ // string carried legacy values (the removed Gemini/Mistral/etc. providers) and
+ // surfaced as "various browsers" in the picker — we only run GPT now, so label
+ // by the variant name (or a plain "GPT rewrite") plus the date to disambiguate.
+-function rewriteLabel(r: CvRewriteReport): string {
++function rewriteLabel(r: CvRewriteSummary): string {
+   const when = new Date(r.createdAt).toLocaleDateString();
+   const nm = r.variantName?.trim();
+   return nm ? `${nm} · ${when}` : `GPT rewrite · ${when}`;
+@@ -257,7 +257,7 @@ export function ProfileVariants() {
+   const [creating, setCreating] = useState(false);
+   const [formLoading, setFormLoading] = useState(false);
+   const [docs, setDocs] = useState<CvLibraryDoc[]>([]);
+-  const [allRewrites, setAllRewrites] = useState<CvRewriteReport[]>([]);
++  const [allRewrites, setAllRewrites] = useState<CvRewriteSummary[]>([]);
+   const [pickedDocId, setPickedDocId] = useState("");
+   const [pickedRewriteId, setPickedRewriteId] = useState("");
+   const [newVariantName, setNewVariantName] = useState("");
+@@ -267,13 +267,13 @@ export function ProfileVariants() {
+ 
+   // Rewrites for the picked doc, filtered by the selected language. Language defaults to "pt" on old rows.
+   const docRewrites = allRewrites.filter(
+-    (r) => r.cvDocumentId === pickedDocId && (r.rewrite.language ?? "pt") === language,
++    (r) => r.cvDocumentId === pickedDocId && (r.language ?? "pt") === language,
+   );
+ 
+   function handleDocChange(docId: string) {
+     setPickedDocId(docId);
+     const first = allRewrites.find(
+-      (r) => r.cvDocumentId === docId && (r.rewrite.language ?? "pt") === language,
++      (r) => r.cvDocumentId === docId && (r.language ?? "pt") === language,
+     );
+     setPickedRewriteId(first?.id ?? "");
+   }
+@@ -282,7 +282,7 @@ export function ProfileVariants() {
+   function handleLanguageChange(lang: CvLanguage) {
+     setLanguage(lang);
+     const first = allRewrites.find(
+-      (r) => r.cvDocumentId === pickedDocId && (r.rewrite.language ?? "pt") === lang,
++      (r) => r.cvDocumentId === pickedDocId && (r.language ?? "pt") === lang,
+     );
+     setPickedRewriteId(first?.id ?? "");
+   }
+@@ -302,7 +302,7 @@ export function ProfileVariants() {
+       setDocs(docList);
+       setAllRewrites(rewriteList);
+       // Auto-select first doc that has a rewrite in the selected language
+-      const rewriteInLang = (r: CvRewriteReport) => (r.rewrite.language ?? "pt") === language;
++      const rewriteInLang = (r: CvRewriteSummary) => (r.language ?? "pt") === language;
+       const firstWithRewrite = docList.find((d) =>
+         rewriteList.some((r) => r.cvDocumentId === d.id && rewriteInLang(r)),
+       );
+diff --git c/src/pages/cv/index.ts w/src/pages/cv/index.ts
+index 5ae34a3..7fc009b 100644
+--- c/src/pages/cv/index.ts
++++ w/src/pages/cv/index.ts
+@@ -3,23 +3,27 @@
+ export { CvCard } from "./CvCard";
+ export { CvViewer } from "./CvViewer";
+ export { CvPreviewThumb } from "./CvPreviewThumb";
+-export { CvExportButton } from "./CvExportButton";
++export { CoverLetterExportButton, CvExportButton } from "./CvExportButton";
+ export { MOCK_LIBRARY, MOCK_HISTORY, formatBytes, relativeTime } from "./mockData";
+ export { defaultCvBytesLoader, PROPOSED_CV_BYTES_COMMAND } from "./pdf";
+ export { loadCvLibrary, importCvDocument } from "./library";
+ export { loadCvAnalysisReports, runCvAnalysis } from "./analysis";
+ export {
+   loadCvRewrites,
++  loadCvRewrite,
+   runCvRewrite,
+   runFirstTimeCvRewrite,
+   exportCvRewrite,
++  exportCoverLetter,
+   saveCvRewritePdf,
++  saveCoverLetterPdf,
+ } from "./rewrite";
+ export { renderInlineBold } from "./markdown";
+ export type { CvExportMode } from "./rewrite";
+ export type {
+   CvAnalysisReport,
+   CvBytesLoader,
++  CvCertificate,
+   CvEducationEntry,
+   CvExperienceEntry,
+   CvLanguage,
+@@ -27,6 +31,7 @@ export type {
+   CvMetadata,
+   CvRewrite,
+   CvRewriteReport,
++  CvRewriteSummary,
+   CvSkillGroup,
+   CvVariantRef,
+ } from "./types";
+diff --git c/src/pages/cv/rewrite.ts w/src/pages/cv/rewrite.ts
+index b69ec6e..0f64f50 100644
+--- c/src/pages/cv/rewrite.ts
++++ w/src/pages/cv/rewrite.ts
+@@ -7,18 +7,32 @@
+ // metadata), NOT a critique - it is additive alongside `analysis.ts`.
+ 
+ import { invokeStrict } from "../../lib/tauriInvoke";
+-import type { CvLanguage, CvRewriteReport } from "./types";
++import type { CvLanguage, CvRewriteReport, CvRewriteSummary } from "./types";
++
++const rewriteListRequests = new Map<string, Promise<CvRewriteSummary[]>>();
+ 
+ /**
+- * List a profile's persisted CV rewrites, newest first. Resolves to the
+- * (possibly empty) list, or **rejects** if the backend errors - the caller must
++ * List lightweight metadata for a profile's persisted CV rewrites, newest first.
++ * Resolves to the (possibly empty) list, or **rejects** if the backend errors - the caller must
+  * distinguish "no rewrites yet" (`[]`) from "failed to load" (throw) so a
+  * backend failure never masquerades as an empty history. Passing "" when there
+  * is no active profile yields an empty list. Mirrors
+- * `list_cv_rewrites({ profileId })`.
++ * `list_cv_rewrites({ profileId })`. Full JSON/source text uses `loadCvRewrite`.
+  */
+-export async function loadCvRewrites(profileId: string): Promise<CvRewriteReport[]> {
+-  return invokeStrict<CvRewriteReport[]>("list_cv_rewrites", { profileId });
++export function loadCvRewrites(profileId: string): Promise<CvRewriteSummary[]> {
++  const existing = rewriteListRequests.get(profileId);
++  if (existing) return existing;
++  const request = invokeStrict<CvRewriteSummary[]>("list_cv_rewrites", { profileId }).finally(
++    () => {
++      rewriteListRequests.delete(profileId);
++    },
++  );
++  rewriteListRequests.set(profileId, request);
++  return request;
++}
++
++export function loadCvRewrite(profileId: string, rewriteId: string): Promise<CvRewriteReport> {
++  return invokeStrict<CvRewriteReport>("get_cv_rewrite", { profileId, rewriteId });
+ }
+ 
+ /**
+@@ -87,6 +101,11 @@ export async function exportCvRewrite(rewriteId: string, mode: CvExportMode): Pr
+   return Uint8Array.from(bytes);
+ }
+ 
++export async function exportCoverLetter(rewriteId: string): Promise<Uint8Array> {
++  const bytes = await invokeStrict<number[]>("export_cover_letter", { rewriteId });
++  return Uint8Array.from(bytes);
++}
++
+ /**
+  * Render a persisted rewrite to a PDF and save it via a **native save dialog**,
+  * suggesting `suggestedName` as the filename. Resolves to the saved absolute
+@@ -109,3 +128,14 @@ export async function saveCvRewritePdf(
+     suggestedName,
+   });
+ }
++
++/** Render a persisted rewrite's generated cover letter and save it via native dialog. */
++export async function saveCoverLetterPdf(
++  rewriteId: string,
++  suggestedName: string,
++): Promise<string | null> {
++  return invokeStrict<string | null>("save_cover_letter_pdf", {
++    rewriteId,
++    suggestedName,
++  });
++}
+diff --git c/src/pages/cv/types.ts w/src/pages/cv/types.ts
+index 78586ff..489e9f1 100644
+--- c/src/pages/cv/types.ts
++++ w/src/pages/cv/types.ts
+@@ -96,6 +96,15 @@ export interface CvEducationEntry {
+   bullets: string[];
+ }
+ 
++/** One explicitly supplied certificate rendered in the CV honors section. */
++export interface CvCertificate {
++  name: string;
++  issuer: string;
++  credentialId: string;
++  date: string;
++  credentialUrl: string;
++}
++
+ /**
+  * A fully REWRITTEN CV tailored to a target role - real rewritten content, not
+  * a critique. Mirrors `ai::prompt::CvRewrite`. Structured to round-trip through
+@@ -110,6 +119,9 @@ export interface CvRewrite {
+   skills: CvSkillGroup[];
+   experience: CvExperienceEntry[];
+   education: CvEducationEntry[];
++  certificates: CvCertificate[];
++  /** Generated after the CV rewrite; exported as its own PDF. */
++  coverLetter: string;
+   /** Output language stamped by the domain layer — "pt" or "en". Defaults to "pt" when absent (old rows). */
+   language?: CvLanguage;
+   /** Hex accent for the rendered CV header/rules (no leading `#`), e.g. "2B0A3D". Empty/absent = template default. */
+@@ -133,9 +145,8 @@ export interface CvMetadata {
+ }
+ 
+ /**
+- * One persisted CV rewrite run, exactly as the backend emits it
+- * (`domain/cv.rs::CvRewriteReport`, serialized `camelCase`). Listed newest-first.
+- * Additive alongside `CvAnalysisReport` - a rewrite is the tailored CV itself.
++ * One persisted CV rewrite detail, returned by `get_cv_rewrite`.
++ * The list endpoint returns `CvRewriteSummary` instead.
+  */
+ export interface CvRewriteReport {
+   id: string;
+@@ -160,6 +171,20 @@ export interface CvRewriteReport {
+   createdAt: string;
+ }
+ 
++/** Lightweight rewrite row returned by the history list. Full JSON/source text
++ * is loaded only when a rewrite is opened or exported. */
++export interface CvRewriteSummary {
++  id: string;
++  cvDocumentId: string | null;
++  cvFileName: string;
++  roleVariantId: string | null;
++  variantName: string | null;
++  modelProvider: string;
++  modelName: string;
++  language?: CvLanguage | null;
++  createdAt: string;
++}
++
+ /**
+  * SEAM - the one function that turns a CV id into raw document bytes.
+  *
+diff --git c/src/stores/useJobStore.test.ts w/src/stores/useJobStore.test.ts
+index 6ae5432..fc4a924 100644
+--- c/src/stores/useJobStore.test.ts
++++ w/src/stores/useJobStore.test.ts
+@@ -77,6 +77,7 @@ function resetStore() {
+     matches: [],
+     isLoading: false,
+     error: null,
++    nextCursor: null,
+   });
+ }
+ 
+@@ -111,7 +112,7 @@ describe("useJobStore", () => {
+ 
+       await useJobStore.getState().loadJobs("p1");
+ 
+-      expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", { profileId: "p1" });
++      expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", { profileId: "p1", limit: 50 });
+       expect(useJobStore.getState().jobs).toEqual([mockJob]);
+       expect(useJobStore.getState().isLoading).toBe(false);
+     });
+@@ -123,6 +124,7 @@ describe("useJobStore", () => {
+ 
+       expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", {
+         profileId: "p1",
++        limit: 50,
+         statusFilter: "queued",
+       });
+     });
+@@ -133,7 +135,41 @@ describe("useJobStore", () => {
+       await useJobStore.getState().loadJobs("p1", "all");
+ 
+       // Key must be absent so the backend returns all statuses.
+-      expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", { profileId: "p1" });
++      expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", { profileId: "p1", limit: 50 });
++    });
++
++    it("sends FTS terms only after caller meets minimum length", async () => {
++      vi.mocked(safeInvoke).mockResolvedValueOnce([]);
++
++      await useJobStore.getState().loadJobs("p1", undefined, "rust");
++
++      expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", {
++        profileId: "p1",
++        limit: 50,
++        search: "rust",
++      });
++    });
++
++    it("uses last-row cursor for keyset pagination", async () => {
++      const firstPage = Array.from({ length: 50 }, (_, index) => ({
++        ...mockJob,
++        id: `j${index}`,
++        discoveredAt: `2025-01-01T00:00:${String(index).padStart(2, "0")}Z`,
++      }));
++      vi.mocked(safeInvoke)
++        .mockResolvedValueOnce(firstPage)
++        .mockResolvedValueOnce([{ ...mockJob, id: "j50" }]);
++
++      await useJobStore.getState().loadJobs("p1");
++      await useJobStore.getState().loadMoreJobs("p1");
++
++      expect(safeInvoke).toHaveBeenLastCalledWith("list_job_posts", {
++        profileId: "p1",
++        limit: 50,
++        cursorDiscoveredAt: firstPage[49].discoveredAt,
++        cursorId: firstPage[49].id,
++      });
++      expect(useJobStore.getState().jobs).toHaveLength(51);
+     });
+ 
+     it("sets jobs to [] when safeInvoke returns null (backend error)", async () => {
+diff --git c/src/stores/useJobStore.ts w/src/stores/useJobStore.ts
+index ec957f1..9bc9a5e 100644
+--- c/src/stores/useJobStore.ts
++++ w/src/stores/useJobStore.ts
+@@ -7,18 +7,27 @@ import type {
+ } from "../types/domain";
+ import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
+ 
++const JOB_PAGE_SIZE = 50;
++
++interface JobCursor {
++  discoveredAt: string;
++  id: string;
++}
++
+ interface JobStoreState {
+   jobs: JobPostDto[];
+   matches: JobMatchDto[];
+   isLoading: boolean;
+   error: string | null;
++  nextCursor: JobCursor | null;
+ 
+   /**
+    * Load job posts for the given profile. When `statusFilter` is provided
+    * (and not "all") it is forwarded to `list_job_posts` as a server-side
+    * filter. On backend failure safeInvoke collapses to null → empty list.
+    */
+-  loadJobs: (profileId: string, statusFilter?: string) => Promise<void>;
++  loadJobs: (profileId: string, statusFilter?: string, search?: string) => Promise<void>;
++  loadMoreJobs: (profileId: string, statusFilter?: string, search?: string) => Promise<void>;
+ 
+   /** Load all match scores for the profile. */
+   loadMatches: (profileId: string) => Promise<void>;
+@@ -69,22 +78,49 @@ interface JobStoreState {
+   clearError: () => void;
+ }
+ 
+-export const useJobStore = create<JobStoreState>((set) => ({
++export const useJobStore = create<JobStoreState>((set, get) => ({
+   jobs: [],
+   matches: [],
+   isLoading: false,
+   error: null,
++  nextCursor: null,
+ 
+-  loadJobs: async (profileId, statusFilter) => {
++  loadJobs: async (profileId, statusFilter, search) => {
+     set({ isLoading: true, error: null });
+-    const args: Record<string, unknown> = { profileId };
++    const args: Record<string, unknown> = { profileId, limit: JOB_PAGE_SIZE };
+     // Only forward a concrete status string - omit key entirely for "all"
+     // so the backend returns every status rather than filtering to "all".
+     if (statusFilter !== undefined && statusFilter !== "all") {
+       args.statusFilter = statusFilter;
+     }
++    if (search?.trim().length && search.trim().length >= 2) args.search = search.trim();
+     const jobs = await safeInvoke<JobPostDto[]>("list_job_posts", args);
+-    set({ jobs: jobs ?? [], isLoading: false });
++    const rows = jobs ?? [];
++    set({
++      jobs: rows,
++      nextCursor: rows.length === JOB_PAGE_SIZE ? cursorFor(rows) : null,
++      isLoading: false,
++    });
++  },
++
++  loadMoreJobs: async (profileId, statusFilter, search) => {
++    const cursor = get().nextCursor;
++    if (cursor === null || get().isLoading) return;
++    set({ isLoading: true, error: null });
++    const args: Record<string, unknown> = {
++      profileId,
++      limit: JOB_PAGE_SIZE,
++      cursorDiscoveredAt: cursor.discoveredAt,
++      cursorId: cursor.id,
++    };
++    if (statusFilter !== undefined && statusFilter !== "all") args.statusFilter = statusFilter;
++    if (search?.trim().length && search.trim().length >= 2) args.search = search.trim();
++    const rows = (await safeInvoke<JobPostDto[]>("list_job_posts", args)) ?? [];
++    set((state) => ({
++      jobs: [...state.jobs, ...rows],
++      nextCursor: rows.length === JOB_PAGE_SIZE ? cursorFor(rows) : null,
++      isLoading: false,
++    }));
+   },
+ 
+   loadMatches: async (profileId) => {
+@@ -165,6 +201,11 @@ export const useJobStore = create<JobStoreState>((set) => ({
+   clearError: () => set({ error: null }),
+ }));
+ 
++function cursorFor(rows: JobPostDto[]): JobCursor {
++  const last = rows[rows.length - 1];
++  return { discoveredAt: last.discoveredAt, id: last.id };
++}
++
+ /**
+  * Scrape Google (dork search) and ingest results for a profile + query combo.
+  * Throws on failure (including when Google blocks with a captcha wall) so the
+diff --git c/src/types/domain.ts w/src/types/domain.ts
+index 2209a45..89fb8a7 100644
+--- c/src/types/domain.ts
++++ w/src/types/domain.ts
+@@ -149,7 +149,8 @@ export interface CreateJobPreferenceInput {
+   dailyConnectionLimit?: number | null;
+ }
+ 
+-// Full DTO returned by `list_job_posts`. Fields serialized camelCase by backend.
++// Job list DTO. `description` is bounded on list responses and full on
++// `get_job_post` detail responses. Fields serialized camelCase by backend.
+ export interface JobPostDto {
+   id: string;
+   profileId: string;
+diff --git 1/src-tauri/migrations/0011_performance_paths.sql 2/src-tauri/migrations/0011_performance_paths.sql
+new file mode 100644
+index 0000000..758028f
+--- /dev/null
++++ 2/src-tauri/migrations/0011_performance_paths.sql
+@@ -0,0 +1,61 @@
++-- Query-shape indexes for the hot list, search, scoring, and cleanup paths.
++CREATE INDEX IF NOT EXISTS idx_jobs_profile_discovered_id
++  ON job_posts(profile_id, discovered_at DESC, id DESC);
++
++CREATE INDEX IF NOT EXISTS idx_jobs_profile_status_discovered_id
++  ON job_posts(profile_id, status, discovered_at DESC, id DESC);
++
++CREATE INDEX IF NOT EXISTS idx_jobs_search_discovered
++  ON job_posts(search_query_id, discovered_at ASC, id ASC)
++  WHERE status = 'discovered';
++
++CREATE INDEX IF NOT EXISTS idx_cv_analysis_document_created
++  ON cv_analysis_reports(cv_document_id, created_at DESC);
++
++CREATE INDEX IF NOT EXISTS idx_job_preferences_profile_updated
++  ON job_preferences(profile_id, updated_at DESC);
++
++CREATE INDEX IF NOT EXISTS idx_profile_variants_profile_created
++  ON profile_variants(profile_id, created_at DESC);
++
++CREATE INDEX IF NOT EXISTS idx_application_drafts_job
++  ON application_drafts(job_id);
++
++-- Rebuild the external-content FTS index with prefix segments. The source data
++-- remains in job_posts; only the derived index is replaced.
++DROP TRIGGER IF EXISTS job_posts_fts_ai;
++DROP TRIGGER IF EXISTS job_posts_fts_ad;
++DROP TRIGGER IF EXISTS job_posts_fts_au;
++DROP TABLE IF EXISTS job_posts_fts;
++
++CREATE VIRTUAL TABLE job_posts_fts USING fts5(
++  title,
++  company,
++  location,
++  description,
++  summary,
++  content='job_posts',
++  content_rowid='rowid',
++  tokenize='unicode61 remove_diacritics 2',
++  prefix='2 3 4'
++);
++
++CREATE TRIGGER job_posts_fts_ai AFTER INSERT ON job_posts BEGIN
++  INSERT INTO job_posts_fts(rowid, title, company, location, description, summary)
++  VALUES (new.rowid, new.title, new.company, new.location, new.description, new.summary);
++END;
++
++CREATE TRIGGER job_posts_fts_ad AFTER DELETE ON job_posts BEGIN
++  INSERT INTO job_posts_fts(job_posts_fts, rowid, title, company, location, description, summary)
++  VALUES ('delete', old.rowid, old.title, old.company, old.location, old.description, old.summary);
++END;
++
++CREATE TRIGGER job_posts_fts_au AFTER UPDATE ON job_posts BEGIN
++  INSERT INTO job_posts_fts(job_posts_fts, rowid, title, company, location, description, summary)
++  VALUES ('delete', old.rowid, old.title, old.company, old.location, old.description, old.summary);
++  INSERT INTO job_posts_fts(rowid, title, company, location, description, summary)
++  VALUES (new.rowid, new.title, new.company, new.location, new.description, new.summary);
++END;
++
++INSERT INTO job_posts_fts(rowid, title, company, location, description, summary)
++SELECT rowid, title, company, location, description, summary FROM job_posts;
+diff --git 1/scripts/benchmark-sqlite.sh 2/scripts/benchmark-sqlite.sh
+new file mode 100755
+index 0000000..32b1ec7
+--- /dev/null
++++ 2/scripts/benchmark-sqlite.sh
+@@ -0,0 +1,25 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++if (($# == 0)); then
++  echo "usage: $0 <benchmark-command> [args...]" >&2
++  exit 2
++fi
++
++for pool in 2 3 4 5; do
++  for cache in -16384 -32768; do
++    for mmap in 0 134217728; do
++      for statements in 100 256 512; do
++        printf '\nPOOL=%s CACHE_SIZE=%s MMAP_SIZE=%s STATEMENTS=%s TEMP_STORE=2\n' \
++          "$pool" "$cache" "$mmap" "$statements"
++        /usr/bin/time -f 'elapsed=%e rss_kb=%M' env \
++          HIREMEOPS_DB_MAX_CONNECTIONS="$pool" \
++          HIREMEOPS_DB_STATEMENT_CACHE_CAPACITY="$statements" \
++          HIREMEOPS_DB_CACHE_SIZE="$cache" \
++          HIREMEOPS_DB_MMAP_SIZE="$mmap" \
++          HIREMEOPS_DB_TEMP_STORE=2 \
++          "$@"
++      done
++    done
++  done
++done

@@ -1,0 +1,86 @@
+[package]
+name = "hiremeops"
+version = "0.1.0"
+description = "HireMeOps — local-first job-search automation cockpit"
+authors = ["HireMeOps"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+# The `_lib` suffix keeps the lib name unique from the bin name (Windows, cargo#8519).
+name = "hiremeops_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time", "net", "io-util", "process"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] } # entity ids (v4) + serde
+time = { version = "0.3", features = ["formatting", "parsing"] } # timestamps (std-friendly, not chrono)
+tracing = "0.1" # structured logging + spans
+tracing-subscriber = { version = "0.3", features = ["env-filter"] } # RUST_LOG filtering
+pdf-extract = "0.12.0" # read text from uploaded CV PDFs
+lopdf = "0.44.0" # write/generate CV PDFs + metadata + page count
+sha2 = "0.11.0" # content hashing (CV / AI-cache / credential fingerprints)
+tauri-plugin-dialog = "2.7.1" # native file-open dialogs
+zip = "8.6.0" # DOCX is a zip container (CV parsing)
+quick-xml = "0.41.0" # DOCX XML body parsing (CV parsing)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] } # HTTP to AI APIs
+# Cross-platform self-RSS reader for the HIREMEOPS_PERF memory logger (reads
+# /proc/self/smaps on Linux, task_info on macOS, PSAPI on Windows).
+memory-stats = "1"
+# OS keyring for subscription (OAuth) tokens. The `*-native` backends avoid
+# needing a running secret-service/dbus at build time (Linux uses the kernel
+# keyutils), keeping CI + headless builds working.
+keyring = { version = "3", features = ["linux-native", "apple-native", "windows-native"] }
+
+# Optional deps — only compiled when `real-browser` feature is enabled.
+# `tokio-runtime` activates the tokio WebSocket backend inside chromiumoxide
+# (the crate's own default is `async-std-runtime`, which we explicitly exclude).
+chromiumoxide = { version = "0.8", default-features = false, features = ["tokio-runtime"], optional = true }
+# futures is a direct dep of chromiumoxide so it is always in the dep graph
+# when `real-browser` is on; declare it here so our gated module can name it.
+futures = { version = "0.3", optional = true }
+
+[features]
+# Lean by default: chromiumoxide (the ~70%-of-compile-time elephant) is OFF unless
+# `real-browser` is requested. Frontend/domain work builds fast with no flag; the
+# full automation cockpit is an explicit opt-in (`-f real-browser` / `--features
+# real-browser`) wired into every app run/build path (package.json, scripts/, CI).
+default = []
+# Pull in a real Chromium/CDP driver.
+real-browser = ["dep:chromiumoxide", "dep:futures"]
+
+[profile.dev]
+# `tauri dev` speed. Your own crate stays at opt-level 0 so recompiles are fast;
+# full debuginfo is the biggest compile/link tax in dev, so drop to line tables
+# (still gives file:line in backtraces/panics — enough for day-to-day work).
+debug = "line-tables-only"
+# Unpacked split-debuginfo lets the linker skip copying debug data into the
+# binary, further speeding the link step on Linux.
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+# Optimize *dependencies* (chromiumoxide, sqlx, tauri, reqwest, pdf-extract…).
+# They compile once and are cached, so the one-time cost buys a dramatically
+# faster-running dev app — this fixes the "runs too slow" half. Your own crate
+# is unaffected (matched by [profile.dev] above), so incremental edits stay fast.
+opt-level = 2
+debug = false
+
+[profile.release]
+# Smaller, faster release binary. `lto = "thin"` keeps link times reasonable
+# vs. `fat` while still inlining across crates; single codegen-unit maximizes
+# optimization; `strip` drops debug symbols from the shipped binary.
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true

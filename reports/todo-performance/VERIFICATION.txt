@@ -1,0 +1,51 @@
+TODO performance completion verification
+
+Pinned comparison:
+- baselineRef/baselineCommit: cfda4b06a51343db960e318a23f16a309bd01a1c
+- candidateCommit: null; dirty worktree represented by candidateTree 32989283f15478a88d612b897a9afc380f43aae5 in benchmark JSON
+- baseline clone source: git archive <pinned baseline commit>
+
+Baseline before implementation:
+- npm run typecheck — exit 0
+- npm run lint — exit 0
+- npm run test — 33 Vitest files, 255 tests; 5 Node tests passed; exit 0
+- cargo test --manifest-path src-tauri/Cargo.toml --lib — 199 passed, 0 failed; exit 0
+- node scripts/quality-review.mjs — no issues found; exit 0
+
+Current implementation checks:
+- npm run test — 33 Vitest files, 257 tests; 8 Node tests passed; exit 0
+- npm run typecheck — exit 0
+- npm run lint — exit 0
+- npm run format:check — exit 0
+- npm run build — exit 0
+- cargo test --manifest-path src-tauri/Cargo.toml --lib — 199 passed, 0 failed; exit 0
+- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check — exit 0
+- cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings — exit 0
+- git diff --check — exit 0
+- bash -n scripts/benchmark-sqlite.sh reports/todo-performance/ROLLBACK.sh — exit 0
+- node --test scripts/benchmark-changes.node-test.mjs — 8 passed; exit 0
+
+Benchmark evidence:
+- smoke: 7 scenarios, 2 warmups and 5 measured samples; all equivalence checks passed
+- performance: 7 scenarios, 10 warmups and 30 measured samples; all equivalence checks passed
+- smoke command: npm run benchmark:changes -- --profile smoke --rows 5000 --rewrites 500 --warmup 2 --iterations 5 --baseline-ref cfda4b06a51343db960e318a23f16a309bd01a1c --fixture reports/todo-performance/sanitized-fixture.sqlite3 --output reports/todo-performance/benchmark-results.json --keep-clone
+- performance command: npm run benchmark:changes -- --profile performance --rows 5000 --rewrites 500 --warmup 10 --iterations 30 --baseline-ref cfda4b06a51343db960e318a23f16a309bd01a1c --fixture reports/todo-performance/sanitized-fixture.sqlite3 --output reports/todo-performance/benchmark-performance.json --keep-clone
+- report: reports/todo-performance/benchmark-performance.json
+- release report: reports/todo-performance/release-metrics.json; baseline/current release binaries built and hashed
+- persisted fixture: reports/todo-performance/sanitized-fixture.sqlite3; SHA-256 is recorded in report
+- clone: temporary /tmp/hiremeops-old-clone-*; archive ref and commit are recorded in report
+
+Artifact verification:
+- sha256sum -c reports/todo-performance/original.sha256 — all 18 snapshot hashes verified
+- bash reports/todo-performance/ROLLBACK.sh /tmp/hiremeops-todo-rollback-target — copy restored and additive artifacts removed
+- rollback copy comparison — snapshots byte-equal; migration and benchmark additions absent
+
+Known quality output:
+- node scripts/quality-review.mjs — exit 1 because nine files exceed the existing 1,000-line gate and Lizard is missing
+- Jscpd: 4.526%, below the configured 5% threshold
+- npm run verify reaches the quality-review failure after native checks
+
+Notes:
+- Existing unrelated working-tree changes were preserved.
+- TODO items 23 and 24 remain deliberate design decisions: UUID/TEXT schema and WITHOUT ROWID were excluded from this pass.
+- Release artifact comparison — pinned baseline and current release binaries built successfully; sizes and hashes recorded in release-metrics.json.

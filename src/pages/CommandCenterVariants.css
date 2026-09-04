@@ -1,0 +1,215 @@
+@scope ([data-impeccable-variant="1"]) {
+  :scope > .cc-variant--focus {
+    --cc-signal: var(--p-signal, 0.45);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "brand" "metrics" "bridge" "visitors" "icons" "mid" "bot" "foot";
+    gap: 16px;
+    padding: 24px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent) 4%, var(--color-bg)),
+      var(--color-bg) 24%
+    );
+  }
+  :scope > .cc-variant--focus .cc-brand {
+    grid-area: brand;
+    padding-bottom: 4px;
+  }
+  :scope > .cc-variant--focus .cc-brand h1 {
+    font-size: clamp(24px, 3vw, 38px);
+    letter-spacing: -0.02em;
+  }
+  :scope > .cc-variant--focus .cc-icons {
+    grid-area: icons;
+    border-color: color-mix(
+      in srgb,
+      var(--color-accent) calc(var(--cc-signal) * 100%),
+      var(--color-border)
+    );
+  }
+  :scope > .cc-variant--focus .cc-icons::before {
+    opacity: var(--cc-signal);
+  }
+  :scope > .cc-variant--focus .cc-midgrid {
+    grid-area: mid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.75fr);
+  }
+  :scope > .cc-variant--focus .cc-botgrid {
+    grid-area: bot;
+    grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.6fr);
+  }
+  :scope > .cc-variant--focus .cc-zone {
+    box-shadow: 0 10px 28px rgb(0 0 0 / 0.18);
+  }
+  :scope > .cc-variant--focus .cc-zone--jobs {
+    min-height: 240px;
+  }
+  :scope > .cc-variant--focus .cc-foot {
+    grid-area: foot;
+    max-width: 760px;
+  }
+  :scope > .cc-variant--focus[data-p-density="tight"] {
+    gap: 10px;
+    padding: 16px;
+  }
+  :scope > .cc-variant--focus[data-p-density="airy"] {
+    gap: 24px;
+    padding: 32px;
+  }
+  @media (max-width: 900px) {
+    :scope > .cc-variant--focus {
+      padding: 16px;
+    }
+    :scope > .cc-variant--focus .cc-midgrid,
+    :scope > .cc-variant--focus .cc-botgrid {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+@scope ([data-impeccable-variant="2"]) {
+  :scope > .cc-variant--rail {
+    --cc-rail: var(--p-rail, 0.72);
+    display: grid;
+    grid-template-columns: clamp(188px, 22vw, 270px) minmax(0, 1fr);
+    grid-template-areas: "brand brand" "icons mid" "icons bot" "foot foot";
+    gap: 16px;
+    padding: 20px;
+    background: var(--color-bg);
+  }
+  :scope > .cc-variant--rail .cc-brand {
+    grid-area: brand;
+    display: flex;
+    align-items: end;
+    min-height: 44px;
+  }
+  :scope > .cc-variant--rail .cc-brand h1 {
+    font-size: 22px;
+  }
+  :scope > .cc-variant--rail .cc-icons {
+    grid-area: icons;
+    align-self: stretch;
+    min-height: 520px;
+    padding: 16px;
+    background: color-mix(
+      in srgb,
+      var(--color-surface-2) calc(var(--cc-rail) * 100%),
+      var(--color-surface)
+    );
+  }
+  :scope > .cc-variant--rail .cc-hub {
+    align-content: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :scope > .cc-variant--rail .cc-midgrid {
+    grid-area: mid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.72fr);
+  }
+  :scope > .cc-variant--rail .cc-botgrid {
+    grid-area: bot;
+    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  }
+  :scope > .cc-variant--rail .cc-zone {
+    border-radius: var(--radius-md);
+  }
+  :scope > .cc-variant--rail .cc-zone--tips {
+    min-height: 250px;
+  }
+  :scope > .cc-variant--rail .cc-foot {
+    grid-area: foot;
+    justify-content: end;
+  }
+  :scope > .cc-variant--rail[data-p-density="tight"] .cc-zone {
+    padding: 12px;
+  }
+  :scope > .cc-variant--rail[data-p-density="airy"] {
+    gap: 24px;
+  }
+  @media (max-width: 900px) {
+    :scope > .cc-variant--rail {
+      grid-template-columns: 1fr;
+      grid-template-areas: "brand" "icons" "mid" "bot" "foot";
+    }
+    :scope > .cc-variant--rail .cc-icons {
+      min-height: 0;
+    }
+    :scope > .cc-variant--rail .cc-midgrid,
+    :scope > .cc-variant--rail .cc-botgrid {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+@scope ([data-impeccable-variant="3"]) {
+  :scope > .cc-variant--dense {
+    --cc-rule: var(--p-rule, 0.42);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "brand" "icons" "bot" "mid" "foot";
+    gap: 12px;
+    padding: 16px;
+    background: var(--color-surface-sunken);
+  }
+  :scope > .cc-variant--dense .cc-brand {
+    grid-area: brand;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  :scope > .cc-variant--dense .cc-brand h1 {
+    font-size: 20px;
+    letter-spacing: 0.01em;
+  }
+  :scope > .cc-variant--dense .cc-icons {
+    grid-area: icons;
+    padding: 8px 12px;
+    border-top-color: color-mix(
+      in srgb,
+      var(--color-accent) calc(var(--cc-rule) * 100%),
+      var(--color-border)
+    );
+  }
+  :scope > .cc-variant--dense .cc-hub {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  :scope > .cc-variant--dense .cc-hub__icon {
+    width: 34px;
+    height: 34px;
+  }
+  :scope > .cc-variant--dense .cc-midgrid {
+    grid-area: mid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.85fr);
+  }
+  :scope > .cc-variant--dense .cc-botgrid {
+    grid-area: bot;
+    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr);
+  }
+  :scope > .cc-variant--dense .cc-zone {
+    box-shadow: var(--shadow-1);
+  }
+  :scope > .cc-variant--dense .cc-zone__head {
+    padding-bottom: 8px;
+  }
+  :scope > .cc-variant--dense .cc-zone--jobs {
+    min-height: 220px;
+  }
+  :scope > .cc-variant--dense .cc-foot {
+    grid-area: foot;
+    border-top: 1px solid var(--color-border);
+    padding-top: 12px;
+  }
+  :scope > .cc-variant--dense[data-p-edge-markers] .cc-zone::before {
+    opacity: 0.9;
+  }
+  @media (max-width: 900px) {
+    :scope > .cc-variant--dense .cc-midgrid,
+    :scope > .cc-variant--dense .cc-botgrid {
+      grid-template-columns: 1fr;
+    }
+  }
+}

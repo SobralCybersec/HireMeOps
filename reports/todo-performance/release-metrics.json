@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-08-27T16:51:54.074Z",
+  "baseline": {
+    "ref": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "commit": "cfda4b06a51343db960e318a23f16a309bd01a1c",
+    "clone": "/tmp/hiremeops-old-clone-9meHsq",
+    "binaryBytes": 16876872,
+    "binarySha256": "ec2f21a5fff403895d9382cb446bb930bd1ef848b601a13107aa12a48e7dc0f0",
+    "buildSeconds": 104
+  },
+  "candidate": {
+    "tree": "2778cb691f1be20a9978800af63ab33f5cdfbcac",
+    "dirtyWorktree": true,
+    "binaryBytes": 21441800,
+    "binarySha256": "48df4bb0d0bd67dcb1a3f0b3e042883ec2a1b1eed2fe429902734728b1506976",
+    "buildSeconds": 160
+  },
+  "delta": {
+    "binaryBytes": 4564928,
+    "binaryPercent": 27.05,
+    "buildSeconds": 56
+  },
+  "method": "cargo build --release with shared temporary target; archive clone received current generated resources/node_modules so Tauri resource embedding remained buildable"
+}
