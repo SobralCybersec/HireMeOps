@@ -215,7 +215,7 @@ fn build_tex_document(
     std::fs::copy(&cls_src, work.join("curriculo.cls"))
         .map_err(|e| format!("copy curriculo.cls: {e}"))?;
     let stem = write_tex_source(cv, photo, work, cover_letter)?;
-    Ok(compile_tex(work, cvtex_dir, &fontdir, &stem)?)
+    compile_tex(work, cvtex_dir, &fontdir, &stem)
 }
 
 fn validate_tex_dir(cvtex_dir: &Path) -> Result<(PathBuf, PathBuf), String> {

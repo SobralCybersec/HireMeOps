@@ -557,8 +557,8 @@ async fn prepare_submission(
         return Ok(PreparedSubmission::Existing(run_id));
     }
     Ok(PreparedSubmission::New {
-        draft: draft.clone(),
-        job: job.clone(),
+        draft: Box::new(draft.clone()),
+        job: Box::new(job.clone()),
         now: now.to_string(),
         run_id,
     })
@@ -597,8 +597,8 @@ async fn lock_or_mark_duplicate(
 enum PreparedSubmission {
     Existing(String),
     New {
-        draft: SubmissionDraft,
-        job: SubmissionJob,
+        draft: Box<SubmissionDraft>,
+        job: Box<SubmissionJob>,
         now: String,
         run_id: String,
     },

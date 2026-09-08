@@ -476,8 +476,7 @@ fn canon_level(s: &str) -> Option<&'static str> {
 }
 
 fn level_matches(value: &str, contains: &[&str], exact: &[&str]) -> bool {
-    contains.iter().any(|keyword| value.contains(keyword))
-        || exact.iter().any(|keyword| value == *keyword)
+    contains.iter().any(|keyword| value.contains(keyword)) || exact.contains(&value)
 }
 
 fn compute_location(input: &MatchInput) -> u8 {

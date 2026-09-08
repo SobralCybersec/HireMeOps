@@ -1,6 +1,6 @@
 #[cfg(all(test, feature = "real-browser"))]
 mod catho_section_tests {
-    use super::*;
+    use super::super::{catho_sections_from_variant, CathoSection};
     use crate::ai::prompt::{CvEducationEntry, CvExperienceEntry};
     use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
 
@@ -141,7 +141,7 @@ mod catho_section_tests {
 
 #[cfg(all(test, feature = "real-browser"))]
 mod gupy_profile_tests {
-    use super::*;
+    use super::super::gupy_profile_from_variant;
     use crate::ai::prompt::{CvExperienceEntry, CvSkillGroup};
     use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
 
@@ -220,7 +220,7 @@ mod gupy_profile_tests {
 
 #[cfg(all(test, feature = "real-browser"))]
 mod infojobs_profile_tests {
-    use super::*;
+    use super::super::{infojobs_profile_from_variant, split_br_phone, split_first_surname};
     use crate::ai::prompt::CvSkillGroup;
     use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
 

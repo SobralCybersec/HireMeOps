@@ -538,7 +538,7 @@ fn authorization_code_params(
     params
 }
 
-fn append_client_secret<'a>(cfg: &OAuthProviderConfig, params: &mut Vec<(&'a str, String)>) {
+fn append_client_secret(cfg: &OAuthProviderConfig, params: &mut Vec<(&str, String)>) {
     if let Some(secret) = cfg.client_secret {
         params.push(("client_secret", secret.to_string()));
     }
