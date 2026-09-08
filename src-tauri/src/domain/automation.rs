@@ -33,6 +33,7 @@ mod automation_drive;
 mod automation_queue;
 
 pub(crate) use automation_answers::generate_form_answers;
+#[cfg(feature = "real-browser")]
 pub use automation_queue::run_automation_queue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

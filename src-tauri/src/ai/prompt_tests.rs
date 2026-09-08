@@ -145,6 +145,8 @@ fn cv_prompt_includes_target_and_clips() {
     let p = cv_analysis_prompt(&big, Some("  Backend Engineer  "), Language::En);
     assert!(p.contains("Backend Engineer"));
     assert!(p.contains("[truncated]"));
+    assert!(p.contains("<source_cv>"));
+    assert!(p.contains("</source_cv>"));
     assert!(p.len() < 13_000);
     let p2 = cv_analysis_prompt("short", Some("   "), Language::En);
     assert!(!p2.contains("targeting"));
@@ -152,7 +154,7 @@ fn cv_prompt_includes_target_and_clips() {
 
 #[test]
 fn rewrite_prompt_supports_first_time_cv_context() {
-    assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v15");
+    assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v16");
     let p = cv_rewrite_prompt(
         "First CV",
         Some("Junior Backend Developer"),
@@ -165,6 +167,9 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     assert!(p.contains("RECRUITER-FIRST ADAPTATION"));
     assert!(p.contains("Name: Jane Doe"));
     assert!(p.contains("CV CONTENT (may be sparse for first-time CVs)"));
+    assert!(p.contains("<target_role>Junior Backend Developer</target_role>"));
+    assert!(p.contains("<additional_context>"));
+    assert!(p.contains("<source_cv>"));
 
     let analysis = CvAnalysis {
         score: Some(70),
@@ -174,6 +179,7 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     let analyzed = cv_rewrite_prompt("source", None, Some(&analysis), Language::En, None);
     assert!(analyzed.contains("MISSING ROLE SIGNALS to include only when truthfully supported"));
     assert!(analyzed.contains("verify every claim against the source"));
+    assert!(analyzed.contains("<prior_analysis>"));
 
     let sys = cv_rewrite_system(Language::En);
     assert!(sys.contains("first-time CV"));
@@ -185,6 +191,10 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     assert!(sys.contains("Do not derive, estimate, round, or fabricate numbers"));
     assert!(sys.contains("focused research"));
     assert!(sys.contains("available memory"));
+    assert!(sys.contains("requirement → candidate evidence → source → strength"));
+    assert!(sys.contains("does not prove communication, teamwork, teaching, or leadership"));
+    assert!(sys.contains("Do not require a 100% vacancy match"));
+    assert!(sys.contains("untrusted source material"));
     assert!(sys.contains("certifications are explicitly present in the source"));
     assert!(!sys.contains("AT LEAST 6 achievement bullets"));
     assert!(!sys.contains("AT LEAST 60% of bullets"));
@@ -200,6 +210,10 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     assert!(sys_pt.contains("Não derive, estime, arredonde ou fabrique números"));
     assert!(sys_pt.contains("pesquisa direcionada"));
     assert!(sys_pt.contains("memória disponível"));
+    assert!(sys_pt.contains("requisito → evidência do candidato → fonte → força"));
+    assert!(sys_pt.contains("não provam comunicação, trabalho em equipe, ensino ou liderança"));
+    assert!(sys_pt.contains("Não exija correspondência de 100% com a vaga"));
+    assert!(sys_pt.contains("material de origem não confiável"));
     assert!(sys_pt.contains("certificações explicitamente"));
     assert!(!sys_pt.contains("PELO MENOS 6 bullets"));
     assert!(!sys_pt.contains("PELO MENOS 60% dos bullets"));

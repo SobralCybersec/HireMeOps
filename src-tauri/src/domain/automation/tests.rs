@@ -1,3 +1,4 @@
+use super::automation_queue::run_automation_queue;
 use super::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
