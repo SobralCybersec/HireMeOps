@@ -68,6 +68,22 @@ async fn insert_profile(pool: &SqlitePool, id: &str) {
     .unwrap();
 }
 
+async fn insert_cv_document(pool: &SqlitePool, id: &str, profile_id: &str) {
+    sqlx::query(
+        "INSERT INTO cv_documents (
+             id, profile_id, file_name, file_type, file_hash, stored_path, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, 'pdf', ?4, '/tmp/test.pdf', ?5, ?5)",
+    )
+    .bind(id)
+    .bind(profile_id)
+    .bind(format!("{id}.pdf"))
+    .bind(format!("hash-{id}"))
+    .bind(now_iso())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[test]
 fn backfill_fills_only_empty_fields_from_source_text() {
     let mut contact = CvContact::default();
@@ -225,6 +241,41 @@ async fn imports_docx_with_no_page_count() {
     assert_eq!(pages, None);
 
     std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[tokio::test]
+async fn document_scores_return_latest_report_per_document() {
+    let pool = mem_pool().await;
+    insert_profile(&pool, "p1").await;
+    insert_cv_document(&pool, "doc1", "p1").await;
+    insert_cv_document(&pool, "doc2", "p1").await;
+
+    for (id, document_id, score, created_at) in [
+        ("old", "doc1", 40, "2026-01-01T00:00:00Z"),
+        ("new", "doc1", 90, "2026-01-02T00:00:00Z"),
+        ("other", "doc2", 70, "2026-01-01T00:00:00Z"),
+    ] {
+        sqlx::query(
+            "INSERT INTO cv_analysis_reports
+             (id, profile_id, cv_document_id, score, created_at)
+             VALUES (?1, 'p1', ?2, ?3, ?4)",
+        )
+        .bind(id)
+        .bind(document_id)
+        .bind(score)
+        .bind(created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let scores = CvServiceImpl::new(pool, std::env::temp_dir())
+        .load_document_scores("p1")
+        .await
+        .unwrap();
+    assert_eq!(scores.get("doc1"), Some(&90));
+    assert_eq!(scores.get("doc2"), Some(&70));
+    assert_eq!(scores.len(), 2);
 }
 
 #[tokio::test]

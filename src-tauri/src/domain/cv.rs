@@ -307,9 +307,17 @@ impl CvServiceImpl {
 
     async fn load_document_scores(&self, profile_id: &str) -> DomainResult<HashMap<String, i64>> {
         let rows: Vec<(Option<String>, Option<i64>)> = sqlx::query_as(
-            "SELECT cv_document_id, score FROM cv_analysis_reports
-             WHERE profile_id = ?1 AND cv_document_id IS NOT NULL
-             ORDER BY created_at DESC",
+            "SELECT cv_document_id, score
+             FROM (
+                 SELECT cv_document_id, score,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY cv_document_id
+                            ORDER BY created_at DESC, id DESC
+                        ) AS row_rank
+                 FROM cv_analysis_reports
+                 WHERE profile_id = ?1 AND cv_document_id IS NOT NULL
+             )
+             WHERE row_rank = 1",
         )
         .bind(profile_id)
         .fetch_all(&self.db)
