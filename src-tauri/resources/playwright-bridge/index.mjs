@@ -169,6 +169,132 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function getParseTime() {
+  const d = new Date()
+  const parts = d.toString().match(/^(.*?) GMT/)
+  return parts ? parts[1].trim() + ' GMT-0500 (Eastern Standard Time)' : d.toString()
+}
+
+function getPowConfig(userAgent, dpl) {
+  const cores = [8, 16, 24, 32]
+  const screens = [3000, 4000, 3120, 4160]
+  const navigatorKeys = [
+    'webdriver−false',
+    'hardwareConcurrency−8',
+    'cookieEnabled−true',
+    'pdfViewerEnabled−true',
+    'vendor−Google Inc.',
+    'product−Gecko',
+  ]
+  const documentKeys = ['location', '_reactListeningo743lnnpvdg']
+  const windowKeys = ['window', 'document', 'location', 'navigator', 'chrome', 'performance']
+  const perfNow = typeof performance !== 'undefined' ? performance.now() * 1000 : Date.now()
+
+  return [
+    screens[Math.floor(Math.random() * screens.length)],
+    getParseTime(),
+    4294705152,
+    0,
+    userAgent,
+    dpl ? `https://cdn.oaistatic.com/_next/static/${dpl}/_ssgManifest.js` : '',
+    dpl || '',
+    'en-US',
+    'en-US,en',
+    0,
+    navigatorKeys[Math.floor(Math.random() * navigatorKeys.length)],
+    documentKeys[Math.floor(Math.random() * documentKeys.length)],
+    windowKeys[Math.floor(Math.random() * windowKeys.length)],
+    perfNow,
+    randomUUID(),
+    '',
+    cores[Math.floor(Math.random() * cores.length)],
+    Date.now() - perfNow,
+  ]
+}
+
+function generatePowAnswer(seed, diff, config) {
+  const targetDiff = Buffer.from(diff, 'hex')
+  const diffLen = targetDiff.length
+  const seedBuf = Buffer.from(seed)
+
+  for (let i = 0; i < 500000; i += 1) {
+    config[3] = i
+    config[9] = i >> 1
+    const jsonData = JSON.stringify(config)
+    const base = Buffer.from(jsonData).toString('base64')
+    const hash = createHash('sha3-512').update(Buffer.concat([seedBuf, Buffer.from(base)])).digest()
+    if (Buffer.compare(hash.subarray(0, diffLen), targetDiff) <= 0) {
+      return { answer: base, solved: true }
+    }
+  }
+  const fallbackBase = Buffer.from(`"${seed}"`).toString('base64')
+  return { answer: 'wQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallbackBase, solved: false }
+}
+
+function getRequirementsToken(config) {
+  const clonedConfig = [...config]
+  const { answer } = generatePowAnswer(String(Math.random()), '0fffff', clonedConfig)
+  return 'gAAAAAC' + answer
+}
+
+function getProofToken(seed, difficulty, config) {
+  const clonedConfig = [...config]
+  const { answer, solved } = generatePowAnswer(seed, difficulty, clonedConfig)
+  return { token: 'gAAAAAB' + answer, solved }
+}
+
+async function extractDpl(page) {
+  return page.evaluate(() => {
+    const dataBuild = document.documentElement.getAttribute('data-build')
+    if (dataBuild) return dataBuild
+    for (const script of document.querySelectorAll('script[src]')) {
+      const match = (script.getAttribute('src') || '').match(/\/_next\/static\/([^/]+)\//)
+      if (match) return match[1]
+    }
+    return ''
+  }).catch(() => '')
+}
+
+async function fetchFreshSentinelTokens(page, baseHeaders) {
+  const userAgent = await page.evaluate(() => navigator.userAgent).catch(() => '')
+  const dpl = await extractDpl(page)
+  const config = getPowConfig(userAgent, dpl)
+  const pToken = getRequirementsToken([...config])
+
+  const sentinelHeaders = {}
+  try {
+    const resp = await page.context().request.post(
+      'https://chatgpt.com/backend-api/sentinel/chat-requirements',
+      {
+        headers: {
+          ...baseHeaders,
+          'content-type': 'application/json',
+        },
+        data: { p: pToken },
+        timeout: 10000,
+      },
+    )
+    if (!resp.ok()) return sentinelHeaders
+    const requirements = await resp.json()
+
+    if (requirements.token) {
+      sentinelHeaders['openai-sentinel-chat-requirements-token'] = requirements.token
+    }
+
+    const proofofwork = requirements.proofofwork || {}
+    if (proofofwork.required && proofofwork.seed && proofofwork.difficulty) {
+      const { token: proofToken } = getProofToken(proofofwork.seed, proofofwork.difficulty, [...config])
+      sentinelHeaders['openai-sentinel-proof-token'] = proofToken
+    }
+
+    if (requirements.turnstile?.token) {
+      sentinelHeaders['openai-sentinel-turnstile-token'] = requirements.turnstile.token
+    }
+  } catch {}
+
+  return sentinelHeaders
+}
+
 // How long a `manual_login` call blocks on the *open* login window waiting for
 // the user to finish authenticating (i.e. until the site's logged-in composer
 // selector appears). This keeps the visible page in the foreground and only
@@ -183,7 +309,12 @@ const LOGIN_WAIT_MS = Number(process.env.HIREMEOPS_BROWSER_LOGIN_TIMEOUT_MS) || 
 // had in fact fully generated ("apiRequestContext.post: Timeout 120000ms
 // exceeded"). Kept just under the Rust bridge's DEFAULT_BRIDGE_TIMEOUT_MS so this
 // inner limit surfaces a clean error before the outer RPC gives up.
-const CHAT_REQUEST_TIMEOUT_MS = Number(process.env.HIREMEOPS_CHAT_REQUEST_TIMEOUT_MS) || 300000
+const CHAT_REQUEST_TIMEOUT_MS = Number(process.env.HIREMEOPS_CHAT_REQUEST_TIMEOUT_MS) || 600000
+
+// Composer interception is only needed to learn request headers/payload shape.
+// Cookie-authenticated sessions may omit Authorization, so allow enough time
+// for the composer to become interactive without requiring that header.
+const CHAT_TEMPLATE_TIMEOUT_MS = Number(process.env.HIREMEOPS_CHAT_TEMPLATE_TIMEOUT_MS) || 120000
 
 function send(id, result = null, error = null) {
   process.stdout.write(`${JSON.stringify({ id, result, error })}\n`)
@@ -539,16 +670,50 @@ async function captureChatGPTTemplate(forceNew = false) {
   })
 
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Timeout waiting for ChatGPT request template')), 60000)
-    const routeHandler = async (route, request) => {
-      clearTimeout(timeout)
-      const reqHeaders = request.headers()
-      const postData = request.postData() || ''
-      let payloadModel = 'chatgpt-web-session'
+    const routePattern = '**/backend-api/f/conversation*'
+    let settled = false
+    let timeout
+    let routeHandler
 
+    const cleanup = () => {
+      clearTimeout(timeout)
+      return page.unroute(routePattern, routeHandler).catch(() => {})
+    }
+
+    const fail = (error) => {
+      if (settled) return
+      settled = true
+      void cleanup().finally(() => {
+        reject(error instanceof Error ? error : new Error(String(error)))
+      })
+    }
+
+    timeout = setTimeout(() => {
+      fail(new Error('Timeout waiting for ChatGPT request template'))
+    }, CHAT_TEMPLATE_TIMEOUT_MS)
+
+    routeHandler = async (route, request) => {
+      if (settled) {
+        await route.continue().catch(() => {})
+        return
+      }
+
+      const postData = request.postData() || ''
+      let payload
       try {
-        payloadModel = JSON.parse(postData).model || payloadModel
-      } catch {}
+        payload = JSON.parse(postData)
+      } catch {
+        await route.continue().catch(fail)
+        return
+      }
+
+      if (!payload || typeof payload !== 'object' || !Array.isArray(payload.messages) || payload.messages.length === 0) {
+        await route.continue().catch(fail)
+        return
+      }
+
+      const reqHeaders = request.headers()
+      const payloadModel = typeof payload.model === 'string' ? payload.model : 'chatgpt-web-session'
 
       const headers = {
         authorization: reqHeaders.authorization || '',
@@ -572,11 +737,6 @@ async function captureChatGPTTemplate(forceNew = false) {
         'x-openai-target-route': reqHeaders['x-openai-target-route'] || '/backend-api/f/conversation',
       }
 
-      if (!headers.authorization) {
-        await route.continue()
-        return
-      }
-
       state.chatgpt.cachedHeaders = {
         headers,
         payload: postData,
@@ -585,18 +745,20 @@ async function captureChatGPTTemplate(forceNew = false) {
       }
       state.chatgpt.lastHeadersTime = Date.now()
 
-      await route.abort('aborted')
-      await page.unroute('**/backend-api/f/conversation*', routeHandler)
+      settled = true
+      clearTimeout(timeout)
+      await route.abort('aborted').catch(() => {})
+      await page.unroute(routePattern, routeHandler).catch(() => {})
       resolve(state.chatgpt.cachedHeaders)
     }
 
-    page.route('**/backend-api/f/conversation*', routeHandler).then(async () => {
+    page.route(routePattern, routeHandler).then(async () => {
       await page.focus(inputSelector)
       await page.fill(inputSelector, '')
       await page.type(inputSelector, 'a', { delay: 50 })
       await sleep(1500)
       await page.keyboard.press('Enter')
-    })
+    }).catch(fail)
   })
 }
 
@@ -617,6 +779,21 @@ async function getChatGPTBasicHeaders() {
       origin: 'https://chatgpt.com',
       referer: 'https://chatgpt.com/',
     },
+  }
+}
+
+async function getChatGPTRequestTemplate() {
+  const cached = state.chatgpt.cachedHeaders
+  if (cached && Date.now() - state.chatgpt.lastHeadersTime < 5 * 60 * 1000) {
+    return cached
+  }
+
+  const basic = await getChatGPTBasicHeaders()
+  return {
+    ...basic,
+    payload: '',
+    model: SITE_DEFAULT_MODEL.chatgpt,
+    url: 'https://chatgpt.com/backend-api/f/conversation',
   }
 }
 
@@ -684,20 +861,6 @@ function replaceChatGPTMessageContent(content, prompt) {
   return {
     ...content,
     text: prompt,
-  }
-}
-
-function compactChatGPTPrompt(prompt, maxChars = 18000) {
-  if (typeof prompt !== 'string') return { text: '', truncated: false }
-  const clean = prompt.trim()
-  if (clean.length <= maxChars) return { text: clean, truncated: false }
-
-  const marker = '\n\n[Earlier conversation trimmed to fit ChatGPT limit]\n\n'
-  const headBudget = Math.min(6000, Math.floor((maxChars - marker.length) * 0.4))
-  const tailBudget = Math.max(2000, maxChars - marker.length - headBudget)
-  return {
-    text: `${clean.slice(0, headBudget)}${marker}${clean.slice(-tailBudget)}`,
-    truncated: true,
   }
 }
 
@@ -812,10 +975,25 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
   // page.evaluate below would die with "Execution context was destroyed".
   await page.waitForLoadState('domcontentloaded', { timeout: 6000 }).catch(() => {})
 
-  const sendConversation = async (preparedPrompt) => {
+  // Fetch fresh sentinel tokens — stale/reused tokens trigger 403 "unusual activity"
+  const cookieHeader = (await page.context().cookies('https://chatgpt.com'))
+    .map(c => `${c.name}=${c.value}`).join('; ')
+  const sentinelBaseHeaders = {
+    cookie: cookieHeader,
+    authorization: requestHeaders.authorization || '',
+    'user-agent': requestHeaders['user-agent'] || '',
+    origin: 'https://chatgpt.com',
+    referer: 'https://chatgpt.com/',
+    'oai-language': requestHeaders['oai-language'] || 'en-US',
+    'oai-device-id': requestHeaders['oai-device-id'] || '',
+  }
+  const freshSentinel = await fetchFreshSentinelTokens(page, sentinelBaseHeaders)
+  Object.assign(requestHeaders, freshSentinel)
+
+  const sendConversation = async (promptText) => {
     const payload = buildChatGPTPayloadFromTemplate(
       template,
-      preparedPrompt.text,
+      promptText,
       ensureSessionText(model, template.model || SITE_DEFAULT_MODEL.chatgpt),
       web_search,
     )
@@ -853,14 +1031,10 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
     return {
       payload,
       requestResult: { ok: apiResp.ok(), status, conversationId, body: bodyText },
-      preparedPrompt,
     }
   }
 
-  let sent = await sendConversation(compactChatGPTPrompt(prompt, 18000))
-  if (!sent.requestResult.ok && sent.requestResult.status === 413) {
-    sent = await sendConversation(compactChatGPTPrompt(prompt, 9000))
-  }
+  const sent = await sendConversation(prompt)
 
   const conversationId = sent.requestResult.conversationId || sent.payload.conversation_id || ''
   if (!sent.requestResult.ok || !conversationId) {
@@ -902,9 +1076,6 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
     warning: [
       web_search
         ? 'ChatGPT web search toggle not mapped yet. Current web-session defaults were used.'
-        : null,
-      sent.preparedPrompt.truncated
-        ? 'Prompt was compacted before ChatGPT send to avoid message_length_exceeds_limit.'
         : null,
     ]
       .filter(Boolean)

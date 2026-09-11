@@ -1,0 +1,304 @@
+/* ================================================================
+   Small shared primitives - motion & focus ring.
+   These are used across new form controls and reused by page lanes.
+   ================================================================ */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Sub-label, e.g. inline "optional" or "auto-filled" hint next to a
+   field label. Kept intentionally small - larger than field__helper
+   would fight for attention with real error text. */
+.field__hint {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  margin-left: var(--sp-1);
+  font-weight: var(--fw-medium);
+}
+
+/* Kbd hint used inside input helper rows and Command-Palette entries. */
+.kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* ================================================================
+   Drag-to-pan navigation - scroll like a phone.
+   The app hides scrollbar chrome everywhere while keeping scrolling
+   fully functional (wheel / keyboard / drag / native touch). NO
+   `overflow` value is changed here - only the visible bar is removed,
+   matching the existing precedent on .topbar and .event-log-scroll.
+   ================================================================ */
+* {
+  scrollbar-width: none; /* Firefox */
+}
+*::-webkit-scrollbar {
+  display: none; /* WebKit / Blink (Tauri = WebKitGTK) */
+}
+
+/* Grab-cursor affordance across the workspace subtree so the pan gesture
+   is discoverable. Interactive controls reassert their own cursors below,
+   so text fields, links and buttons are never given the grab hint.
+   `touch-action` is deliberately left at its default so native kinetic
+   touch scrolling keeps working on touch devices. */
+.app-main {
+  cursor: grab;
+}
+.app-main :is(button, a, label, [role="button"], [role="switch"], .switch) {
+  cursor: pointer;
+}
+.app-main :is(input, textarea, select, [contenteditable]) {
+  cursor: auto;
+}
+.app-main
+  :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    textarea,
+    [contenteditable]
+  ) {
+  cursor: text;
+}
+
+/* Active-drag state set by useDragScroll on <html>: lock the grabbing
+   cursor everywhere and suppress text selection for the duration of a pan. */
+html.is-dragscroll,
+html.is-dragscroll * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* ================================================================
+   HUD command-center shell — single theme, macOS chrome
+   Appended in the 2026 frontend rework. The old .sidebar / .cmd-masthead /
+   .event-log rules above are dead (no matching elements) and can be pruned.
+   ================================================================ */
+
+/* Workspace fills the flex column now that the event-log drawer is gone. */
+.app-main > .page-outlet {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---- Left rail ---- */
+.hud-rail {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  height: 100vh;
+  padding: var(--sp-3);
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface-sunken) 100%);
+  border-right: 1px solid var(--color-border);
+}
+.hud-rail--collapsed {
+  padding: var(--sp-3) var(--sp-2);
+}
+
+.hud-rail__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 32px;
+}
+.hud-rail--collapsed .hud-rail__head {
+  justify-content: center;
+}
+.hud-rail__brand {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--text-lg);
+  letter-spacing: var(--ls-wide);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* Hamburger — the app's ONE animated control (bars morph to an X on collapse) */
+.hud-burger {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-2);
+  cursor: pointer;
+}
+.hud-burger:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--hud-glow);
+}
+.hud-burger__bar {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-text-2);
+  transform-origin: center;
+  transition:
+    transform var(--tx-base),
+    opacity var(--tx-fast),
+    background var(--tx-fast);
+}
+.hud-burger:hover .hud-burger__bar {
+  background: var(--color-accent);
+}
+.hud-burger--open .hud-burger__bar:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+.hud-burger--open .hud-burger__bar:nth-child(2) {
+  opacity: 0;
+}
+.hud-burger--open .hud-burger__bar:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+html.reduced-effects .hud-burger__bar {
+  transition: none;
+}
+
+/* Operator identity chip */
+.hud-rail__ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-surface-2);
+}
+.hud-rail__ident-key {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wider);
+  color: var(--color-text-muted);
+}
+.hud-rail__ident-val {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Nav */
+.hud-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.hud-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hud-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.hud-nav__label {
+  padding: 0 var(--sp-2);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-widest);
+  color: var(--color-text-muted);
+}
+.hud-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--color-text-2);
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  transition:
+    background var(--tx-fast),
+    color var(--tx-fast),
+    border-color var(--tx-fast);
+}
+.hud-rail--collapsed .hud-nav__link {
+  justify-content: center;
+  padding: var(--sp-2);
+}
+.hud-nav__link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.hud-nav__link--active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent-text);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+/* Foot */
+.hud-rail__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.hud-rail--collapsed .hud-rail__foot {
+  align-items: center;
+}
+.hud-rail__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* ---- HUD corner-bracket signature — used sparingly on key panel headers ---- */
+.hud-frame {
+  position: relative;
+}
+.hud-frame::before,
+.hud-frame::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  border-color: var(--color-accent);
+  opacity: 0.7;
+}
+.hud-frame::before {
+  top: 0;
+  left: 0;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+.hud-frame::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}

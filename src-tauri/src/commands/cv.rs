@@ -6,6 +6,10 @@
 
 use std::path::PathBuf;
 
+#[cfg(test)]
+#[path = "cv_tests.rs"]
+mod tests;
+
 use tauri::{Manager, State};
 
 use crate::ai::prompt::Language;
@@ -299,12 +303,12 @@ async fn load_rewrite_export_data(
     .fetch_optional(db)
     .await
     .map_err(|e| e.to_string())?;
-    let (rewrite_json, metadata_json, cv_document_id) =
+    let (rewrite_json, _metadata_json, cv_document_id) =
         row.ok_or_else(|| format!("unknown cv_rewrite: {rewrite_id}"))?;
-    let rewrite: crate::ai::prompt::CvRewrite =
-        serde_json::from_str(&rewrite_json).map_err(|e| format!("decode rewrite: {e}"))?;
-    let metadata: crate::ai::prompt::CvMetadata =
-        serde_json::from_str(&metadata_json).unwrap_or_else(|_| rewrite.cv_metadata());
+    let rewrite: crate::ai::prompt::CvRewrite = serde_json::from_str(&rewrite_json)
+        .map(crate::ai::prompt::CvRewrite::cleaned)
+        .map_err(|e| format!("decode rewrite: {e}"))?;
+    let metadata = rewrite.cv_metadata();
     Ok((rewrite, metadata, cv_document_id))
 }
 

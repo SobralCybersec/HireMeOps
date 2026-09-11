@@ -6,6 +6,14 @@
 
 use crate::ai::prompt::{CvRewrite, Language};
 
+#[cfg(test)]
+#[path = "latex_link_tests.rs"]
+mod link_tests;
+
+#[cfg(test)]
+#[path = "bold_tests.rs"]
+mod bold_tests;
+
 struct SectionTitles {
     summary: &'static str,
     education: &'static str,
@@ -123,12 +131,12 @@ pub fn generate_cover_letter_tex(cv: &CvRewrite) -> String {
     out.push_str("\\letterdate{\\today}\n");
     out.push_str(&format!(
         "\\lettertitle{{{title_prefix} {}}}\n",
-        latex_escape(role.trim())
+        latex_escape(&header_text(role))
     ));
     out.push_str(&format!("\\letteropening{{{opening}}}\n"));
     out.push_str(&format!("\\letterclosing{{{closing}}}\n\n"));
     out.push_str("\\begin{document}\n\\makecvheader[R]\n\\makecvfooter{\\today}{");
-    out.push_str(&latex_escape(cv.name.trim()));
+    out.push_str(&latex_escape(&header_text(&cv.name)));
     out.push_str(&format!("~~~·~~~{footer}}}{{}}\n\\makelettertitle\n\n"));
     out.push_str("\\begin{cvletter}\n");
     append_cover_letter_body(&mut out, &cv.cover_letter, cv.language);
@@ -159,7 +167,7 @@ fn append_cover_letter_body(out: &mut String, body: &str, language: Language) {
 }
 
 fn append_personal_info(out: &mut String, cv: &CvRewrite) {
-    let (first, last) = split_name(&cv.name);
+    let (first, last) = split_name(&header_text(&cv.name));
     out.push_str(&format!(
         "\\name{{{}}}{{{}}}\n",
         latex_escape(&first),
@@ -168,7 +176,7 @@ fn append_personal_info(out: &mut String, cv: &CvRewrite) {
     let position = cv
         .positions
         .iter()
-        .map(|p| latex_escape(p.trim()))
+        .map(|p| latex_escape(&header_text(p)))
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
         .join(POSITION_SEP);
@@ -180,38 +188,47 @@ fn append_personal_info(out: &mut String, cv: &CvRewrite) {
     if !c.location.trim().is_empty() {
         out.push_str(&format!(
             "\\address{{{}}}\n",
-            latex_escape(c.location.trim())
+            latex_escape(&header_text(&c.location))
         ));
     }
     if !c.phone.trim().is_empty() {
-        out.push_str(&format!("\\mobile{{{}}}\n", latex_escape(c.phone.trim())));
+        out.push_str(&format!(
+            "\\mobile{{{}}}\n",
+            latex_escape(&header_text(&c.phone))
+        ));
     }
     if !c.email.trim().is_empty() {
-        out.push_str(&format!("\\email{{{}}}\n", c.email.trim()));
+        let email = header_text(&c.email).replace(r"\@", "@");
+        out.push_str(&format!("\\email{{{}}}\n", latex_escape(&email)));
         has_social = true;
     }
     if !c.website.trim().is_empty() {
-        out.push_str(&format!("\\homepage{{{}}}\n", c.website.trim()));
+        let (_, icon) = url_platform(&header_url(&c.website));
+        out.push_str(&format!("\\renewcommand{{\\acvHomepageIcon}}{{{icon}}}\n"));
+        out.push_str(&format!(
+            "\\homepage{{{}}}\n",
+            latex_escape(&header_url(&c.website))
+        ));
         has_social = true;
     }
     if !c.github.trim().is_empty() {
         out.push_str(&format!(
             "\\github{{{}}}\n",
-            strip_handle(&c.github, "github.com")
+            latex_escape(&strip_handle(&c.github, "github.com"))
         ));
         has_social = true;
     }
     if !c.gitlab.trim().is_empty() {
         out.push_str(&format!(
             "\\gitlab{{{}}}\n",
-            strip_handle(&c.gitlab, "gitlab.com")
+            latex_escape(&strip_handle(&c.gitlab, "gitlab.com"))
         ));
         has_social = true;
     }
     if !c.linkedin.trim().is_empty() {
         out.push_str(&format!(
             "\\linkedin{{{}}}\n",
-            strip_handle(&c.linkedin, "linkedin.com/in")
+            latex_escape(&strip_handle(&c.linkedin, "linkedin.com/in"))
         ));
         has_social = true;
     }
@@ -266,6 +283,26 @@ fn generate_education(cv: &CvRewrite) -> String {
     s
 }
 
+fn url_platform(url: &str) -> (&'static str, &'static str) {
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_default();
+    for (domain, label, icon) in [
+        ("github.com", "GitHub", "\\faGithub"),
+        ("github.io", "GitHub", "\\faGithub"),
+        ("gitlab.com", "GitLab", "\\faGitlab"),
+        ("gitlab.io", "GitLab", "\\faGitlab"),
+        ("behance.net", "Behance", "\\faBehance"),
+        ("linkedin.com", "LinkedIn", "\\faLinkedin"),
+    ] {
+        if host == domain || host.ends_with(&format!(".{domain}")) {
+            return (label, icon);
+        }
+    }
+    ("Portfolio", "\\faGlobe")
+}
+
 fn generate_experience(cv: &CvRewrite) -> String {
     if cv.experience.is_empty() {
         return String::new();
@@ -275,10 +312,19 @@ fn generate_experience(cv: &CvRewrite) -> String {
         latex_escape(section_titles(cv.language).experience)
     );
     for e in &cv.experience {
-        s.push_str(&cventry(
+        let location = if let Some(url) = normalized_http_url(&e.url) {
+            let (label, icon) = url_platform(&url);
+            format!(
+                "\\href{{{}}}{{\\upshape {icon}\\enspace {label}\\,\\footnotesize\\faArrowUpRightFromSquare}}",
+                latex_escape(&url)
+            )
+        } else {
+            latex_escape(e.location.trim())
+        };
+        s.push_str(&cventry_raw_location(
             &e.title,
             &e.organization,
-            &e.location,
+            &location,
             &e.dates,
             &e.bullets,
         ));
@@ -291,12 +337,7 @@ fn generate_certificates(cv: &CvRewrite) -> String {
     let certificates: Vec<_> = cv
         .certificates
         .iter()
-        .filter(|c| {
-            !c.name.trim().is_empty()
-                || !c.issuer.trim().is_empty()
-                || !c.credential_id.trim().is_empty()
-                || !c.date.trim().is_empty()
-        })
+        .filter(|c| !c.name.trim().is_empty() || !c.issuer.trim().is_empty())
         .collect();
     if certificates.is_empty() {
         return String::new();
@@ -309,10 +350,8 @@ fn generate_certificates(cv: &CvRewrite) -> String {
     for c in certificates {
         let name = latex_link(&c.name, &c.credential_url);
         s.push_str(&format!(
-            "  \\cvhonor\n    {{{name}}}\n    {{{}}}\n    {{{}}}\n    {{{}}}\n\n",
+            "  \\cvhonor\n    {{{name}}}\n    {{{}}}\n    {{}}\n    {{}}\n\n",
             latex_escape(c.issuer.trim()),
-            latex_escape(c.credential_id.trim()),
-            latex_escape(c.date.trim()),
         ));
     }
     s.push_str("\\end{cvhonors}\n\n");
@@ -335,15 +374,15 @@ fn generate_skills(cv: &CvRewrite) -> String {
     for g in groups {
         s.push_str(&format!(
             "  \\cvskill\n    {{{}}}\n    {{{}}}\n\n",
-            latex_escape(g.category.trim()),
-            latex_escape(g.skills.trim()),
+            latex_escape_bold(g.category.trim()),
+            latex_escape_bold(g.skills.trim()),
         ));
     }
     s.push_str("\\end{cvskills}\n\n");
     s
 }
 
-fn cventry(a: &str, b: &str, c: &str, d: &str, bullets: &[String]) -> String {
+fn cventry_raw_location(a: &str, b: &str, c_raw: &str, d: &str, bullets: &[String]) -> String {
     let items: Vec<&str> = bullets
         .iter()
         .map(|s| s.trim())
@@ -363,10 +402,14 @@ fn cventry(a: &str, b: &str, c: &str, d: &str, bullets: &[String]) -> String {
         "  \\cventry\n    {{{}}}\n    {{{}}}\n    {{{}}}\n    {{{}}}\n    {{{}}}\n\n",
         latex_escape(a.trim()),
         latex_escape(b.trim()),
-        latex_escape(c.trim()),
+        c_raw.trim(),
         latex_escape(d.trim()),
         body,
     )
+}
+
+fn cventry(a: &str, b: &str, c: &str, d: &str, bullets: &[String]) -> String {
+    cventry_raw_location(a, b, &latex_escape(c.trim()), d, bullets)
 }
 
 fn split_name(name: &str) -> (String, String) {
@@ -377,8 +420,26 @@ fn split_name(name: &str) -> (String, String) {
     }
 }
 
+fn header_text(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn header_url(value: &str) -> String {
+    markdown_link_target(value)
+        .map(header_text)
+        .unwrap_or_else(|| header_text(value))
+}
+
+fn markdown_link_target(value: &str) -> Option<&str> {
+    let start = value.find("](")? + 2;
+    let end = value[start..].find(')')?;
+    Some(&value[start..start + end])
+}
+
 fn strip_handle(value: &str, host_path: &str) -> String {
-    let v = value.trim().trim_end_matches('/');
+    let value = markdown_link_target(value).unwrap_or(value);
+    let normalized = header_text(value);
+    let v = normalized.trim_end_matches('/');
     let lower = v.to_ascii_lowercase();
     if let Some(idx) = lower.find(host_path) {
         return v[idx + host_path.len()..]
@@ -391,16 +452,28 @@ fn strip_handle(value: &str, host_path: &str) -> String {
 
 fn latex_link(label: &str, url: &str) -> String {
     let label = latex_escape(label.trim());
-    let url = url.trim();
-    if label.is_empty() || !is_http_url(url) {
+    let Some(url) = normalized_http_url(url) else {
+        return label;
+    };
+    if label.is_empty() {
         return label;
     }
-    format!("\\href{{{}}}{{{label}}}", latex_escape(url))
+    format!("\\href{{{}}}{{{label}}}", latex_escape(&url))
 }
 
 fn is_http_url(value: &str) -> bool {
     let lower = value.trim().to_ascii_lowercase();
     lower.starts_with("https://") || lower.starts_with("http://")
+}
+
+fn normalized_http_url(value: &str) -> Option<String> {
+    let candidate = markdown_link_target(value).unwrap_or(value);
+    let candidate = candidate.trim();
+    if candidate.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let parsed = reqwest::Url::parse(candidate).ok()?;
+    (is_http_url(candidate) && parsed.host_str().is_some()).then(|| candidate.to_string())
 }
 
 pub fn latex_escape(s: &str) -> String {
@@ -424,30 +497,17 @@ pub fn latex_escape(s: &str) -> String {
 }
 
 pub fn latex_escape_bold(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 16);
-    let mut rest = s;
-    loop {
-        let Some(start) = rest.find("**") else {
-            out.push_str(&latex_escape(rest));
-            break;
-        };
-        out.push_str(&latex_escape(&rest[..start]));
-        let after = &rest[start + 2..];
-        match after.find("**") {
-            Some(end) => {
-                out.push_str("\\textbf{");
-                out.push_str(&latex_escape(&after[..end]));
-                out.push('}');
-                rest = &after[end + 2..];
+    super::bold::runs(s)
+        .into_iter()
+        .map(|run| {
+            let text = latex_escape(&run.text);
+            if run.bold {
+                format!("\\textbf{{{text}}}")
+            } else {
+                text
             }
-            None => {
-                out.push_str("**");
-                out.push_str(&latex_escape(after));
-                break;
-            }
-        }
-    }
-    out
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -479,6 +539,7 @@ mod tests {
                 organization: "SobralCybersec".to_string(),
                 location: "Remote".to_string(),
                 dates: "2020—2025".to_string(),
+                url: String::new(),
                 bullets: vec!["Cut p99 latency by 40%.".to_string(), "  ".to_string()],
             }],
             education: vec![CvEducationEntry {
@@ -505,6 +566,14 @@ mod tests {
     fn bold_markers_become_textbf_and_stay_escaped() {
         assert_eq!(
             latex_escape_bold("cut cost by **40% & rising**"),
+            "cut cost by \\textbf{40\\% \\& rising}"
+        );
+        assert_eq!(
+            latex_escape_bold(r"cut cost by \textbf{40% & rising}"),
+            "cut cost by \\textbf{40\\% \\& rising}"
+        );
+        assert_eq!(
+            latex_escape_bold(r"cut cost by \bf{40% & rising}"),
             "cut cost by \\textbf{40\\% \\& rising}"
         );
         assert_eq!(latex_escape_bold("plain 50%"), "plain 50\\%");
@@ -582,6 +651,54 @@ mod tests {
         assert!(tex.contains("\\cvsection{Certificates}"));
         assert!(tex.contains("\\href{https://certs.example/CERT-1?a=1\\&b=2}{Cloud Certificate}"));
         assert!(tex.contains("{Issuer}"));
+        assert!(tex.contains("\\cvhonor\n    {\\href{https://certs.example/CERT-1?a=1\\&b=2}{Cloud Certificate}}\n    {Issuer}\n    {}\n    {}"));
+        assert!(!tex.contains("\n    {CERT-1}\n"));
+        assert!(!tex.contains("\n    {2025}\n"));
+    }
+
+    #[test]
+    fn experience_url_renders_github_icon() {
+        let mut cv = sample();
+        cv.experience[0].url = "https://github.com/user/project".to_string();
+        let tex = generate_resume_tex(&cv);
+        assert!(tex.contains("\\faGithub"), "should contain GitHub icon");
+        assert!(tex.contains("GitHub"), "should contain GitHub label");
+        assert!(
+            tex.contains("\\faArrowUpRightFromSquare"),
+            "should contain external-link arrow"
+        );
+        assert!(
+            tex.contains("\\href{https://github.com/user/project}"),
+            "should contain href link"
+        );
+    }
+
+    #[test]
+    fn experience_url_detects_platform() {
+        assert_eq!(
+            url_platform("https://github.com/user/project"),
+            ("GitHub", "\\faGithub")
+        );
+        assert_eq!(
+            url_platform("https://gitlab.com/user/project"),
+            ("GitLab", "\\faGitlab")
+        );
+        assert_eq!(
+            url_platform("https://behance.net/user"),
+            ("Behance", "\\faBehance")
+        );
+        assert_eq!(
+            url_platform("https://linkedin.com/in/user"),
+            ("LinkedIn", "\\faLinkedin")
+        );
+        assert_eq!(
+            url_platform("https://example.com/portfolio"),
+            ("Portfolio", "\\faGlobe")
+        );
+        assert_eq!(
+            url_platform("https://user.github.io/project"),
+            ("GitHub", "\\faGithub")
+        );
     }
 
     #[test]
@@ -596,5 +713,63 @@ mod tests {
         assert!(tex.contains("\\lettersection{About Me}"));
         assert!(tex.contains("\\textbf{reliable systems}"));
         assert!(tex.contains("\\makeletterclosing"));
+    }
+
+    #[test]
+    fn messy_header_values_compile_via_xelatex() {
+        if std::process::Command::new("xelatex")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping: xelatex not available");
+            return;
+        }
+        let cvtex = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/cvtex");
+        let mut cv = sample();
+        cv.name = "Candidate Villas Boas".to_string();
+        cv.contact = CvContact {
+            email: r"candidate\@hotmail.com".to_string(),
+            phone: "+55 19\n99956-9888".to_string(),
+            location: "Rio Claro, São Paulo,\nBrasil".to_string(),
+            linkedin: "[https://br.linkedin.com/in/candidate](https://br.linkedin.com/in/candidate)".to_string(),
+            github: String::new(),
+            gitlab: String::new(),
+            website: "[https://www.behance.net/candidate](https://www.behance.net/candidate)\n\nGraphic Director".to_string(),
+        };
+        cv.positions = vec!["Art Director".to_string(), "Visual Designer".to_string()];
+        cv.language = Language::Pt;
+        cv.summary = "Graphic designer with experience in visual communication, campaigns, social media, branding, and print materials. I also study UX/UI Design, expanding practice in interfaces, prototyping, responsive design, usability, and user feedback analysis.".to_string();
+        cv.experience[0].url = "[https://www.behance.net/gallery/123/PROJECT](https://www.behance.net/gallery/123/PROJECT)".to_string();
+        cv.experience.push(CvExperienceEntry {
+            title: "Visual Designer".to_string(),
+            organization: "Personal portfolio project".to_string(),
+            location: "Brazil".to_string(),
+            dates: "Published in February 2026".to_string(),
+            url: "[https://www.behance.net/gallery/456/CONCEPT](https://www.behance.net/gallery/456/CONCEPT)".to_string(),
+            bullets: vec!["Built a conceptual key visual study in Adobe Photoshop.".to_string()],
+        });
+        cv.experience[0].bullets = vec![
+            "Develop visual identities, social media pieces, and branding solutions.".to_string(),
+            "Adapt concepts for print and digital materials according to context, format, and communication needs.".to_string(),
+        ];
+        cv.education[0].bullets = vec![
+            "Training in project methodology, visual expression and communication, image and visual identity, graphic design, typography, branding, and information design.".to_string(),
+        ];
+        cv.certificates.push(CvCertificate {
+            name: "Design Thinking".to_string(),
+            issuer: "Online School".to_string(),
+            credential_id: String::new(),
+            date: String::new(),
+            credential_url: String::new(),
+        });
+        let tex = generate_resume_tex(&cv);
+        assert!(tex.contains("\\email{candidate@hotmail.com}"));
+        assert!(tex.contains("\\homepage{https://www.behance.net/candidate}"));
+        assert!(tex.contains("\\linkedin{candidate}"));
+        assert!(tex.contains("\\href{https://www.behance.net/gallery/123/PROJECT}"));
+        assert!(!tex.contains("](https://"));
+        crate::cv::export::build_pdf_tex(&cv, &cv.cv_metadata(), &cvtex, None)
+            .expect("contact values must compile via xelatex");
     }
 }

@@ -438,6 +438,7 @@
 \newcommand{\acvHeaderAfterPositionSkip}{.4mm}
 \newcommand{\acvHeaderAfterAddressSkip}{-.5mm}
 \newcommand{\acvHeaderIconSep}{\space}
+\newcommand{\acvHomepageIcon}{\faGlobe}
 \newcommand{\acvHeaderSocialSep}{\BeginAccSupp{ActualText={}}\quad\textbar\quad\EndAccSupp{}}
 \newcommand{\acvHeaderAfterSocialSkip}{6mm}
 \newcommand{\acvHeaderAfterQuoteSkip}{5mm}
@@ -531,7 +532,7 @@
         {}%
         {%
           \ifbool{isstart}{\setbool{isstart}{false}}{\acvHeaderSocialSep}%
-          \href{\@homepage}{\faAlt{homepage: \@homepage}{\faHouseChimney}{\@homepage}}%
+          \href{\@homepage}{\faAlt{homepage: \@homepage}{\acvHomepageIcon}{\@homepage}}%
         }%
       \ifthenelse{\isundefined{\@github}}%
         {}%

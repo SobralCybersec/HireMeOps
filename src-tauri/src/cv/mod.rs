@@ -1,5 +1,6 @@
 //! CV parsing module root: re-exports parse:: surface + shared hash/version constants.
 
+pub(crate) mod bold;
 pub mod export;
 pub mod latex;
 pub mod parse;

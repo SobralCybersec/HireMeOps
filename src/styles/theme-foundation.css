@@ -1,0 +1,330 @@
+/* ================================================================
+   HireMeOps - Design Token System
+   Dense command-center / instrument-panel aesthetic.
+   All colors as CSS custom properties; both themes honour them.
+   ================================================================ */
+
+/* ---- Spacing scale (4px base) --------------------------------- */
+:root {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* Type scale */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --text-3xl: 28px;
+
+  /* HUD type system. Rajdhani carries UI/body (clean condensed sans), Oxanium
+     the loud surfaces (brand, page/stat titles, HUD labels), JetBrains Mono all
+     data/coordinates/code for tabular alignment. Fallbacks keep first paint sane
+     if a self-hosted face fails to load. */
+  /* UI/body: Chakra Petch — squared HUD sans that rhymes with the pixel display
+     face but stays readable at 13-14px (buttons/forms/tables). */
+  --font-ui: "Chakra Petch", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  /* Display + title lead with Libra Heart (pixel); readable fallbacks behind it. */
+  --font-display: "The Libra Heart Font", "Chakra Petch", ui-sans-serif, sans-serif;
+  --font-title: "The Libra Heart Font", "Calistoga", Georgia, serif;
+  /* Data/IDs/code: IBM Plex Mono — tight retro-terminal, survives dense grids. */
+  --font-mono:
+    "IBM Plex Mono", "Fira Code", "Cascadia Code", ui-monospace, "Courier New", monospace;
+  /* Legacy alias — some page CSS still references --font-data for tabular numerics. */
+  --font-data: var(--font-mono);
+
+  /* Font weights */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Line-height scale */
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+
+  /* Letter-spacing scale */
+  --ls-tight: -0.01em;
+  --ls-normal: 0;
+  --ls-wide: 0.06em;
+  --ls-wider: 0.12em;
+  --ls-widest: 0.14em;
+
+  /* Opacity scale */
+  --opacity-disabled: 0.4;
+  --opacity-muted: 0.6;
+
+  /* Border radius - macOS-rounded window/card chrome */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Z-index scale */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-overlay: 20;
+  --z-drawer: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+
+  /* Layout constants - topbar removed; sidebar owns brand/nav/session/E-STOP.
+     Collapsed rail keeps every affordance icon-visible at 52px. */
+  --sidebar-w: 220px;
+  --sidebar-w-collapsed: 64px;
+  --topbar-h: 40px; /* legacy; retained for one-off internal chrome */
+  --statusbar-h: 22px;
+  --eventlog-w: 252px;
+
+  /* Motion easing - shared curves so animation reads consistently */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+
+  /* Transitions - low motion by design */
+  --tx-fast: 120ms var(--ease-standard);
+  --tx-base: 180ms var(--ease-standard);
+  --tx-slow: 260ms var(--ease-emphasized);
+
+  /* Choreography - entrance / chart / stagger (see src/styles/effects.css) */
+  --tx-entrance: 220ms var(--ease-emphasized);
+  --tx-chart: 300ms var(--ease-emphasized);
+  --tx-stagger: 40ms;
+}
+
+/* ---- HUD command-center palette (the only theme) ---------------
+   Graphite instrument field lit by a neutral HUD accent. macOS
+   hairline borders, restrained edge contrast on interactive surfaces. Danger stays a
+   warm vermilion on its own hue lane so E-STOP never blends into accent
+   chrome; success stays green — meaning outranks palette. */
+[data-theme="dark"],
+html:not([data-theme]) {
+  color-scheme: dark;
+
+  --color-bg: #121212;
+  --color-surface: #1a1a1a;
+  --color-surface-2: #202020;
+  --color-surface-3: #242424;
+  --color-surface-hover: #2c2c2c;
+  --color-surface-sunken: #0d0d0d;
+  --color-surface-raised: #262626;
+
+  --color-border: #343434;
+  --color-border-strong: #4a4a4a;
+
+  --color-text: #ededed;
+  --color-text-2: #b6b6b6;
+  --color-text-muted: #858585;
+  --color-text-inverse: #121212;
+
+  --color-accent: #c8c8c8;
+  --color-accent-dim: #2a2a2a;
+  --color-accent-text: #ededed;
+  --color-accent-hover: #e0e0e0;
+
+  --color-danger: #ef4444;
+  --color-danger-dim: #300c0c;
+  --color-danger-hover: #f75858;
+
+  /* Elevation - overlays/menus float above the instrument field. */
+  --shadow-1: 0 1px 2px rgba(0, 4, 12, 0.5);
+  --shadow-2: 0 6px 18px rgba(0, 6, 18, 0.55);
+  --shadow-3: 0 16px 40px rgba(0, 8, 24, 0.62);
+  --shadow-inset: inset 0 1px 2px rgba(0, 4, 14, 0.45);
+
+  --hud-glow: 0 0 0 1px rgba(200, 200, 200, 0.2), 0 0 12px -2px rgba(200, 200, 200, 0.16);
+
+  /* Internal dividers - lighter than structural --color-border */
+  --color-border-subtle: #2a2a2a;
+
+  /* Semantic status tokens */
+  --status-queued-bg: #2a2a2a;
+  --status-queued-text: #a0a0a0;
+  --status-running-bg: #2a2a2a;
+  --status-running-text: #c8c8c8;
+  --status-success-bg: #072318;
+  --status-success-text: #22c55e;
+  --status-failed-bg: #300c0c;
+  --status-failed-text: #ef4444;
+  --status-review-bg: #2a1e06;
+  --status-review-text: #eab308;
+  --status-stopped-bg: #300c0c;
+  --status-stopped-text: #b91c1c;
+  --status-paused-bg: #2a2a2a;
+  --status-paused-text: #a0a0a0;
+  --status-neutral-bg: #202020;
+  --status-neutral-text: #8f8f8f;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
+}
+
+/* ---- Light palette — daylight ops ----------------------
+   Neutral graphite base and accent.
+   Every token that the dark block defines is mirrored here. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #f3f3f2;
+  --color-surface: #fafafa;
+  --color-surface-2: #ececea;
+  --color-surface-3: #e1e1df;
+  --color-surface-hover: #d8d8d6;
+  --color-surface-sunken: #e8e8e6;
+  --color-surface-raised: #ffffff;
+
+  --color-border: #cfcfcb;
+  --color-border-strong: #a8a8a4;
+
+  --color-text: #171716;
+  --color-text-2: #4a4a48;
+  --color-text-muted: #6b6b68;
+  --color-text-inverse: #f3f3f2;
+
+  --color-accent: #50504d;
+  --color-accent-dim: #e5e5e3;
+  --color-accent-text: #30302e;
+  --color-accent-hover: #333331;
+
+  --color-danger: #b91c1c;
+  --color-danger-dim: #fde8e8;
+  --color-danger-hover: #cc2424;
+
+  /* Elevation — softer on light; no heavy black bleeds */
+  --shadow-1: 0 1px 3px rgba(20, 20, 20, 0.1);
+  --shadow-2: 0 4px 14px rgba(20, 20, 20, 0.12);
+  --shadow-3: 0 12px 32px rgba(20, 20, 20, 0.14);
+  --shadow-inset: inset 0 1px 2px rgba(20, 20, 20, 0.08);
+
+  --hud-glow: 0 0 0 1px rgba(80, 80, 77, 0.2), 0 0 10px -2px rgba(80, 80, 77, 0.14);
+
+  --color-border-subtle: #ddddda;
+
+  /* Status tokens — saturated enough to read on a light field */
+  --status-queued-bg: #e8e8e6;
+  --status-queued-text: #5a5a57;
+  --status-running-bg: #e8e8e6;
+  --status-running-text: #4a4a48;
+  --status-success-bg: #e0f4ea;
+  --status-success-text: #166534;
+  --status-failed-bg: #fde8e8;
+  --status-failed-text: #991b1b;
+  --status-review-bg: #fef3c7;
+  --status-review-text: #92400e;
+  --status-stopped-bg: #fde8e8;
+  --status-stopped-text: #7f1d1d;
+  --status-paused-bg: #e8e8e6;
+  --status-paused-text: #5a5a57;
+  --status-neutral-bg: #e8e8e6;
+  --status-neutral-text: #5a5a57;
+
+  --color-success: var(--status-success-text);
+  --color-warning: var(--status-review-text);
+  --color-info: var(--status-running-text);
+}
+
+/* Libra Heart — a 7px bitmap/pixel display face (self-hosted, offline). Used for
+   the brand wordmark + display/section titles; NOT for body/UI (it's aliased and
+   cramped at reading sizes, so --font-ui/--font-mono stay on readable faces). */
+@font-face {
+  font-family: "The Libra Heart Font";
+  src: url("../assets/fonts/the-libra-heart-font.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---- Base ----------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* Wayland/fractional-scaling can round 100vw past the client area and crop the
+     right edge — clamp horizontal overflow at the root so nothing bleeds off. */
+  max-width: 100%;
+  overflow-x: hidden;
+}
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Global focus ring - visible on every keyboard-reachable element */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Reduced-effects guard: kills all transitions/animations */
+html.reduced-effects * {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+}
+
+/* ================================================================
+   App shell
+   ================================================================ */
+.app-shell {
+  display: grid;
+  /* minmax(0, 1fr) — NOT plain 1fr. A `1fr` track's implicit minimum is
+     min-content, so the main column would grow to its widest child (a data
+     table, a long line) and push the whole app past the viewport, clipping the
+     right edge. minmax(0, …) lets the column shrink so the inner min-width:0 /
+     overflow rules can actually contain the content. */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  transition: grid-template-columns var(--tx-base);
+}
+
+html.sidebar-collapsed .app-shell {
+  grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
+}
+
+/* Rail removed → nav is a FIXED floating hamburger (see .topnav). No reserved
+   row: when the menu is closed there's no bar at all, so the page owns the full
+   height (minimize/maximize). The bar only materializes while open. */
+.app-shell--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Open menu reserves the bar's height so the icons never sit over page content;
+   closed, there's no padding and the page is full-height. Transition = the
+   content glides down as the bar opens. */
+.app-main {
+  transition: padding-top 0.28s ease;
+}
+html.nav-open .app-main {
+  padding-top: 54px;
+}
+
+html.reduced-effects .app-shell {
+  transition: none;
+}

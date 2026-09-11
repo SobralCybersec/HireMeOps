@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "patchright": "1.62.1"
+    "patchright": "1.63.0"
   }
 }

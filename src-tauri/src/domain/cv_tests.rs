@@ -1,7 +1,46 @@
 use super::*;
 use crate::ai::prompt::CvContact;
+use crate::ai::prompt::CvExperienceEntry;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
+
+#[test]
+fn rewrite_report_recovers_structured_preview_and_metadata() {
+    let saved = CvRewrite {
+        summary: include_str!("../../tests/fixtures/summary-rewrite.txt").to_string(),
+        ..Default::default()
+    };
+    let report = rewrite_report((
+        "rewrite".into(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        serde_json::to_string(&saved).unwrap(),
+        serde_json::to_string(&saved.cv_metadata()).unwrap(),
+        None,
+        "2026-09-10".into(),
+    ));
+    let response = serde_json::to_value(report).unwrap();
+    assert_eq!(response["rewrite"]["name"], "Candidate");
+    assert_eq!(
+        response["rewrite"]["summary"],
+        "Design gráfico e direção de arte."
+    );
+    assert_eq!(
+        response["rewrite"]["contact"]["email"],
+        "candidate@example.com"
+    );
+    assert_eq!(response["rewrite"]["skills"][0]["skills"], "Figma");
+    assert_eq!(response["rewrite"]["experience"][0]["title"], "Designer");
+    assert_eq!(response["metadata"]["author"], "Candidate");
+    assert_eq!(
+        response["metadata"]["description"],
+        response["rewrite"]["summary"]
+    );
+}
 
 async fn mem_pool() -> SqlitePool {
     let opts = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -63,6 +102,36 @@ fn backfill_handles_utf8_before_contact_links_without_panicking() {
 
     assert_eq!(contact.email, "óscar.joao@example.com");
     assert_eq!(contact.github, "oscarjoao");
+}
+
+#[test]
+fn backfill_extracts_profile_and_project_links_from_source() {
+    let source = "LinkedIn: HTTPS://www.linkedin.com/in/jane-doe\n\
+        GitHub: https://github.com/jane-doe\n\
+        GitLab: www.gitlab.com/jane-doe\n\
+        Portfolio: https://www.behance.net/gallery/99/brand\n\
+        Project Alpha — https://github.com/jane-doe/project-alpha\n\
+        Project Beta — gitlab.com/jane-doe/project-beta";
+    let mut contact = CvContact::default();
+    backfill_contact(source, &mut contact);
+    assert_eq!(contact.linkedin, "jane-doe");
+    assert_eq!(contact.github, "jane-doe");
+    assert_eq!(contact.gitlab, "jane-doe");
+    assert_eq!(contact.website, "https://www.behance.net/gallery/99/brand");
+
+    let mut entries = vec![
+        CvExperienceEntry {
+            title: "Project Alpha".into(),
+            ..Default::default()
+        },
+        CvExperienceEntry {
+            title: "Project Beta".into(),
+            ..Default::default()
+        },
+    ];
+    backfill_project_links(source, &mut entries);
+    assert_eq!(entries[0].url, "https://github.com/jane-doe/project-alpha");
+    assert_eq!(entries[1].url, "https://gitlab.com/jane-doe/project-beta");
 }
 
 fn unique_tmp_dir() -> PathBuf {

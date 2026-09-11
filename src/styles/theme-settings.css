@@ -1,0 +1,292 @@
+/* ── AI provider settings (Settings ▸ AI Providers) ──────────────────────── */
+/* First-class default-provider picker: a row of selectable, icon-led pills. */
+.ai-provider-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.ai-provider-picker__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.ai-provider-picker__item:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ai-provider-picker__item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.ai-provider-picker__item.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+  color: var(--color-accent-text);
+}
+
+.ai-provider-picker__label {
+  line-height: 1;
+}
+
+.ai-provider-picker__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.ai-provider-picker__dot.is-configured {
+  background: var(--color-success);
+  opacity: 1;
+}
+
+/* Provider card header: icon-led title + configured/default status cluster. */
+.ai-provider__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ai-provider__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ai-provider__status {
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ai-provider__status.is-configured {
+  color: var(--color-success);
+}
+
+/* ── Screen-reader only utility ─────────────────────────────────────── */
+/* Hides content visually while keeping it in the AT reading order.
+   Used by KpiCard to expose the final (non-animated) value to SR
+   independently of the aria-hidden animating sibling.                  */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ================================================================
+   Form-row grid - pair fields side-by-side.
+   Used by <FormRow> and directly on markup (`.form-row`). Fields
+   collapse to a single column below the container breakpoint so
+   narrow drawers stay legible without special-casing every page.
+   ================================================================ */
+.form-row {
+  display: grid;
+  gap: var(--sp-3) var(--sp-4);
+  grid-template-columns: repeat(var(--form-row-cols, 2), minmax(0, 1fr));
+  align-items: start;
+}
+.form-row--3 {
+  --form-row-cols: 3;
+}
+.form-row--4 {
+  --form-row-cols: 4;
+}
+
+.form-row > .field--span-2 {
+  grid-column: span 2;
+}
+.form-row > .field--span-full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .form-row,
+  .form-row--3,
+  .form-row--4 {
+    grid-template-columns: 1fr;
+  }
+  .form-row > .field--span-2,
+  .form-row > .field--span-full {
+    grid-column: auto;
+  }
+}
+
+/* ================================================================
+   Responsive shell.
+   The cockpit is a desktop-first Tauri window (frontend framework
+   for BackupRestorePanel, ApplicationsQueue, AutomationCockpit &
+   friends), but the window is resizable and users routinely dock
+   it to a half-screen split. Rules below keep the three-pane grid
+   readable down to ~640px without JS layout changes and without
+   collapsing the sidebar into a hamburger drawer (nav is only ~6
+   text links - truncation reads better than an off-screen menu).
+
+   Break points:
+     ≤ 1180px  → event-log drawer collapses (redundant with the
+                 status bar and easy to re-open via the topbar).
+     ≤ 900px   → sidebar narrows so ~60% of viewport goes to
+                 primary content.
+     ≤ 720px   → topbar chip cluster overflows horizontally rather
+                 than wrapping onto row 2 (never wanted to steal
+                 vertical space from the main region).
+   ================================================================ */
+@media (max-width: 1180px) {
+  .app-body {
+    grid-template-columns: 1fr !important;
+  }
+  .event-log-drawer {
+    display: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --sidebar-w: 168px;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --sidebar-w: 152px;
+    --topbar-h: 44px; /* chips get one extra px each edge on touch-ish */
+  }
+  .topbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar > * {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --sidebar-w: 48px;
+  }
+  .sidebar-brand,
+  .nav-group__label,
+  .nav-link__label {
+    /* Fall back to icon-only rows once page lanes provide nav-icons.
+       Until then, keep labels but rely on truncate. */
+    max-width: 100%;
+  }
+}
+
+/* ---- Content-grid reflow --------------------------------------
+   The fixed-column workspace grids (dashboard, cockpit, analysis, the two/
+   three-pane master-detail layouts) are sized for a full desktop window. When
+   the window is docked to a half-screen split they'd otherwise crush their
+   side rails to unreadable widths, so collapse them in two steps. This is the
+   GLOBAL shell only - page lanes still own their intra-panel tweaks.
+     .stat-grid / .form-grid are auto-fill and already reflow on their own;
+     .form-grid still gets a hard single-column at narrow so labelled controls
+     stop sitting two-up in a phone-width drawer.
+
+     ≤ 900px (tablet / half-screen) → side rails drop under main content.
+     ≤ 640px (narrow)              → every workspace grid is a single column. */
+@media (max-width: 900px) {
+  .dash-grid,
+  .cockpit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .two-pane,
+  .two-pane--narrow {
+    grid-template-columns: 180px 1fr;
+  }
+
+  /* Keep list + main side by side, push the third (detail) panel full-width
+     below so it isn't squeezed into a sliver. */
+  .three-pane {
+    grid-template-columns: 200px 1fr;
+  }
+  .three-pane__panel:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .three-pane__panel:nth-child(3) + .three-pane__panel {
+    border-left: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .analysis-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Master-detail panes stack: list on top with a capped height so the detail
+     region below always stays reachable without an inner scroll trap. */
+  .two-pane,
+  .two-pane--narrow,
+  .three-pane {
+    grid-template-columns: 1fr;
+  }
+
+  .two-pane__list {
+    max-height: 42vh;
+  }
+
+  .three-pane__panel + .three-pane__panel {
+    border-left: none;
+  }
+  .three-pane__panel:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+/* Any grid container with `.grid-template-columns: repeat(N, 1fr)` from
+   inline styles used by legacy pages still needs a min-width:0 escape
+   valve so long text (URLs, provider names, filenames) never blows the
+   layout. Applying globally to descendants of `.app-main` is safe. */
+.app-main :is(.field, .card, .stat-tile, .panel, .three-pane__panel) {
+  min-width: 0;
+}
+.app-main :is(input, select, textarea) {
+  max-width: 100%;
+}
+
+/* Every flex child of a scrolling `.page` must be allowed to shrink below its
+   content's intrinsic width. Otherwise one wide child — a data table, a long
+   monospace run-meta line — forces the whole page wider than the viewport, and
+   the `overflow:hidden` outlet clips every sibling. That was the CV-analysis
+   bug: the history table stretched `.page`, so the summary card and match bar
+   above it were cut off on the right. `min-width:0` lets internal wrapping and
+   the table's own `overflow-x:auto` engage instead. */
+.page > * {
+  min-width: 0;
+}
+.table-wrapper {
+  min-width: 0;
+}

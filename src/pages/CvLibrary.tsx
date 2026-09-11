@@ -1,4 +1,5 @@
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { CvExperienceMeta } from "./cv/CvExperienceMeta";
 import { Badge, Button, Card, Icon, Input, Textarea } from "../components/ui";
 import {
   CoverLetterExportButton,
@@ -258,7 +259,9 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
                 <h4>Skills</h4>
                 <ul>
                   {r.skills.map((g, i) => (
-                    <li key={i}>{g.category ? `${g.category}: ${g.skills}` : g.skills}</li>
+                    <li key={i}>
+                      {renderInlineBold(g.category ? `${g.category}: ${g.skills}` : g.skills)}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -269,9 +272,7 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
                 {r.experience.map((e, i) => (
                   <div key={i} className="cvx-compare__entry">
                     <strong>{e.title || "—"}</strong>
-                    <span className="cvx-compare__meta">
-                      {[e.organization, e.location, e.dates].filter(Boolean).join(" · ")}
-                    </span>
+                    <CvExperienceMeta entry={e} />
                     {e.bullets.length > 0 && (
                       <ul>
                         {e.bullets.map((b, j) => (
@@ -308,7 +309,7 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
                 <h4>Certificates</h4>
                 <ul>
                   {r.certificates.map((certificate, i) => {
-                    const label = certificate.name || certificate.credentialId || "Certificate";
+                    const label = certificate.name || "Certificate";
                     const href = certificate.credentialUrl?.trim();
                     const content = /^https?:\/\//i.test(href || "") ? (
                       <a href={href} target="_blank" rel="noreferrer">
@@ -320,10 +321,8 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
                     return (
                       <li key={i}>
                         {content}
-                        {[certificate.issuer, certificate.date].filter(Boolean).join(" · ") && (
-                          <span className="cvx-compare__meta">
-                            {[certificate.issuer, certificate.date].filter(Boolean).join(" · ")}
-                          </span>
+                        {certificate.issuer?.trim() && (
+                          <span className="cvx-compare__meta">{certificate.issuer}</span>
                         )}
                       </li>
                     );
@@ -334,7 +333,7 @@ function CvCompareModal({ report, onClose }: { report: CvRewriteReport; onClose:
             {r.coverLetter?.trim() && (
               <div className="cvx-compare__block">
                 <h4>Cover letter</h4>
-                <p className="cvx-cover-letter-preview">{r.coverLetter}</p>
+                <p className="cvx-cover-letter-preview">{renderInlineBold(r.coverLetter)}</p>
                 <CoverLetterExportButton rewrite={report} />
               </div>
             )}

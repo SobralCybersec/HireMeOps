@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, Stream, StringFormat};
 
+use super::bold::{self, Run};
 use crate::ai::prompt::{CvMetadata, CvRewrite};
 
 const PAGE_W: f32 = 612.0;
@@ -33,7 +34,7 @@ impl ExportMode {
 }
 
 struct Line {
-    text: String,
+    runs: Vec<Run>,
     size: f32,
     indent: f32,
     gap_before: f32,
@@ -50,15 +51,16 @@ struct EntryData<'a> {
 pub fn build_pdf(cv: &CvRewrite, meta: &CvMetadata) -> Result<Vec<u8>, String> {
     let mut doc = Document::with_version("1.5");
 
-    let mut font = Dictionary::new();
-    font.set("Type", Object::Name(b"Font".to_vec()));
-    font.set("Subtype", Object::Name(b"Type1".to_vec()));
-    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-    let font_id = doc.add_object(Object::Dictionary(font));
-
     let mut fonts = Dictionary::new();
-    fonts.set("F1", Object::Reference(font_id));
+    for (name, base) in [("F1", "Helvetica"), ("F2", "Helvetica-Bold")] {
+        let mut font = Dictionary::new();
+        font.set("Type", Object::Name(b"Font".to_vec()));
+        font.set("Subtype", Object::Name(b"Type1".to_vec()));
+        font.set("BaseFont", Object::Name(base.as_bytes().to_vec()));
+        font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+        let font_id = doc.add_object(Object::Dictionary(font));
+        fonts.set(name, Object::Reference(font_id));
+    }
     let mut resources = Dictionary::new();
     resources.set("Font", Object::Dictionary(fonts));
     let resources_id = doc.add_object(Object::Dictionary(resources));
@@ -387,7 +389,7 @@ fn layout_lines(cv: &CvRewrite) -> Vec<Line> {
 fn append_header(lines: &mut Vec<Line>, cv: &CvRewrite) {
     if !cv.name.trim().is_empty() {
         lines.push(Line {
-            text: cv.name.trim().to_string(),
+            runs: bold::runs(cv.name.trim()),
             size: 20.0,
             indent: 0.0,
             gap_before: 0.0,
@@ -395,12 +397,27 @@ fn append_header(lines: &mut Vec<Line>, cv: &CvRewrite) {
     }
     if !cv.positions.is_empty() {
         lines.push(Line {
-            text: cv.positions.join("  |  "),
+            runs: bold::runs(&cv.positions.join("  |  ")),
             size: 11.0,
             indent: 0.0,
             gap_before: 2.0,
         });
     }
+    let contact = [
+        &cv.contact.email,
+        &cv.contact.phone,
+        &cv.contact.location,
+        &cv.contact.linkedin,
+        &cv.contact.github,
+        &cv.contact.gitlab,
+        &cv.contact.website,
+    ]
+    .into_iter()
+    .map(|value| value.trim())
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join(" | ");
+    push_wrapped(lines, &contact, 10.0, 0.0, 95);
 }
 
 fn append_summary(lines: &mut Vec<Line>, cv: &CvRewrite) {
@@ -466,7 +483,12 @@ fn append_education(lines: &mut Vec<Line>, cv: &CvRewrite) {
 
 fn push_entry(lines: &mut Vec<Line>, entry: EntryData<'_>) {
     lines.push(Line {
-        text: entry_head(entry.primary, entry.secondary, entry.location, entry.dates),
+        runs: bold::runs(&entry_head(
+            entry.primary,
+            entry.secondary,
+            entry.location,
+            entry.dates,
+        )),
         size: 12.0,
         indent: 0.0,
         gap_before: 6.0,
@@ -477,17 +499,19 @@ fn push_entry(lines: &mut Vec<Line>, entry: EntryData<'_>) {
 }
 
 fn append_certificates(lines: &mut Vec<Line>, cv: &CvRewrite) {
-    if cv.certificates.is_empty() {
+    let certificates: Vec<_> = cv
+        .certificates
+        .iter()
+        .filter(|certificate| {
+            !certificate.name.trim().is_empty() || !certificate.issuer.trim().is_empty()
+        })
+        .collect();
+    if certificates.is_empty() {
         return;
     }
     push_heading(lines, "CERTIFICATES");
-    for certificate in &cv.certificates {
-        let head = entry_head(
-            &certificate.name,
-            &certificate.issuer,
-            &certificate.credential_id,
-            &certificate.date,
-        );
+    for certificate in certificates {
+        let head = entry_head(&certificate.name, &certificate.issuer, "", "");
         push_wrapped(lines, &head, 11.0, 0.0, 95);
     }
 }
@@ -495,7 +519,7 @@ fn append_certificates(lines: &mut Vec<Line>, cv: &CvRewrite) {
 fn append_empty_marker(lines: &mut Vec<Line>) {
     if lines.is_empty() {
         lines.push(Line {
-            text: "(empty rewrite)".to_string(),
+            runs: bold::runs("(empty rewrite)"),
             size: 12.0,
             indent: 0.0,
             gap_before: 0.0,
@@ -505,7 +529,7 @@ fn append_empty_marker(lines: &mut Vec<Line>) {
 
 fn push_heading(lines: &mut Vec<Line>, title: &str) {
     lines.push(Line {
-        text: title.to_string(),
+        runs: bold::runs(title),
         size: 13.0,
         indent: 0.0,
         gap_before: 12.0,
@@ -515,7 +539,7 @@ fn push_heading(lines: &mut Vec<Line>, title: &str) {
 fn push_wrapped(lines: &mut Vec<Line>, text: &str, size: f32, indent: f32, max_chars: usize) {
     for (i, chunk) in wrap(text, max_chars).into_iter().enumerate() {
         lines.push(Line {
-            text: chunk,
+            runs: chunk,
             size,
             indent: if i == 0 { indent } else { indent + 12.0 },
             gap_before: if i == 0 { 2.0 } else { 0.0 },
@@ -546,25 +570,53 @@ fn entry_head(a: &str, b: &str, location: &str, dates: &str) -> String {
     head
 }
 
-fn wrap(text: &str, max_chars: usize) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for word in text.split_whitespace() {
-        if cur.is_empty() {
-            cur.push_str(word);
-        } else if cur.chars().count() + 1 + word.chars().count() <= max_chars {
-            cur.push(' ');
-            cur.push_str(word);
-        } else {
+fn wrap(text: &str, max_chars: usize) -> Vec<Vec<Run>> {
+    let runs = bold::runs(text);
+    let plain: String = runs.iter().map(|run| run.text.as_str()).collect();
+    let mut out = Vec::new();
+    let mut cur = Vec::new();
+    let mut width = 0;
+    let mut cursor = 0;
+    for word in plain.split_whitespace() {
+        let start = cursor + plain[cursor..].find(word).unwrap();
+        let word_len = word.chars().count();
+        if !cur.is_empty() && width + 1 + word_len > max_chars {
             out.push(std::mem::take(&mut cur));
-            cur.push_str(word);
+            width = 0;
         }
+        if !cur.is_empty() {
+            cur.push(Run {
+                text: " ".into(),
+                bold: false,
+            });
+            width += 1;
+        }
+        cursor = start + word.len();
+        cur.extend(slice_runs(&runs, start..cursor));
+        width += word_len;
     }
     if !cur.is_empty() {
         out.push(cur);
     }
     if out.is_empty() {
-        out.push(String::new());
+        out.push(Vec::new());
+    }
+    out
+}
+
+fn slice_runs(runs: &[Run], range: std::ops::Range<usize>) -> Vec<Run> {
+    let mut offset = 0;
+    let mut out = Vec::new();
+    for run in runs {
+        let start = range.start.max(offset);
+        let end = range.end.min(offset + run.text.len());
+        if start < end {
+            out.push(Run {
+                text: run.text[start - offset..end - offset].into(),
+                bold: run.bold,
+            });
+        }
+        offset += run.text.len();
     }
     out
 }
@@ -583,14 +635,17 @@ fn paginate(lines: &[Line]) -> Vec<Vec<Operation>> {
         }
         ops.push(Operation::new("BT", vec![]));
         ops.push(Operation::new(
-            "Tf",
-            vec![Object::Name(b"F1".to_vec()), Object::Real(line.size)],
-        ));
-        ops.push(Operation::new(
             "Td",
             vec![Object::Real(LEFT + line.indent), Object::Real(y)],
         ));
-        ops.push(Operation::new("Tj", vec![lit(&line.text)]));
+        for run in &line.runs {
+            let font = if run.bold { b"F2" } else { b"F1" };
+            ops.push(Operation::new(
+                "Tf",
+                vec![Object::Name(font.to_vec()), Object::Real(line.size)],
+            ));
+            ops.push(Operation::new("Tj", vec![lit(&run.text)]));
+        }
         ops.push(Operation::new("ET", vec![]));
     }
     if !ops.is_empty() {
@@ -624,6 +679,7 @@ mod tests {
                 organization: "SobralCybersec".to_string(),
                 location: "Remote".to_string(),
                 dates: "2020—2025".to_string(),
+                url: String::new(),
                 bullets: vec!["Led the automation cockpit rewrite.".to_string()],
             }],
             education: vec![CvEducationEntry {
@@ -684,6 +740,29 @@ mod tests {
             info.get(b"Author").unwrap().as_str().unwrap(),
             meta.author.as_bytes()
         );
+    }
+
+    #[test]
+    fn fallback_certificate_layout_omits_credential_id_and_date() {
+        let mut cv = sample();
+        cv.certificates.push(CvCertificate {
+            name: "Cloud Certificate".to_string(),
+            issuer: "Issuer".to_string(),
+            credential_id: "CERT-1".to_string(),
+            date: "2025".to_string(),
+            credential_url: String::new(),
+        });
+        let certificate_line = layout_lines(&cv)
+            .into_iter()
+            .map(|line| {
+                line.runs
+                    .into_iter()
+                    .map(|run| run.text)
+                    .collect::<String>()
+            })
+            .find(|text| text.contains("Cloud Certificate"))
+            .expect("certificate line");
+        assert_eq!(certificate_line, "Cloud Certificate - Issuer");
     }
 
     #[test]
@@ -770,7 +849,41 @@ mod tests {
     fn wrap_never_drops_words() {
         let text = "one two three four five six seven eight nine ten";
         let wrapped = wrap(text, 12);
-        let rejoined = wrapped.join(" ");
+        let rejoined = wrapped
+            .into_iter()
+            .map(|runs| runs.into_iter().map(|run| run.text).collect::<String>())
+            .collect::<Vec<_>>()
+            .join(" ");
         assert_eq!(rejoined, text);
+    }
+
+    #[test]
+    fn wrap_preserves_partial_word_bold_and_unicode() {
+        let wrapped = wrap("ação pre**fix**o **muito longo** fim", 8);
+        let text: Vec<String> = wrapped
+            .iter()
+            .map(|runs| runs.iter().map(|run| run.text.as_str()).collect())
+            .collect();
+        assert_eq!(text, ["ação", "prefixo", "muito", "longo", "fim"]);
+        assert_eq!(
+            wrapped[1],
+            vec![
+                Run {
+                    text: "pre".into(),
+                    bold: false
+                },
+                Run {
+                    text: "fix".into(),
+                    bold: true
+                },
+                Run {
+                    text: "o".into(),
+                    bold: false
+                },
+            ]
+        );
+        assert!(wrapped[2][0].bold);
+        assert!(wrapped[3][0].bold);
+        assert!(!wrapped[4][0].bold);
     }
 }

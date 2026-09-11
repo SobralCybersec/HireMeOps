@@ -1,0 +1,2 @@
+SUMMARY
+{"name":"Candidate","contact":{"email":"candidate\@example.com","website":"[https://example.com](https://example.com)"},"summary":"Design gráfico e direção de arte.","positions":["Designer"],"skills":[{"category":"Design","skills":"Figma"}],"experience":[{"title":"Designer","url":null,"bullets":["Criei peças."]}],"education":[{"degree":"Design Gráfico"}],"certificates":[{"name":"UX Criativo"}]}

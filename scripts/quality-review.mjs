@@ -42,6 +42,8 @@ function run(command, args) {
 async function runLizardWithLimits(limits) {
   const args = [
     ...sourcePaths,
+    "-x",
+    "scripts/strict-tests/*",
     "--CCN",
     "10",
     "--length",

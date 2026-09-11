@@ -1,0 +1,515 @@
+/* terax-ai design migration.
+ *
+ * Re-skins the whole app to terax-ai's look by REMAPPING our existing design tokens to terax's
+ * values — so every component (which reads the --color- / --font- / --radius- tokens) adopts the new
+ * style with no rewrite. Neutral graphite primary on a warm near-black, monospace UI (Share Tech Mono +
+ * JetBrains Mono), Space Grotesk display, measured corners, and a quiet panel background.
+ *
+ * Imported AFTER theme.css so these overrides win (same specificity, later cascade).
+ */
+
+/* Batman / WayneTech font map (LO spec):
+   Logo=Orbitron · Nav=Rajdhani · Titles=Roboto Condensed · Body/labels=Inter · Metrics=JetBrains Mono */
+:root {
+  --font-ui: "Rajdhani", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-title: "Roboto Condensed", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "IBM Plex Mono", monospace;
+  --font-data: var(--font-mono);
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --tx-primary: oklch(0.78 0 0);
+  --ember: oklch(0.78 0 0);
+  --ember-dim: oklch(0.34 0 0);
+  --tx-primary-8: color-mix(in oklab, var(--tx-primary) 8%, transparent);
+}
+
+/* Neutral graphite palette — applied to dark/unset only. */
+:root,
+[data-theme="dark"],
+html:not([data-theme]) {
+  --color-bg: oklch(0.12 0 0);
+  --color-surface: oklch(0.16 0 0);
+  --color-surface-2: oklch(0.2 0 0);
+  --color-surface-3: oklch(0.18 0 0);
+  --color-surface-hover: oklch(0.24 0 0);
+  --color-surface-raised: oklch(0.19 0 0);
+  --color-surface-sunken: oklch(0.1 0 0);
+
+  --color-border: oklch(0.3 0 0);
+  --color-border-strong: oklch(0.42 0 0);
+  --color-border-subtle: color-mix(in oklab, oklch(0.3 0 0) 70%, transparent);
+
+  --color-text: oklch(0.95 0 0);
+  --color-text-2: oklch(0.78 0 0);
+  --color-text-muted: oklch(0.58 0 0);
+  --color-text-inverse: oklch(0.12 0 0);
+
+  --color-accent: var(--tx-primary);
+  --color-accent-hover: oklch(0.86 0 0);
+  --color-accent-dim: var(--ember-dim);
+  --color-accent-text: oklch(0.95 0 0);
+
+  --color-danger: oklch(0.63 0.2 24);
+  --color-danger-hover: oklch(0.68 0.21 24);
+  --color-danger-dim: oklch(0.46 0.13 24);
+  --color-success: oklch(0.64 0.1 150);
+  --color-warning: oklch(0.76 0.12 70);
+  --color-info: oklch(0.72 0 0);
+}
+
+/* Body: Inter on a flat graphite background — no grid. */
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  background-image: none;
+}
+
+/* WayneTech titles: condensed, UPPERCASE, letter-spaced (Roboto Condensed via --font-title). */
+.page-title,
+.card__title,
+.cc-eyebrow,
+.cc-zone__title {
+  font-family: var(--font-title);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.page-title {
+  font-weight: 700;
+}
+/* Nav / sidebar labels in Rajdhani. */
+.topnav__link,
+.nav-label,
+.sidebar-label {
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+/* ============================ WayneTech panel language ============================ */
+/* Hairline-bordered panels with a faint top accent line, a section-marker tick before each title,
+   crisp corner brackets on hud-frames, and big mono metrics — adapted to OUR .card/.hud-frame. */
+
+.card,
+.stat-tile {
+  border-color: var(--color-border-subtle);
+  position: relative;
+}
+/* faint accent line along the top edge of every panel */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--color-accent), transparent 45%);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.card__header {
+  background: color-mix(in oklab, var(--color-surface-2) 65%, transparent);
+  border-bottom-color: var(--color-border-subtle);
+}
+/* section-marker tick before EVERY panel title (glowing accent bar), across the shared Card and the
+   bespoke CommandCenter / JobSearch panel headers. Uppercase condensed = WayneTech header style. */
+.card__title,
+.cc-zone__head h2,
+.cc-panel__head h2,
+.panel-header__title {
+  font-family: var(--font-title);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.card__title::before,
+.cc-zone__head h2::before,
+.cc-panel__head h2::before,
+.panel-header__title::before {
+  content: "";
+  width: 3px;
+  height: 0.85em;
+  flex: none;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--color-accent) 55%, transparent);
+}
+
+/* crisper WayneTech corner brackets on hud-frames */
+.hud-frame::before,
+.hud-frame::after {
+  width: 13px;
+  height: 13px;
+  opacity: 0.9;
+  border-color: var(--color-accent);
+}
+
+/* WayneTech CommandCenter zones/panels: sharpen the soft 20px radius, hairline border, faint top
+   accent line, and a single top-left corner bracket. */
+.cc-zone,
+.cc-panel {
+  border-radius: var(--radius-md);
+  border-color: var(--color-border-subtle);
+  position: relative;
+}
+.cc-zone::after,
+.cc-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--color-accent), transparent 45%);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.cc-zone::before,
+.cc-panel::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 12px;
+  height: 12px;
+  border-top: 1.5px solid var(--color-accent);
+  border-left: 1.5px solid var(--color-accent);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+/* interactive: panel "activates" on hover — accent glow + brighter corner bracket. */
+.cc-zone:hover {
+  box-shadow:
+    0 18px 44px rgb(0 0 0 / 0.34),
+    0 0 30px color-mix(in oklab, var(--color-accent) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-accent) 55%, var(--color-border));
+}
+.cc-zone:hover::before {
+  opacity: 1;
+}
+
+/* big mono metrics (WayneTech numbers) */
+.stat-tile__value,
+.stat-value,
+.metric-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* WayneTech status pill — mono, uppercase, subtle glow (e.g. "SYSTEM STATUS · ONLINE"). */
+.badge.badge--success,
+.status-online {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 8px color-mix(in oklab, var(--color-success) 45%, transparent);
+}
+
+/* WayneTech HUD status chip (app shell, bottom-left). */
+.hud-status {
+  position: fixed;
+  left: var(--sp-4);
+  bottom: var(--sp-3);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-surface) 65%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+.hud-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--color-success) 70%, transparent);
+  animation: hud-pulse 2.4s ease-in-out infinite;
+}
+.hud-status__on {
+  color: var(--color-success);
+  text-shadow: 0 0 8px color-mix(in oklab, var(--color-success) 45%, transparent);
+}
+@keyframes hud-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-status__dot {
+    animation: none;
+  }
+}
+
+/* Light mode keeps same graphite language. */
+[data-theme="light"] {
+  --color-bg: #f3f3f2;
+  --color-surface: #fafafa;
+  --color-surface-2: #ececea;
+  --color-surface-3: #e1e1df;
+  --color-surface-hover: #d8d8d6;
+  --color-surface-sunken: #e8e8e6;
+  --color-surface-raised: #ffffff;
+  --color-border: #cfcfcb;
+  --color-border-strong: #a8a8a4;
+  --color-border-subtle: #ddddda;
+  --color-text: #171716;
+  --color-text-2: #4a4a48;
+  --color-text-muted: #6b6b68;
+  --color-text-inverse: #f3f3f2;
+  --color-accent: #50504d;
+  --color-accent-dim: #e5e5e3;
+  --color-accent-text: #30302e;
+  --color-accent-hover: #333331;
+  --color-info: #5a5a57;
+  --status-queued-bg: #e8e8e6;
+  --status-queued-text: #5a5a57;
+  --status-running-bg: #e8e8e6;
+  --status-running-text: #4a4a48;
+  --status-paused-bg: #e8e8e6;
+  --status-paused-text: #5a5a57;
+  --status-neutral-bg: #e8e8e6;
+  --status-neutral-text: #5a5a57;
+}
+
+/* WayneTech scrollbars — thin, dark, accent on hover. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: 0;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  background-clip: padding-box;
+}
+
+/* Accent text selection. */
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 40%, transparent);
+  color: var(--color-text);
+}
+
+/* Responsive form rows — the 3/4-column facts grids only collapsed at <=720px, so between ~720-1000px
+   (e.g. a Wayland window ~965px wide) the fixed columns overflowed the right edge. auto-fit wraps them
+   before they overflow: as many columns as fit at >=200px each, then reflow to fewer rows. */
+.form-row--3,
+.form-row--4 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}
+/* Belt-and-braces: form controls never exceed their grid cell (some native selects/number inputs have
+   an intrinsic min-width that would otherwise push the cell wide). */
+.form-row > .field,
+.form-row .field__input,
+.form-row select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Button reset (Tailwind preflight is intentionally skipped, so <button> otherwise keeps WebKitGTK's
+   native beveled chrome — which made the tab + toolbar buttons look raised/3D instead of flat like
+   terax). Strips the native widget; `.btn` and utility classes keep their own look via specificity. */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Same for raw inputs — strip WebKitGTK's native inset field chrome so the address bar (and any
+   utility-styled input) renders flat. `.field__input` and other classed inputs keep their look via
+   specificity. */
+input,
+textarea,
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+}
+
+/* Buttons 1:1 with terax's shadcn Button: sharp corners, h-9 default (h-8 sm / h-10 lg), ghost has
+   no border, primary hover = primary/80, active nudges down 1px. Overrides theme.css's .btn. */
+/* Uniform 32px height for default AND sm so toolbars that mix them (e.g. a primary "Search all" next
+   to sm secondaries) line up evenly. sm/lg differ only in padding + font. box-sizing keeps the border
+   inside the height so bordered ghost buttons match filled ones exactly. */
+.btn {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  gap: 6px;
+  line-height: 1;
+}
+.btn--sm {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.btn--lg {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn--primary {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border-color: transparent;
+}
+.btn--primary:hover {
+  background: color-mix(in oklab, var(--color-accent) 80%, transparent);
+  border-color: transparent;
+}
+.btn--ghost {
+  background: transparent;
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-2);
+}
+.btn--ghost:hover {
+  background: var(--color-surface-3);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.glp-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 60px;
+  z-index: 60;
+  width: min(460px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  overflow: hidden;
+}
+.glp-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface);
+}
+.glp-panel__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #16c60c;
+  box-shadow: 0 0 8px #16c60c;
+  animation: glp-pulse 1.8s ease-in-out infinite;
+}
+.glp-panel__title {
+  font-family: var(--font-title);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text);
+}
+.glp-panel__close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.glp-panel__close:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-subtle);
+}
+.glp-panel__viewer {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* ── WayneTech tab treatment ──────────────────────────────────────────────── */
+/* The segmented .filter-tabs group (SettingsLogs / ApplicationsQueue) kept a plain
+   filled look. Give it the same condensed-uppercase header language as the panel
+   titles + an accent underline on the active segment (the "tab underline" motif the
+   .ws-tabs ink already carries), without breaking its segmented shape. */
+.filter-tab {
+  font-family: var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  position: relative;
+}
+.filter-tab.active::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--color-accent-text, var(--color-text-inverse));
+  opacity: 0.9;
+}
+
+/* ── WayneTech focus ring for RAW controls ───────────────────────────────────
+   The button reset strips WebKitGTK's native field chrome from every <input>/
+   <select>/<textarea>, but only .field__* controls got a replacement focus style —
+   so bare inputs (the embedded-browser address bar, ad-hoc inputs) had NO visible
+   focus at all. Accent ring on keyboard focus only (:focus-visible), so it never
+   double-draws over the .field__* box-shadow on mouse click. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ── Light-mode btn--primary contrast fixes ─────────────────────────────────── */
+[data-theme="light"] .btn--primary {
+  color: var(--color-text-inverse);
+}
+[data-theme="light"] .btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: transparent;
+}

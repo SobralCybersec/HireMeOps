@@ -1,0 +1,392 @@
+/* ---- Analysis: picker fields in the toolbar ------------------- */
+/* The Field wrapper's default vertical stack fights the toolbar's
+ * horizontal rhythm -- lay the label beside the control instead, and
+ * bound the picker width so long variant names don't push CTAs off. */
+.cvx-picker.field {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 1 260px;
+  min-width: 200px;
+}
+
+.cvx-picker .field__label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.cvx-picker .field__select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Analysis: score-bar strip -------------------------------- */
+.cvx-scorebars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ---- Analysis: run metadata line ------------------------------ */
+.cvx-runmeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.cvx-runmeta__k {
+  color: var(--color-text-muted);
+  margin-right: var(--sp-1);
+}
+
+.cvx-runmeta strong,
+.cvx-runmeta time {
+  color: var(--color-text-2);
+  font-weight: var(--fw-medium);
+}
+
+/* ---- Analysis: detail card grid ------------------------------- */
+.cvx-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--sp-4);
+}
+
+.cvx-list {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.cvx-list li {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+
+.cvx-list--ordered li {
+  padding-left: var(--sp-1);
+}
+
+.cvx-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* Model summary paragraph inside the Summary card. Long unbroken tokens (URLs,
+ * IDs) must wrap instead of forcing the card wider than its column. */
+.cvx-summary-text {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text-2);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Muted fallback shown in a detail card when its list is empty, so the card
+ * reads as "checked, nothing here" rather than an empty box. */
+.cvx-empty-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---- Viewer: responsive collapse ------------------------------ */
+/* The rail loses its point below ~900px (there's no room to see both it
+ * and the main column), and the meta side panel below ~720px. When
+ * collapsed, the Details toggle in the viewer chrome still works -- the
+ * panel just docks under the main column instead of beside it. */
+@media (max-width: 900px) {
+  .cvx-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .cvx-viewer__body {
+    flex-direction: column;
+  }
+  .cvx-meta {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    max-height: 40vh;
+  }
+  .cvx-viewer__title {
+    max-width: 180px;
+  }
+}
+
+/* ---- Analysis: CV summary strip ------------------------------- */
+.cvx-summary {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.cvx-summary__thumb {
+  width: 96px;
+  flex-shrink: 0;
+}
+
+.cvx-summary__facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.cvx-summary__name {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+
+.cvx-summary__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Inspector: extra-info + rewrite actions ------------------- */
+.cvx-inspector__extra {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+}
+.cvx-inspector__extra-label {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--color-text-muted);
+}
+.cvx-inspector__rewrite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* ---- Library: first-CV composer ------------------------------- */
+.cvx-first-cv {
+  margin-bottom: var(--sp-4);
+}
+
+.cvx-first-cv__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.cvx-first-cv__facts {
+  grid-column: 1;
+}
+
+.cvx-first-cv__side {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cvx-first-cv__checklist {
+  margin: 0;
+  padding-left: var(--sp-4);
+  color: var(--color-text-2);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.cvx-first-cv__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.cvx-first-cv__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 720px) {
+  .cvx-first-cv__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cvx-first-cv__facts,
+  .cvx-first-cv__side {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+/* ---- Before/after comparison overlay -------------------------- */
+.cvx-compare {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+.cvx-compare__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.cvx-compare__title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+.cvx-compare__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--color-border);
+}
+@media (max-width: 760px) {
+  .cvx-compare__body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}
+.cvx-compare__col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-bg);
+}
+.cvx-compare__col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: var(--text-xs);
+  color: var(--color-text-2);
+  flex-shrink: 0;
+}
+.cvx-compare__source {
+  margin: 0;
+  padding: var(--sp-4);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-2);
+}
+.cvx-compare__after {
+  padding: var(--sp-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.cvx-compare__block h4 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--color-accent-text);
+}
+.cvx-compare__block p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text-2);
+}
+.cvx-cover-letter-preview {
+  white-space: pre-wrap;
+}
+.cvx-compare__block ul {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.cvx-compare__block li {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+.cvx-compare__entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.cvx-compare__entry:first-of-type {
+  border-top: none;
+}
+.cvx-compare__entry strong {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+.cvx-compare__meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Magnifier loupe (in the expanded viewer) ------------------ */
+.cvx-viewer-loupe {
+  position: fixed;
+  z-index: var(--z-modal);
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  box-shadow:
+    var(--shadow-3),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.55);
+  background-color: #ffffff;
+  pointer-events: none;
+}
+
+/* CV export appearance controls — accent swatch + headshot URL (feeds accentColor/photoUrl). */
+.cv-export__appearance {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.cv-export__appearance .field__input[type="color"] {
+  inline-size: 34px;
+  block-size: 28px;
+  padding: 2px;
+  cursor: pointer;
+}
+.cv-export__appearance > .field__input[type="url"] {
+  flex: 1;
+  min-inline-size: 0;
+}
+.cv-export__letter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}

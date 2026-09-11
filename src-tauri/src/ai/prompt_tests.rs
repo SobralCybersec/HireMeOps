@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn rewrite_recovers_invalid_email_escape_before_deserialization() {
+    let raw = include_str!("../../tests/fixtures/summary-rewrite.txt");
+    let parsed = parse_cv_rewrite(raw);
+    assert_eq!(parsed.name, "Candidate");
+    assert_eq!(parsed.summary, "Design gráfico e direção de arte.");
+    assert_eq!(parsed.contact.email, "candidate@example.com");
+    assert_eq!(parsed.contact.website, "https://example.com");
+    assert_eq!(parsed.experience[0].url, "");
+    assert_eq!(parsed.education[0].degree, "Design Gráfico");
+    assert_eq!(parsed.certificates[0].name, "UX Criativo");
+
+    let stored = CvRewrite {
+        summary: raw.to_string(),
+        contact: CvContact {
+            github: "https://github.com/candidate".to_string(),
+            ..Default::default()
+        },
+        language: Language::En,
+        cover_letter: "Saved letter".to_string(),
+        accent_color: "123456".to_string(),
+        ..Default::default()
+    };
+    let recovered = stored.cleaned();
+    assert_eq!(recovered.name, parsed.name);
+    assert_eq!(recovered.summary, parsed.summary);
+    assert_eq!(recovered.language, Language::En);
+    assert_eq!(recovered.cover_letter, "Saved letter");
+    assert_eq!(recovered.accent_color, "123456");
+    assert_eq!(recovered.contact.github, "https://github.com/candidate");
+    assert_eq!(recovered.clone().cleaned(), recovered);
+
+    let structured = CvRewrite {
+        name: "Existing".into(),
+        summary: raw.into(),
+        ..Default::default()
+    };
+    assert_eq!(structured.cleaned().name, "Existing");
+}
+
+#[test]
+fn rewrite_keeps_json_escapes_and_plain_summaries() {
+    let parsed =
+        parse_cv_rewrite(r#"{"name":"Candidate","summary":"Line\n\"quote\" C:\\temp \\@ ação"}"#);
+    assert_eq!(parsed.summary, "Line\n\"quote\" C:\\temp \\@ ação");
+    let plain = parse_cv_rewrite("Designer with {creative} ideas.");
+    assert_eq!(plain.clone().cleaned(), plain);
+}
+
+#[test]
 fn parses_well_formed_cv_json() {
     let raw = r#"{"score": 82, "summary": "Strong backend CV.",
             "optimization_needed": true, "missing_keywords": ["Kubernetes"],
@@ -154,7 +203,7 @@ fn cv_prompt_includes_target_and_clips() {
 
 #[test]
 fn rewrite_prompt_supports_first_time_cv_context() {
-    assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v16");
+    assert_eq!(CV_REWRITE_PROMPT_VERSION, "cv-rewrite-v19");
     let p = cv_rewrite_prompt(
         "First CV",
         Some("Junior Backend Developer"),
@@ -196,6 +245,10 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     assert!(sys.contains("Do not require a 100% vacancy match"));
     assert!(sys.contains("untrusted source material"));
     assert!(sys.contains("certifications are explicitly present in the source"));
+    assert!(sys.contains("\\textbf{...}"));
+    assert!(sys.contains("escape the backslash"));
+    assert!(!sys.contains("\"credentialId\""));
+    assert!(!sys.contains("\"date\""));
     assert!(!sys.contains("AT LEAST 6 achievement bullets"));
     assert!(!sys.contains("AT LEAST 60% of bullets"));
     assert!(!sys.contains("DERIVE those numbers"));
@@ -215,6 +268,10 @@ fn rewrite_prompt_supports_first_time_cv_context() {
     assert!(sys_pt.contains("Não exija correspondência de 100% com a vaga"));
     assert!(sys_pt.contains("material de origem não confiável"));
     assert!(sys_pt.contains("certificações explicitamente"));
+    assert!(sys_pt.contains("\\textbf{...}"));
+    assert!(sys_pt.contains("escape a barra invertida"));
+    assert!(!sys_pt.contains("\"credentialId\""));
+    assert!(!sys_pt.contains("\"date\""));
     assert!(!sys_pt.contains("PELO MENOS 6 bullets"));
     assert!(!sys_pt.contains("PELO MENOS 60% dos bullets"));
     assert!(!sys_pt.contains("DERIVE esses números"));
@@ -250,6 +307,36 @@ fn parses_certificate_aliases_and_cleans_their_values() {
 }
 
 #[test]
+fn parses_null_urls_and_normalizes_legacy_bold_markers() {
+    let cv = parse_cv_rewrite(
+        r#"{"name":"Candidate","contact":{"email":"candidate\\@example.com"},
+            "summary":"Built \\textbf{reliable systems}.",
+            "experience":[{"title":"Engineer","url":null,"bullets":[]}],
+            "coverLetter":"I built \\textbf{reliable systems}."}"#,
+    );
+    assert_eq!(cv.contact.email, "candidate@example.com");
+    assert_eq!(cv.summary, "Built **reliable systems**.");
+    assert_eq!(cv.experience[0].url, "");
+    assert_eq!(cv.cover_letter, "I built **reliable systems**.");
+}
+
+#[test]
+fn parses_link_field_aliases_without_dropping_project_destinations() {
+    let cv = parse_cv_rewrite(
+        r#"{"contact":{"linkedIn":"https://linkedin.com/in/candidate",
+            "githubUrl":"https://github.com/candidate",
+            "gitlab_url":"https://gitlab.com/candidate",
+            "portfolioUrl":"https://www.behance.net/candidate"},
+            "experience":[{"title":"Project","project_url":"https://github.com/candidate/project"}]}"#,
+    );
+    assert_eq!(cv.contact.linkedin, "https://linkedin.com/in/candidate");
+    assert_eq!(cv.contact.github, "https://github.com/candidate");
+    assert_eq!(cv.contact.gitlab, "https://gitlab.com/candidate");
+    assert_eq!(cv.contact.website, "https://www.behance.net/candidate");
+    assert_eq!(cv.experience[0].url, "https://github.com/candidate/project");
+}
+
+#[test]
 fn cover_letter_prompt_and_parser_are_plain_text_friendly() {
     let cv = CvRewrite {
         name: "Jane Doe".to_string(),
@@ -259,6 +346,9 @@ fn cover_letter_prompt_and_parser_are_plain_text_friendly() {
     let prompt = cover_letter_prompt(&cv, None, Language::En);
     assert!(prompt.contains("TARGET ROLE: Backend Engineer"));
     assert!(prompt.contains("GENERATED CV JSON"));
+    assert_eq!(COVER_LETTER_PROMPT_VERSION, "cover-letter-v2");
+    assert!(cover_letter_system(Language::En).contains("\\textbf{...}"));
+    assert!(cover_letter_system(Language::Pt).contains("\\textbf{...}"));
     assert_eq!(
         parse_cover_letter("One paragraph.\n\nSecond paragraph."),
         "One paragraph.\n\nSecond paragraph."
@@ -267,6 +357,16 @@ fn cover_letter_prompt_and_parser_are_plain_text_friendly() {
         parse_cover_letter(r#"{"coverLetter":"From JSON."}"#),
         "From JSON."
     );
+}
+
+#[test]
+fn certificate_prompt_shape_omits_date_and_credential_id() {
+    for language in [Language::En, Language::Pt] {
+        let system = cv_rewrite_system(language);
+        assert!(system.contains("\"credentialUrl\""));
+        assert!(!system.contains("\"credentialId\""));
+        assert!(!system.contains("\"date\""));
+    }
 }
 
 #[test]
@@ -324,9 +424,13 @@ fn strips_web_search_research_artifacts() {
         strip_research_artifacts("10/2025\u{2011}10/2029"),
         "10/2025-10/2029"
     );
-    // Bold markdown is intentionally preserved (LaTeX renders it as \textbf).
+    // Bold markers use Markdown as shared frontend/LaTeX interchange format.
     assert_eq!(
         strip_research_artifacts("Foco em **Java e Rust** para backend."),
+        "Foco em **Java e Rust** para backend."
+    );
+    assert_eq!(
+        strip_research_artifacts(r"Foco em \textbf{Java e Rust} para backend."),
         "Foco em **Java e Rust** para backend."
     );
     // Clean text passes through untouched.

@@ -16,6 +16,7 @@
     "test": "npm run test:unit && npm run test:mjs",
     "test:unit": "vitest run",
     "test:mjs": "node --test scripts/*.node-test.mjs",
+    "test:strict-tests": "node --test scripts/strict-tests/*.node-test.mjs",
     "format": "prettier --write src scripts/check-file-size.mjs scripts/jscpd.mjs scripts/quality-review.mjs scripts/benchmark-changes.mjs scripts/benchmark-changes-metrics.mjs scripts/*.node-test.mjs",
     "format:check": "prettier --check src scripts/check-file-size.mjs scripts/jscpd.mjs scripts/quality-review.mjs scripts/benchmark-changes.mjs scripts/benchmark-changes-metrics.mjs scripts/*.node-test.mjs",
     "prepare:playwright": "node ./scripts/prepare-tauri-playwright-resources.mjs",
@@ -27,8 +28,9 @@
     "build:linux:portable": "bash scripts/build-linux.sh --tar",
     "build:windows": "bash scripts/build-windows.sh",
     "quality:review": "node scripts/quality-review.mjs",
-    "quality:strict": "node scripts/quality-review.mjs --strict",
-    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run quality:review"
+    "quality:strict-tests": "node scripts/strict-tests/quality-review.mjs --strict --require-tools",
+    "quality:strict": "npm run quality:strict-tests",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run test:strict-tests && npm run quality:review && npm run quality:strict-tests"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -28,7 +28,7 @@ use crate::util::now_iso;
 
 #[path = "cv_contact.rs"]
 mod cv_contact;
-use cv_contact::backfill_contact;
+use cv_contact::{backfill_contact, backfill_project_links};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,9 +165,10 @@ struct ImportRecord<'a> {
 }
 
 fn rewrite_report(row: RewriteDetailRow) -> CvRewriteReport {
-    let rewrite = serde_json::from_str::<CvRewrite>(&row.7).unwrap_or_default();
-    let metadata =
-        serde_json::from_str::<CvMetadata>(&row.8).unwrap_or_else(|_| rewrite.cv_metadata());
+    let rewrite = serde_json::from_str::<CvRewrite>(&row.7)
+        .map(CvRewrite::cleaned)
+        .unwrap_or_default();
+    let metadata = rewrite.cv_metadata();
     CvRewriteReport {
         id: row.0,
         cv_document_id: row.1,
@@ -485,6 +486,7 @@ impl CvServiceImpl {
         let mut rewrite = parse_cv_rewrite(&resp.text);
         rewrite.language = language;
         backfill_contact(candidate_context, &mut rewrite.contact);
+        backfill_project_links(candidate_context, &mut rewrite.experience);
         rewrite.cover_letter.clear();
         if !has_explicit_certificates(candidate_context, None) {
             rewrite.certificates.clear();
@@ -787,6 +789,7 @@ impl CvServiceImpl {
         let mut rewrite = parse_cv_rewrite(&resp.text);
         rewrite.language = options.language;
         backfill_contact(&document.parsed.text, &mut rewrite.contact);
+        backfill_project_links(&document.parsed.text, &mut rewrite.experience);
         rewrite.cover_letter.clear();
         if !has_explicit_certificates(&document.parsed.text, options.extra_context) {
             rewrite.certificates.clear();

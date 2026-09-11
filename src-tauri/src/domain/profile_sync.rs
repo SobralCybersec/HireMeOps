@@ -294,6 +294,7 @@ mod tests {
                 organization: "Acme".to_string(),
                 location: "Remote".to_string(),
                 dates: "2020–2025".to_string(),
+                url: String::new(),
                 bullets: vec![
                     "Led a team of five.".to_string(),
                     "Cut latency 40%.".to_string(),

@@ -84,6 +84,8 @@ export interface CvExperienceEntry {
   organization: string;
   location: string;
   dates: string;
+  /** Project destination; a valid link takes the location slot in the CV. */
+  url?: string;
   bullets: string[];
 }
 

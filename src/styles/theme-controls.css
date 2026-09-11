@@ -1,0 +1,647 @@
+/* ---- Tag input ------------------------------------------------ */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-height: 30px;
+  padding: 3px var(--sp-2);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  align-items: center;
+  transition: border-color var(--tx-fast);
+}
+
+.tag-list:focus-within {
+  border-color: var(--color-accent);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px 1px 7px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--text-sm);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+.tag-remove:hover {
+  color: var(--color-danger);
+}
+.tag-remove:focus-visible {
+  outline: 1px solid var(--color-accent);
+}
+
+.tag-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  min-width: 80px;
+  flex: 1;
+  padding: 0;
+}
+
+.tag-input::placeholder {
+  color: var(--color-text-2);
+}
+
+/* ---- Checkbox groups & custom-drawn checkbox / radio -----------
+   `appearance: none` strips the native glyph so we own every pixel:
+   uniform 16px box, tokenised border/hover/focus, dark+light parity,
+   and a real indeterminate dash (browsers' native one is invisible
+   against most palettes). Keyboard + AT semantics stay native - the
+   ring rides the input, not the label, so screen readers still hear
+   the checkbox as it moves through Tab order. */
+.check-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.check-group--stack {
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.check-label:has(input:disabled) {
+  cursor: not-allowed;
+  color: var(--color-text-muted);
+}
+
+.check-label input[type="checkbox"],
+.check-label input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  position: relative;
+  transition:
+    background-color var(--tx-fast),
+    border-color var(--tx-fast),
+    box-shadow var(--tx-fast);
+}
+
+.check-label input[type="checkbox"] {
+  border-radius: var(--radius-sm);
+}
+.check-label input[type="radio"] {
+  border-radius: 50%;
+}
+
+.check-label input[type="checkbox"]:hover:not(:disabled),
+.check-label input[type="radio"]:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+}
+
+.check-label input[type="checkbox"]:checked,
+.check-label input[type="checkbox"]:indeterminate,
+.check-label input[type="radio"]:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Checkmark: 10×10 SVG mask, currentColor drives the tick so it stays crisp
+   at any zoom and doesn't need a second color token. */
+.check-label input[type="checkbox"]:checked::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--color-text-inverse);
+  clip-path: polygon(14% 44%, 0% 60%, 40% 100%, 100% 22%, 84% 8%, 40% 68%);
+}
+
+/* Indeterminate: horizontal dash. Overrides :checked visuals if both fire. */
+.check-label input[type="checkbox"]:indeterminate::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-text-inverse);
+  clip-path: none;
+}
+
+.check-label input[type="radio"]:checked::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-inverse);
+}
+
+.check-label input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.check-label input:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.check-label input:disabled:checked,
+.check-label input:disabled:indeterminate {
+  background: var(--color-border-strong);
+  border-color: var(--color-border-strong);
+}
+
+/* ---- Form grid ------------------------------------------------ */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+}
+
+.field--full {
+  grid-column: 1 / -1;
+}
+
+/* ---- Locked settings (read-only rule display) ----------------- */
+.locked-settings {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.locked-settings__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.locked-settings__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+}
+
+.locked-settings__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.locked-settings__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Section group -------------------------------------------- */
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.section-title {
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ---- State display (AutomationCockpit) ------------------------ */
+.state-display {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.state-display__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.state-display__label {
+  font-size: var(--text-2xl);
+  font-weight: var(--fw-bold);
+  font-family: var(--font-display);
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.state-display__sub {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-family: var(--font-mono);
+  margin-top: var(--sp-1);
+}
+
+/* ---- Three-pane (JobSearch) ----------------------------------- */
+.three-pane {
+  display: grid;
+  grid-template-columns: 220px 1fr 290px;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+/* `display: grid` beats the UA [hidden] rule, so hide explicitly when the
+   calibration panel takes over (keeps the list DOM mounted underneath). */
+.three-pane[hidden] {
+  display: none;
+}
+
+.three-pane__panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.three-pane__panel + .three-pane__panel {
+  border-left: 1px solid var(--color-border);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  flex-shrink: 0;
+  /* Stay pinned while the panel body scrolls (the panel is the scroll box). */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.panel-header__title {
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* ---- Cockpit grid --------------------------------------------- */
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: var(--sp-4);
+  flex: 1;
+}
+
+/* ---- Settings layout ------------------------------------------ */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 172px 1fr;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex: 1;
+}
+
+.settings-sidebar {
+  border-right: 1px solid var(--color-border);
+  padding: var(--sp-2);
+  background: var(--color-surface);
+  overflow-y: auto;
+}
+
+.settings-tab-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
+}
+
+.settings-tab-btn:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.settings-tab-btn.active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  font-weight: var(--fw-medium);
+}
+.settings-tab-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.settings-content {
+  padding: var(--sp-5);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  background: var(--color-surface);
+}
+
+/* ---- CV card grid --------------------------------------------- */
+.cv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: var(--sp-4);
+}
+
+.cv-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  cursor: pointer;
+  transition: border-color var(--tx-fast);
+}
+
+.cv-card:hover {
+  border-color: var(--color-accent);
+}
+.cv-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.cv-card__preview {
+  aspect-ratio: 8.5 / 11;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  color: var(--color-text-muted);
+}
+
+.cv-card__name {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-card__meta {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* ---- Dashboard grid ------------------------------------------- */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--sp-4);
+}
+
+/* ---- Analysis grid -------------------------------------------- */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+}
+
+/* ---- Score bar ------------------------------------------------ */
+.score-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.score-bar-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-2);
+  /* 100px basis for column alignment when there's room; shrinks with ellipsis
+     on narrow layouts so the track is never crushed off-screen. */
+  flex: 0 1 100px;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-bar {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  background: var(--color-surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.score-bar__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+.score-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-2);
+  font-variant-numeric: tabular-nums;
+  width: 30px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ---- Empty state ---------------------------------------------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-10) var(--sp-6);
+  text-align: center;
+}
+
+.empty-state__label {
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.empty-state__title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-2);
+  margin: 0;
+}
+
+.empty-state__body {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  margin: 0;
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+/* ---- Danger zone ---------------------------------------------- */
+.danger-zone {
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  background: var(--color-danger-dim);
+}
+
+.danger-zone__title {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-danger);
+  margin: 0 0 var(--sp-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.danger-zone__body {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  margin: 0 0 var(--sp-3);
+}
+
+/* ---- Code inline ---------------------------------------------- */
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--color-text-2);
+}
+
+/* ---- Page placeholder (Phase 1 stub) -------------------------- */
+.page-placeholder {
+  padding: var(--sp-4);
+}
+
+.page-placeholder h1 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-xl);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+
+.page-note {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+  margin: 0 0 var(--sp-4);
+}
+
+.page-placeholder section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+}
+
+.page-placeholder h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.page-placeholder ul {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* ---- filter-tab count badge ----------------------------------- */
+.filter-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  background: var(--color-surface-3);
+  color: var(--color-text-muted);
+  transition:
+    background-color var(--tx-fast),
+    color var(--tx-fast);
+}
+.filter-tab.active .filter-tab__count {
+  background: color-mix(in srgb, var(--color-text-inverse) 20%, transparent);
+  color: var(--color-text-inverse);
+}
