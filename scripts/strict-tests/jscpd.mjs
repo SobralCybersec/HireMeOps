@@ -41,6 +41,7 @@ export const DEFAULT_IGNORES = [
   "**/*.lock",
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
+  "**/bun.lock",
   "**/yarn.lock",
 ];
 

@@ -115,7 +115,7 @@ Adjacent changes are included in the same worktree and are documented here. They
 | .gitignore | Adds local/generated challenge artifacts to ignore rules. | Keep unrelated generated files out of normal diffs. |
 | PROGRESS.md | Updates progress, completed work, evidence, known debt, and verification state. | Preserve execution history. |
 | package.json | Adds benchmark:changes; includes benchmark modules in formatting checks. | Make benchmark and formatting commands reproducible. |
-| pnpm-lock.yaml | Locks dependency graph updates. | Reproducible installs. |
+| bun.lock | Locks root dependency graph updates. | Reproducible Bun installs. |
 | automation/package.json | Updates Patchright from 1.61.1 to 1.62.1. | Keep automation/browser package current with bridge resources. |
 | src-tauri/Cargo.toml | Adds regex; changes release profile/runtime dependency configuration. | Strip citation artifacts and tune release/runtime behavior. |
 | src-tauri/Cargo.lock | Locks the Rust dependency graph. | Reproducible Rust builds. |

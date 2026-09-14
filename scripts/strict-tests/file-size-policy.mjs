@@ -205,6 +205,7 @@ export const DEFAULT_IGNORED_FILES = new Set([
   "bun.lockb",
   "package-lock.json",
   "pnpm-lock.yaml",
+  "bun.lock",
   "yarn.lock",
 ]);
 

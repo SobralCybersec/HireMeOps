@@ -12,7 +12,7 @@
 # to the host headed+Xvfb path once fonts/TZ/locale are coherent. That is the whole
 # point: coherence, not spoofing. See docs/AUTOMATION_UPGRADE_PLAN.md.
 #
-# Build:  npm run build:docker   (or: docker build -f docker/Dockerfile.worker -t hiremeops-worker:latest .)
+# Build:  bun run build:docker   (or: docker build -f docker/Dockerfile.worker -t hiremeops-worker:latest .)
 
 FROM mcr.microsoft.com/playwright:v1.62.1-noble
 # ^ Ubuntu 24.04; ships every Chromium shared-lib dep + Xvfb already. Pinned to
@@ -35,9 +35,9 @@ WORKDIR /app
 
 # Deps live at /app/node_modules (one level ABOVE the code at /app/automation), so
 # Node still resolves `patchright` for /app/automation/worker.js via upward lookup.
-# No package-lock.json in the repo → npm install, not npm ci.
-COPY automation/package.json ./package.json
-RUN npm install --omit=dev
+# Worker lockfile is isolated from root Bun dependencies.
+COPY automation/package.json automation/package-lock.json ./
+RUN npm ci --omit=dev
 
 # patchright's OWN patched Chromium (matches what worker.js launches: chromium, not
 # chrome). Lands in the pwuser cache, NOT node_modules.

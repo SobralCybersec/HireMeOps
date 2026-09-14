@@ -181,13 +181,14 @@ HireMeOps treats the job hunt like a running operation, not a one-off task. The 
 ```bash
 git clone https://github.com/SobralCybersec/HireMeOps.git
 cd HireMeOps
-pnpm install
+bun install
 ```
 
 ### Requirements
 
 - **Rust** (stable) + Cargo
-- **Node** 20+ and **pnpm**
+- **Bun** 1.3.11+ for root tasks and dependencies
+- **Node** 20+ only for the Patchright automation boundary and Node test scripts
 - **Linux system deps** (Tauri v2 / WebKitGTK):
   ```bash
   # Debian/Ubuntu
@@ -200,31 +201,54 @@ pnpm install
 
 ```bash
 # Full cockpit — real browser engine enabled
-pnpm app            # → tauri dev -f real-browser
+bun run app         # → tauri dev -f real-browser
 
 # Frontend only (fast; no Chromium/CDP compiled)
-pnpm dev            # → vite
+bun run dev         # → vite
 ```
 
-> The automation engine lives behind the `real-browser` Cargo feature. Every app run/build script already passes `-f real-browser`; `pnpm dev` builds the UI alone for fast iteration.
+> The automation engine lives behind the `real-browser` Cargo feature. Every app run/build script already passes `-f real-browser`; `bun run dev` builds the UI alone for fast iteration.
+
+### Shared job intelligence (optional)
+
+SQLite remains the default local-first source for settings, profiles, CV files,
+and existing desktop workflows. PostgreSQL 18 + pgvector is an opt-in shared
+store for job corpus, FTS, embeddings, search runs, and agent telemetry.
+
+```bash
+docker compose -f docker/compose.postgres.yml up -d
+HIREMEOPS_DATABASE_URL=postgres://hiremeops:hiremeops-dev-only@127.0.0.1:5432/hiremeops bun run app
+```
+
+The Rust backend runs PostgreSQL migrations on startup. Without the variable, no
+server is contacted. Failed shared-db startup is logged and the local app stays
+usable. `vector` is unconstrained until a real configured embedding model supplies
+its dimension; no HNSW index is created before a measured corpus benchmark.
+
+The Bun agent boundary lives under `agent/`; it is not imported by React. Run
+`bun run agent:typecheck` and `bun run agent:smoke`. Live Exa verification is
+opt-in: `EXA_MCP_SMOKE=1 EXA_API_KEY=... bun run agent:exa-smoke` (add
+`EXA_MCP_QUERY=...` to call advanced search). Exa uses Streamable HTTP,
+allowlisted search/fetch tools, and the `x-api-key` header from the process
+environment; API keys never enter the frontend bundle or persisted URL.
 
 ### Build (release)
 
 ```bash
 # Linux — .deb + .rpm + AppImage
-pnpm build:linux            # NO_STRIP=true tauri build -f real-browser
+bun run build:linux         # NO_STRIP=true tauri build -f real-browser
 
 # Linux — portable tarball
-pnpm build:linux:portable
+bun run build:linux:portable
 
 # Windows — cross-compiled from Linux (mingw) → portable .zip
-pnpm build:windows
+bun run build:windows
 ```
 
 ### Verify (the exact CI gates, locally)
 
 ```bash
-pnpm verify                 # typecheck · lint · format:check · test
+bun run verify              # typecheck · agent typecheck · lint · format:check · test
 # Rust side:
 cd src-tauri
 cargo fmt --all -- --check
@@ -252,10 +276,10 @@ The browser worker runs on the host by default. If you'd rather not install Node
 **Two image flavours — build whichever you want; both tag `hiremeops-worker:latest`, which the app looks for:**
 
 ```bash
-npm run build:docker        # noble — Playwright base image (most tested, larger)
-npm run build:docker:slim   # slim  — Debian bookworm + Chromium only (lighter)
+bun run build:docker        # noble — Playwright base image (most tested, larger)
+bun run build:docker:slim   # slim  — Debian bookworm + Chromium only (lighter)
 
-HIREMEOPS_USE_DOCKER=1 pnpm app   # launch with the container worker
+HIREMEOPS_USE_DOCKER=1 bun run app # launch with the container worker
 ```
 
 Or skip the build and **pull the CI-published image** from GHCR (the `docker-build-push` workflow builds, Trivy-scans, and publishes both variants on every push to the default branch):
@@ -263,7 +287,7 @@ Or skip the build and **pull the CI-published image** from GHCR (the `docker-bui
 ```bash
 docker pull ghcr.io/sobralcybersec/hiremeops-worker:slim
 docker tag  ghcr.io/sobralcybersec/hiremeops-worker:slim hiremeops-worker:latest  # the tag the app looks for
-HIREMEOPS_USE_DOCKER=1 pnpm app
+HIREMEOPS_USE_DOCKER=1 bun run app
 ```
 
 | Flavour | Base | Trade |
@@ -416,7 +440,7 @@ Eight workflows, every `uses:` **pinned to a commit SHA** (2026 supply-chain nor
 |---|---|---|
 | **`ci`** | push / PR | `rust` (fmt · clippy lean **and** all-features · test) · `frontend` (typecheck · lint · format · test) · `docker` (build both worker images + smoke) |
 | **`code-quality`** | push / PR (shell + CI paths) | `actionlint` + **`zizmor`** (Actions SAST) + `shellcheck` + `shfmt` on the shell scripts |
-| **`security`** | push / PR / weekly | `gitleaks` v3 · **`cargo-audit`** · **`cargo-deny`** (advisories + licenses + bans) · **OSV-Scanner** (pnpm + Cargo lockfiles) · license check |
+| **`security`** | push / PR / weekly | `gitleaks` v3 · **`cargo-audit`** · **`cargo-deny`** (advisories + licenses + bans) · **OSV-Scanner** (Bun + Cargo lockfiles) · license check |
 | **`codeql`** | push / PR / weekly | CodeQL SAST — `javascript-typescript` + `actions` (Rust deps covered by audit/deny/OSV) |
 | **`docker-build-push`** | push / PR | Build worker images (noble + slim) → **Trivy** scan (→ Security tab) → push to GHCR with provenance + SBOM |
 | **`release`** | semver tag | **tauri-action v1** native matrix (Linux `.deb`/`.rpm`/AppImage + Windows installers) → draft → SHA256SUMS + build provenance → publish |

@@ -11,7 +11,8 @@
 #     HireMeOps                 <- the binary (frontend embedded)
 #     automation/*.js           <- worker + human.js + site modules (no tests)
 #     resources/                <- LaTeX cvtex + vendored patchright bridge
-#     package.json, lock        <- so `npm ci` restores patchright for the worker
+#     automation/package.json, automation/package-lock <- so `npm ci` restores
+#     patchright for the worker
 #
 #   scripts/build-linux.sh          # build the binary
 #   scripts/build-linux.sh --tar    # build + pack dist/HireMeOps-linux64.tar.gz
@@ -26,12 +27,16 @@ command -v cargo >/dev/null || {
   echo "error: cargo not found"
   exit 1
 }
+command -v bun >/dev/null || {
+  echo "error: bun not found"
+  exit 1
+}
 
 echo "==> Building frontend (embedded into the binary)"
-npm run build
+bun run build
 
 echo "==> Vendoring patchright into resources (bridge runtime dep)"
-npm run prepare:playwright
+bun run prepare:playwright
 
 echo "==> Compiling native release binary"
 # NO_STRIP mirrors the AppImage fix (Arch's strip is too new); harmless elsewhere.
@@ -60,8 +65,8 @@ find automation -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec cp {} "$STAGE
 # bridge finds itself at <exe_dir>/resources/playwright-bridge (resolve_helper_dir).
 cp -r src-tauri/resources "$STAGE/resources"
 
-# Node dep manifest so the user restores patchright with one command.
-cp package.json package-lock.json "$STAGE/" 2>/dev/null || true
+# Node worker manifest so the user restores only the Patchright boundary.
+cp automation/package.json automation/package-lock.json "$STAGE/" 2>/dev/null || true
 
 cat >"$STAGE/README-LINUX.txt" <<'EOF'
 HireMeOps — portable Linux build (x86_64)

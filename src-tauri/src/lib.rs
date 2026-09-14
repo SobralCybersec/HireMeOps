@@ -24,6 +24,7 @@ use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub struct AppState {
     pub db: sqlx::SqlitePool,
+    pub shared_db: Option<sqlx::PgPool>,
     pub paths: storage::paths::AppPaths,
     pub emergency_stop: Arc<AtomicBool>,
     #[cfg(feature = "real-browser")]
@@ -37,6 +38,7 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     storage::db::run_migrations(&db).await?;
     storage::db::observe_wal(&db, &paths.db_path).await?;
     storage::settings::ensure_defaults(&db).await?;
+    let shared_db = storage::postgres::connect_from_env().await;
     // Restore the persisted Docker-worker opt-in into the process env that the
     // spawn gate (`browser::playwright::docker_worker_enabled`) reads.
     if storage::settings::docker_worker_opt_in(&db)
@@ -47,6 +49,7 @@ async fn init_state(app: &tauri::AppHandle) -> anyhow::Result<AppState> {
     }
     Ok(AppState {
         db,
+        shared_db,
         #[cfg(feature = "real-browser")]
         playwright: Arc::new(browser::playwright::PlaywrightDriver::new(&paths.data_dir)),
         paths,
@@ -197,6 +200,7 @@ macro_rules! app_invoke_handler {
             commands::jobs::ingest_job_post,
             commands::jobs::list_job_posts,
             commands::jobs::get_job_post,
+            commands::jobs::search_shared_job_posts,
             commands::jobs::update_job_status,
             commands::jobs::run_search,
             commands::jobs::optimize_job_search_index,

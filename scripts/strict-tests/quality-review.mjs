@@ -170,13 +170,13 @@ const QUALITY_TOOLS = [
   {
     key: "eslint",
     report: "eslint.txt",
-    command: "pnpm",
+    command: "bun",
     args: ["exec", "eslint", "src", "scripts", "--max-warnings", "0"],
   },
   {
     key: "typescript",
     report: "typescript.txt",
-    command: "pnpm",
+    command: "bun",
     args: ["exec", "tsc", "--noEmit"],
   },
 ];

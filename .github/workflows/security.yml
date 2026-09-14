@@ -5,7 +5,7 @@
 #   gitleaks      — secret / credential scanning (full history)
 #   rust-audit    — cargo-audit (RustSec advisory DB)
 #   cargo-deny    — advisories + license policy + bans + sources
-#   osv-scan      — OSV-Scanner over pnpm + Cargo lockfiles → SARIF
+#   osv-scan      — OSV-Scanner over Bun + Cargo lockfiles → SARIF
 #   license-check — MIT LICENSE present
 # Every `uses:` SHA-pinned; SHAs verified 2026-08-04. gitleaks-action is v3
 # (v2 runs on Node 20, which GitHub removes from runners 2026-09-16).
@@ -61,7 +61,7 @@ jobs:
           manifest-path: src-tauri/Cargo.toml
           command: check advisories bans licenses sources
 
-  # ── 3. OSV-Scanner — pnpm + Cargo lockfiles in one pass ────
+  # ── 3. OSV-Scanner — Bun + Cargo lockfiles in one pass ─────
   # The runnable action is the SUBDIRECTORY `osv-scanner-action` (the repo root
   # isn't a runnable action). Advisory (continue-on-error): the Cargo tree carries
   # unavoidable transitive advisories (gtk3/unic via Tauri's WebKitGTK backend, no
@@ -78,9 +78,10 @@ jobs:
       - continue-on-error: true
         uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
-          # automation/ has no lockfile → nothing to pin there yet.
+          # Scan both the Bun root and the isolated Node worker lockfile.
           scan-args: |-
-            --lockfile=./pnpm-lock.yaml
+            --lockfile=./bun.lock
+            --lockfile=./automation/package-lock.json
             --lockfile=./src-tauri/Cargo.lock
 
   # ── 5. License present ────────────────────────────────────

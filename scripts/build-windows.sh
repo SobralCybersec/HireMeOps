@@ -21,10 +21,14 @@ command -v x86_64-w64-mingw32-gcc >/dev/null || {
   echo "error: mingw-w64 not found (need x86_64-w64-mingw32-gcc)"
   exit 1
 }
+command -v bun >/dev/null || {
+  echo "error: bun not found"
+  exit 1
+}
 rustup target list --installed | grep -qx "$TARGET" || rustup target add "$TARGET"
 
 echo "==> Building frontend (embedded into the exe)"
-npm run build
+bun run build
 
 echo "==> Cross-compiling $TARGET (rlib-only for mingw)"
 cp "$CARGO" "$CARGO.winbak"
@@ -53,11 +57,11 @@ find automation -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec cp {} "$STAGE
 # Bundled runtime resources (LaTeX CV render + vendored patchright bridge).
 # Vendor patchright into resources/node_modules first so the AI bridge has its
 # runtime dep (mirrors build-linux.sh; harmless if already vendored).
-npm run prepare:playwright
+bun run prepare:playwright
 cp -r src-tauri/resources "$STAGE/resources"
 
-# Node dep manifest so the user restores patchright with one command on Windows.
-cp package.json package-lock.json "$STAGE/" 2>/dev/null || true
+# Node worker manifest so the user restores only the Patchright boundary.
+cp automation/package.json automation/package-lock.json "$STAGE/" 2>/dev/null || true
 
 cat >"$STAGE/README-WINDOWS.txt" <<'EOF'
 HireMeOps — portable Windows build (x86_64)

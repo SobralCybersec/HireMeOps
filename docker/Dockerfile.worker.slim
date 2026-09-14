@@ -9,7 +9,7 @@
 # support and Chromium won't launch there — so the lightest image that actually runs
 # a browser is slim glibc Debian, not Alpine.
 #
-# Build:  npm run build:docker:slim
+# Build:  bun run build:docker:slim
 #         (tags hiremeops-worker:latest — same tag the app looks for, so building
 #          either variant makes it the active worker; build the one you want.)
 
@@ -34,9 +34,10 @@ ENV LANG=pt_BR.UTF-8 LANGUAGE=pt_BR LC_ALL=pt_BR.UTF-8
 WORKDIR /app
 
 # Deps at /app/node_modules (one level above /app/automation) so Node still resolves
-# `patchright` for the worker via upward lookup. No lockfile → npm install.
-COPY automation/package.json ./package.json
-RUN npm install --omit=dev
+# `patchright` for the worker via upward lookup. Worker lockfile is isolated from
+# root Bun dependencies.
+COPY automation/package.json automation/package-lock.json ./
+RUN npm ci --omit=dev
 
 # Chromium ONLY (+ its apt deps). This is what keeps the image lighter than noble.
 RUN npx patchright install chromium --with-deps

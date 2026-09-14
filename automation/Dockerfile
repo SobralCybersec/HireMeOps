@@ -27,8 +27,8 @@ WORKDIR /app/automation
 
 # Install worker deps only (patchright); the browser download is skipped — we use system Chromium.
 # Build context is the automation/ dir (see docker-compose.yml), so paths are relative to it.
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY . ./
 RUN cp docker-entrypoint.sh /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh

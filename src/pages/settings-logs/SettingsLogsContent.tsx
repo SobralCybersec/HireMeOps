@@ -406,6 +406,21 @@ function BrowserAiProviderSection({ settings, updateSettings }: BrowserSettingsP
   );
 }
 
+function BrowserAiProviderRow({ settings, updateSettings }: BrowserSettingsProps) {
+  return (
+    <SettingRow
+      title="Auto-start AI provider on launch"
+      description="Warms up the ChatGPT browser session silently at startup so the first AI completion has no cold-start delay."
+    >
+      <Switch
+        checked={settings?.aiAutoInit ?? true}
+        onChange={(checked) => void updateSettings({ aiAutoInit: checked })}
+        aria-label="Auto-start AI provider on launch"
+      />
+    </SettingRow>
+  );
+}
+
 function BrowserExtensionsSection() {
   return (
     <div style={{ marginTop: "var(--sp-2)" }}>

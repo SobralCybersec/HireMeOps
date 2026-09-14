@@ -1,7 +1,7 @@
 # ============================================================
 # Dependabot — keeps deps current across every ecosystem in the repo.
 # MUST live at .github/dependabot.yml (GitHub ignores it under workflows/).
-# Ecosystems: cargo (Rust) · npm/pnpm (frontend + automation) · actions · docker.
+# Ecosystems: cargo (Rust) · npm/Bun (frontend + automation) · actions · docker.
 # Dependabot bumps SHA-pinned actions AND their `# vX` comment together, so
 # pinning and Dependabot are complementary, not in tension.
 # ============================================================
@@ -25,9 +25,7 @@ updates:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
 
-  # ── JS/TS: root (pnpm) + automation (npm), one entry via `directories` ──
-  # `npm` auto-detects pnpm-lock.yaml. `automation/` has only a package.json
-  # (no lockfile), so there Dependabot manages the manifest range only.
+  # ── JS/TS: root (Bun) + automation (npm), one entry via `directories` ──
   - package-ecosystem: "npm"
     directories:
       - "/"

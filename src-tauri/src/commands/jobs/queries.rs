@@ -12,6 +12,42 @@ const MAX_JOB_PAGE_SIZE: i64 = 200;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SharedJobSearchInput {
+    profile_id: Option<String>,
+    query: String,
+    location: Option<String>,
+    remote_mode: Option<String>,
+    company: Option<String>,
+    semantic_embedding: Option<String>,
+    limit: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn search_shared_job_posts(
+    state: State<'_, AppState>,
+    input: SharedJobSearchInput,
+) -> Result<Vec<crate::storage::postgres::SharedJobHit>, String> {
+    let Some(pool) = state.shared_db.as_ref() else {
+        return Err("shared PostgreSQL is not configured".to_owned());
+    };
+    crate::storage::postgres::search_shared_jobs(
+        pool,
+        crate::storage::postgres::SharedJobSearch {
+            profile_id: input.profile_id.as_deref(),
+            query: &input.query,
+            location: input.location.as_deref(),
+            remote_mode: input.remote_mode.as_deref(),
+            company: input.company.as_deref(),
+            semantic_embedding: input.semantic_embedding.as_deref(),
+            limit: input.limit.unwrap_or(DEFAULT_JOB_PAGE_SIZE),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListJobPostsInput {
     profile_id: String,
     status_filter: Option<String>,
