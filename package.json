@@ -36,7 +36,7 @@
     "verify": "bun run typecheck && bun run agent:typecheck && bun run lint && bun run format:check && bun run test && bun run test:strict-tests && bun run quality:review && bun run quality:strict-tests"
   },
   "dependencies": {
-    "@ai-sdk/mcp": "2.0.46",
+    "@ai-sdk/mcp": "2.0.48",
     "@base-ui/react": "^1.7.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource/calistoga": "^5.3.0",
@@ -60,7 +60,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.31.0",
-    "patchright": "1.62.1",
+    "patchright": "1.63.0",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
