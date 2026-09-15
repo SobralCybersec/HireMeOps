@@ -47,7 +47,7 @@ async fn review_contact(
     .await
     .ok()
     .flatten()
-    .map_or((None, None), |(name, link)| (name, link))
+    .unwrap_or((None, None))
 }
 
 fn count_outcome(summary: &mut QueueRunSummary, outcome: TaskOutcome) {

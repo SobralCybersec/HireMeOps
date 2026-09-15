@@ -19,6 +19,7 @@ fn service(state: &AppState) -> ProfileVariantServiceImpl {
     ProfileVariantServiceImpl::new(state.db.clone())
 }
 
+#[cfg(feature = "real-browser")]
 async fn load_variant(state: &AppState, variant_id: &str) -> Result<ProfileVariantDto, String> {
     service(state)
         .get(variant_id)
