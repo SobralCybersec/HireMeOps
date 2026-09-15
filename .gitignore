@@ -47,3 +47,4 @@ desafio.exe
 .gitignore
 funcs.dll
 exploit.py
+.env

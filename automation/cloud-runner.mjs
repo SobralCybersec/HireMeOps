@@ -27,15 +27,17 @@ export {
 } from "./cloud-runner-contract.mjs";
 
 const { Pool } = pg;
-function platformStatuses(reply) {
-  if (reply?.platform_status && typeof reply.platform_status === "object")
-    return reply.platform_status;
-  return Object.fromEntries(
-    Object.entries(reply?.status ?? {}).map(([platform, valid]) => [
-      platform,
-      valid ? "valid" : "login_required",
-    ]),
-  );
+export function platformStatuses(reply) {
+  const raw =
+    reply?.platform_status && typeof reply.platform_status === "object"
+      ? reply.platform_status
+      : Object.fromEntries(
+          Object.entries(reply?.status ?? {}).map(([platform, valid]) => [
+            platform,
+            valid ? "valid" : "login_required",
+          ]),
+        );
+  return Object.fromEntries(Object.entries(raw).filter(([platform]) => platform !== "infojobs"));
 }
 
 function targetStatus(statuses, platform) {

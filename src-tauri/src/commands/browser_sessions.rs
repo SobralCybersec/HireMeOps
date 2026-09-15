@@ -23,10 +23,16 @@ fn shared_db(state: &crate::AppState) -> Result<&sqlx::PgPool, String> {
 
 #[cfg(any(test, feature = "real-browser"))]
 fn platform_status(reply: &Map<String, Value>) -> Value {
-    reply
-        .get("platform_status")
-        .cloned()
-        .unwrap_or_else(|| json!({}))
+    let Some(status) = reply.get("platform_status").and_then(Value::as_object) else {
+        return json!({});
+    };
+    Value::Object(
+        status
+            .iter()
+            .filter(|(platform, _)| platform.as_str() != "infojobs")
+            .map(|(platform, value)| (platform.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 #[cfg(any(test, feature = "real-browser"))]
@@ -433,5 +439,18 @@ mod tests {
             "login_required"
         );
         assert_eq!(summarize_status(&json!({})), "unknown");
+    }
+
+    #[test]
+    fn session_bridge_ignores_infojobs_login_status() {
+        let reply = json!({
+            "platform_status": {
+                "linkedin": "valid",
+                "infojobs": "login_required"
+            }
+        });
+        let filtered = platform_status(reply.as_object().unwrap());
+        assert_eq!(filtered, json!({ "linkedin": "valid" }));
+        assert_eq!(summarize_status(&filtered), "valid");
     }
 }

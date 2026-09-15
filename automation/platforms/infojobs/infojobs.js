@@ -30,7 +30,7 @@ export async function infojobsPushProfile(page, profile = {}) {
     .catch(() => false);
   if (!alreadyOnForm) {
     await page
-      .goto(url || INFOJOBS_CV_URL, { waitUntil: "domcontentloaded", timeout: 30_000 })
+      .goto(INFOJOBS_CV_URL, { waitUntil: "domcontentloaded", timeout: 30_000 })
       .catch(() => {});
   }
   const loaded = await page

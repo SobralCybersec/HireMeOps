@@ -6,6 +6,7 @@ import {
   decryptSessionState,
   encryptSessionState,
   persistRefreshedState,
+  platformStatuses,
   runCloudJob,
   summarizePlatformStatus,
 } from "./cloud-runner.mjs";
@@ -45,6 +46,15 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(summarizePlatformStatus({ linkedin: "login_required" }), "login_required");
     assert.equal(summarizePlatformStatus({ linkedin: "challenged", catho: "valid" }), "challenged");
     assert.equal(summarizePlatformStatus({}), "unknown");
+  });
+
+  it("excludes InfoJobs login status from cloud session decisions", () => {
+    assert.deepEqual(
+      platformStatuses({
+        platform_status: { linkedin: "valid", infojobs: "login_required" },
+      }),
+      { linkedin: "valid" },
+    );
   });
 
   it("keeps memory diagnostics metadata-only", () => {

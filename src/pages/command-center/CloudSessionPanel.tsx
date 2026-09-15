@@ -8,7 +8,6 @@ const PLATFORMS = [
   ["indeed", "Indeed"],
   ["gupy", "Gupy"],
   ["catho", "Catho"],
-  ["infojobs", "InfoJobs"],
 ] as const;
 
 type LoginCheck = {
