@@ -11,7 +11,7 @@ import { useState } from "react";
 import { Download01Icon } from "@hugeicons/core-free-icons";
 import { Button, Icon, Input, Select } from "../../components/ui";
 import type { SelectOption } from "../../components/ui";
-import { errMessage, invokeStrict } from "../../lib/tauriInvoke";
+import { errMessage, invokeStrict } from "../../lib/tauri/tauriInvoke";
 import { saveCoverLetterPdf, saveCvRewritePdf, type CvExportMode } from "./rewrite";
 import type { CvRewriteReport } from "./types";
 

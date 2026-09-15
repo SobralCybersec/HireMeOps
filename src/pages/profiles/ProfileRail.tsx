@@ -1,4 +1,4 @@
-import type { Profile } from "../types/domain";
+import type { Profile } from "../../types/domain";
 
 export interface ProfileRailProps {
   profiles: Profile[];

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-/** Coarse live AI activity phase, fed by `ai.progress` events (lib/eventBridge.ts).
+/** Coarse live AI activity phase, fed by `ai.progress` events (lib/tauri/eventBridge.ts).
  *  "generating" while a completion is in flight; "ready"/"failed" when it lands. */
 export type AiPhase = "idle" | "generating" | "ready" | "failed";
 

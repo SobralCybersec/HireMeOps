@@ -1,4 +1,4 @@
-import { session } from "./worker-context.js";
+import { session } from "../../core/worker/worker-context.js";
 
 export async function cmdSearchJobs(config) {
   const { handle, keywords = "", location = "", page_index = 0, filters = {} } = config;

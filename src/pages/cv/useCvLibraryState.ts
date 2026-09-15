@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSettingsStore } from "../../stores/useSettingsStore";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
 import type { CvLanguage, CvLibraryDoc, CvRewriteReport, CvRewriteSummary } from "./types";
 
 function useCvDocumentState() {

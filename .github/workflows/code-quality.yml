@@ -28,7 +28,7 @@ permissions: {}
 
 # The three real shell scripts in this repo (no install.sh / lib/ here).
 env:
-  SHELL_FILES: "scripts/build-linux.sh scripts/build-windows.sh docker/entrypoint.sh"
+  SHELL_FILES: "scripts/build/build-linux.sh scripts/build/build-windows.sh docker/entrypoint.sh"
 
 jobs:
   # ── 1. Workflow syntax + embedded-shell linting ───────────

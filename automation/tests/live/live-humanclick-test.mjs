@@ -1,12 +1,12 @@
 // Live proof that humanClick travels via ShyMouse and activates a real (non-navigating) element —
 // the realistic apply-flow case (modal buttons/fields stay on-page). Uses a self-contained page so
 // there's no navigation fragility. Confirms: click registers + cursor actually moved.
-// Run:  node automation/live-humanclick-test.mjs
+// Run:  node automation/tests/live/live-humanclick-test.mjs
 import { chromium } from "patchright";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { humanClick, humanType } from "./human.js";
+import { humanClick, humanType } from "../../core/human/human.js";
 
 const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "hmo-hc-"));
 const log = (...a) => console.log("[hc]", ...a);

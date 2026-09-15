@@ -1,4 +1,4 @@
-import type { CvLibraryViewModel } from "../CvLibrary";
+import type { CvLibraryViewModel } from "./CvLibrary";
 import { useCvLibraryActions } from "./useCvLibraryActions";
 import { useCvLibraryData } from "./useCvLibraryData";
 import { useCvLibraryDerived } from "./useCvLibraryDerived";

@@ -1,6 +1,6 @@
 import type { JobFilters, SearchQueryDto } from "../../types/domain";
-import { errMessage } from "../../lib/tauriInvoke";
-import { workModelsFrom } from "../JobSearch.helpers";
+import { errMessage } from "../../lib/tauri/tauriInvoke";
+import { workModelsFrom } from "./JobSearch.helpers";
 import {
   runCathoSearch,
   runFreelas99Search,
@@ -12,7 +12,7 @@ import {
   runUpworkSearch,
   runGoogleSearch,
   runLinkedInPostsSearch,
-} from "../../stores/useJobStore";
+} from "../../stores/jobs/useJobStore";
 
 export type SearchPlatform =
   | "linkedin"

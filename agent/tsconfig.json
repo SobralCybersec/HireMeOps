@@ -12,5 +12,5 @@
     "noFallthroughCasesInSwitch": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["*.ts"]
+  "include": ["**/*.ts"]
 }

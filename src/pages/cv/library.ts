@@ -6,7 +6,7 @@
 // shaped as `CvLibraryDoc` (see `src-tauri/.../domain/cv.rs::CvDocumentSummary`,
 // serialized `camelCase`), so no field mapping is needed here.
 
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import { MOCK_LIBRARY } from "./mockData";
 import type { CvLibraryDoc } from "./types";
 

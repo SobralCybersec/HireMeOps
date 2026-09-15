@@ -3,7 +3,7 @@
 // preview raises an enlarged page peek (portal'd, so the grid never clips it).
 
 import { useCallback, useRef, useState } from "react";
-import { useReducedEffects } from "../../lib/effects";
+import { useReducedEffects } from "../../lib/animation/effects";
 import { getCachedPeek, renderCvPeek } from "./pdf";
 import { CvPreviewThumb } from "./CvPreviewThumb";
 import { CvCardDetails, CvCardPeek } from "./CvCardParts";

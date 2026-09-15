@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./app/router";
-import { useSettingsStore } from "./stores/useSettingsStore";
-import { useProfileStore } from "./stores/useProfileStore";
-import { startEventBridge, stopEventBridge } from "./lib/eventBridge";
+import { useSettingsStore } from "./stores/system/useSettingsStore";
+import { useProfileStore } from "./stores/profiles/useProfileStore";
+import { startEventBridge, stopEventBridge } from "./lib/tauri/eventBridge";
 import { seedDevState } from "./lib/devMocks";
 import "./App.css";
 

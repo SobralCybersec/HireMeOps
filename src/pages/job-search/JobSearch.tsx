@@ -1,11 +1,11 @@
 import { Cancel01Icon, PlayIcon } from "@hugeicons/core-free-icons";
-import type { JobMatchDto, JobPostDto, SearchQueryDto } from "../types/domain";
-import { ApplicationDraftModal } from "../components/ApplicationDraftModal";
-import { JobCalibrationPanel } from "./jobsearch/JobCalibrationPanel";
-import { type SearchPlatform } from "./jobsearch/search-runners";
-import { JobDetailPane, type JobDetailModel } from "./jobsearch/JobDetailPane";
-import { JobResultsPane, type JobResultsModel } from "./jobsearch/JobResultsPane";
-import type { ContactFilter, FilterStatus, WorkModeFilter } from "./jobsearch/job-search-types";
+import type { JobMatchDto, JobPostDto, SearchQueryDto } from "../../types/domain";
+import { ApplicationDraftModal } from "../applications/ApplicationDraftModal";
+import { JobCalibrationPanel } from "./JobCalibrationPanel";
+import { type SearchPlatform } from "./search-runners";
+import { JobDetailPane, type JobDetailModel } from "./JobDetailPane";
+import { JobResultsPane, type JobResultsModel } from "./JobResultsPane";
+import type { ContactFilter, FilterStatus, WorkModeFilter } from "./job-search-types";
 import {
   Button,
   Checkbox,
@@ -18,7 +18,7 @@ import {
   Toolbar,
   ToolbarSep,
   ToolbarSpacer,
-} from "../components/ui";
+} from "../../components/ui";
 import "./JobSearch.css";
 
 const STATUS_OPTIONS = [
@@ -31,7 +31,7 @@ const STATUS_OPTIONS = [
   { value: "failed", label: "Failed" },
 ];
 
-import { useJobSearchController } from "./jobsearch/useJobSearchController";
+import { useJobSearchController } from "./useJobSearchController";
 
 const CONTACT_OPTIONS = [
   { value: "all", label: "Any" },

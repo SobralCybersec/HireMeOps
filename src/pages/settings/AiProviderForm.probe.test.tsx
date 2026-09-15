@@ -2,13 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiProviderForm } from "./AiProviderForm";
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { AiProviderSettings } from "../../types/settings";
 
 // Mock the Tauri IPC boundary - the "Test provider" button fires a real
 // end-to-end reachability probe via invokeStrict("test_provider", ...). We never
 // hit a backend; we assert the command + args and how the result is reflected.
-vi.mock("../../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   invokeStrict: vi.fn(),
   safeInvoke: vi.fn(),
   errMessage: (e: unknown): string =>

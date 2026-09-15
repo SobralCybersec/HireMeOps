@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type MutableRefObject, type RefObject } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { PreviewFrame } from "../types/preview";
+import type { PreviewFrame } from "../../types/preview";
 
 export const EMBEDDED_BROWSER_HOME = "https://duckduckgo.com/";
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

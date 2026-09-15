@@ -1,6 +1,6 @@
 import React from "react";
-import { renderInlineBold } from "../cv/markdown";
-import type { CvEducationEntry, CvExperienceEntry } from "../../types/domain";
+import { renderInlineBold } from "../../cv/markdown";
+import type { CvEducationEntry, CvExperienceEntry } from "../../../types/domain";
 
 function EntryCard({
   title,

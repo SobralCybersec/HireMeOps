@@ -1,4 +1,4 @@
-import type { JobSearchPanesModel, JobSearchViewModel, SearchFiltersModel } from "../JobSearch";
+import type { JobSearchPanesModel, JobSearchViewModel, SearchFiltersModel } from "./JobSearch";
 import type { JobSearchState } from "./useJobSearchState";
 import type { useJobSearchData } from "./useJobSearchData";
 import type { useJobSearchDerived } from "./useJobSearchDerived";

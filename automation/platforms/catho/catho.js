@@ -11,7 +11,7 @@ import {
   cathoDegreeValue,
   cathoBulletList,
 } from "./catho-helpers.js";
-import { perfEnabled, nowMs, logSpan } from "./perf.js";
+import { perfEnabled, nowMs, logSpan } from "../../core/worker/perf.js";
 
 const CATHO_CURRICULO = "https://www.catho.com.br/curriculo/";
 const CATHO_LOGIN_RE = /\/(login|acesso|entrar|autenticacao)|account\.catho|auth\.catho/i;

@@ -1,6 +1,6 @@
 import type { JobMatchDto, JobPostDto } from "../../types/domain";
-import { safeInvoke, errMessage } from "../../lib/tauriInvoke";
-import { extractAssunto, extractPhone } from "../JobSearch.helpers";
+import { safeInvoke, errMessage } from "../../lib/tauri/tauriInvoke";
+import { extractAssunto, extractPhone } from "./JobSearch.helpers";
 import {
   runGmailApply,
   cathoApply,
@@ -8,8 +8,8 @@ import {
   startIndeedApply,
   confirmIndeedSubmit,
   rejectIndeedSubmit,
-} from "../../stores/useJobStore";
-import { useAutomationStore } from "../../stores/useAutomationStore";
+} from "../../stores/jobs/useJobStore";
+import { useAutomationStore } from "../../stores/automation/useAutomationStore";
 import {
   Badge,
   Button,

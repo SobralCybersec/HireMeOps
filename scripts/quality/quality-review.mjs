@@ -10,7 +10,7 @@ import {
 } from "./check-file-size.mjs";
 import { DEFAULT_IGNORES, DEFAULT_MIN_LINES, DEFAULT_THRESHOLD, runJscpd } from "./jscpd.mjs";
 
-const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const reportRoot = resolve(repoRoot, "reports/quality");
 const sourcePaths = ["src", "scripts", "automation", "src-tauri/src"];
 const LIZARD_REVIEW = { length: 50, arguments: 4 };
@@ -43,7 +43,7 @@ async function runLizardWithLimits(limits) {
   const args = [
     ...sourcePaths,
     "-x",
-    "scripts/strict-tests/*",
+    "scripts/quality/strict-tests/*",
     "--CCN",
     "10",
     "--length",

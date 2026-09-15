@@ -3,15 +3,15 @@
 # Cross-compile HireMeOps for Windows (x86_64) from Linux and, with --zip, pack
 # a portable distribution of ONLY the necessary files.
 #
-#   scripts/build-windows.sh          # build the .exe
-#   scripts/build-windows.sh --zip    # build + pack dist/HireMeOps-win64.zip
+#   scripts/build/build-windows.sh          # build the .exe
+#   scripts/build/build-windows.sh --zip    # build + pack dist/HireMeOps-win64.zip
 #
 # Why the crate-type swap: mingw's linker overflows on the mobile-only
 # cdylib/staticlib exports ("export ordinal too large"). Desktop only needs the
 # rlib + bin, so we temporarily drop them and restore on exit.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 TARGET="x86_64-pc-windows-gnu"
 CARGO="src-tauri/Cargo.toml"
@@ -50,9 +50,9 @@ mkdir -p "$STAGE"
 cp "$REL/hiremeops.exe" "$STAGE/HireMeOps.exe"
 cp "$REL/WebView2Loader.dll" "$STAGE/" 2>/dev/null || true
 
-# Automation worker (js only — no tests, captures, or node_modules).
+# Automation worker tree (js only — no tests, captures, or node_modules).
 mkdir -p "$STAGE/automation"
-find automation -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec cp {} "$STAGE/automation/" \;
+find automation -type f -name '*.js' ! -name '*.test.js' -exec cp --parents {} "$STAGE" \;
 
 # Bundled runtime resources (LaTeX CV render + vendored patchright bridge).
 # Vendor patchright into resources/node_modules first so the AI bridge has its

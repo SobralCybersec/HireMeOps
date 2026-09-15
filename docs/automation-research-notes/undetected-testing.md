@@ -129,7 +129,7 @@ Read: the repo being maintained through 2026-07 with these live targets is itsel
 
 **Techniques to port into HireMeOps (you already have patchright = the CDP engine):**
 1. **Never override user-agent** — confirmed by the total absence of UA spoofing here; matches your `indeed-cloudflare-ua` memory. Coherence > spoofing.
-2. **Real-input CAPTCHA click, not JS click.** The whole repo's captcha defeat = OS-level mouse/keyboard (PyAutoGUI). Your `antibot-strategy-2026` memory already identifies CDP-input behavior as the only real gap — this repo confirms the fix is *genuine* `Input.dispatchMouseEvent` at real coordinates with human pacing, which is exactly your planned `automation/human.js`. That is the single highest-value technique to trust.
+2. **Real-input CAPTCHA click, not JS click.** The whole repo's captcha defeat = OS-level mouse/keyboard (PyAutoGUI). Your `antibot-strategy-2026` memory already identifies CDP-input behavior as the only real gap — this repo confirms the fix is *genuine* `Input.dispatchMouseEvent` at real coordinates with human pacing, which is exactly your planned `automation/core/human/human.js`. That is the single highest-value technique to trust.
 3. **Coordinate fallback** (`uc_gui_click_x_y` + saved widget x/y) for when the Turnstile checkbox lives in a closed iframe/shadow root you can't select — worth replicating for LinkedIn/Indeed edge cases.
 4. **Virtual display over headless.** If you ever run HireMeOps automation headless/in CI, use Xvfb (`visible=0`) not `--headless`, or the real-input clicks stop working. Aligns with your `focus-safe-automation` "keep windows visible" approach.
 5. **guest/incognito + correct locale** as cheap coherence wins.

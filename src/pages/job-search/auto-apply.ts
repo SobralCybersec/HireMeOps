@@ -6,8 +6,8 @@ import {
   infojobsApply,
   startIndeedApply,
   submitApplication,
-} from "../../stores/useJobStore";
-import { useAutomationStore } from "../../stores/useAutomationStore";
+} from "../../stores/jobs/useJobStore";
+import { useAutomationStore } from "../../stores/automation/useAutomationStore";
 
 interface AutoApplyContext {
   profileId: string;

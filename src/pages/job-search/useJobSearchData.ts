@@ -1,8 +1,8 @@
-import { useJobStore } from "../../stores/useJobStore";
-import { useJobFiltersStore } from "../../stores/useJobFiltersStore";
-import { useSearchQueryStore } from "../../stores/useSearchQueryStore";
-import { useProfileStore } from "../../stores/useProfileStore";
-import { useJobPreferencesStore } from "../../stores/useJobPreferencesStore";
+import { useJobStore } from "../../stores/jobs/useJobStore";
+import { useJobFiltersStore } from "../../stores/jobs/useJobFiltersStore";
+import { useSearchQueryStore } from "../../stores/jobs/useSearchQueryStore";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
+import { useJobPreferencesStore } from "../../stores/jobs/useJobPreferencesStore";
 import { useJobSearchEffects } from "./useJobSearchEffects";
 import type { JobSearchState } from "./useJobSearchState";
 

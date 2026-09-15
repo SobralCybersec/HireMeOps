@@ -1,10 +1,10 @@
 import { create } from "zustand";
-import type { AppEvent } from "../types/events";
+import type { AppEvent } from "../../types/events";
 
 const MAX_EVENTS = 200;
 
 /**
- * Health of the live event channel subscription (lib/eventBridge.ts):
+ * Health of the live event channel subscription (lib/tauri/eventBridge.ts):
  *  - "connecting": attempting to subscribe (initial or during backoff retry)
  *  - "live":       subscribed; events are flowing
  *  - "error":      subscription failed and retries are exhausted
@@ -21,7 +21,7 @@ interface EventStoreState {
 
 /**
  * Rolling buffer of live automation/job/CV/application events, fed by
- * lib/eventBridge.ts. The AppLayout event log drawer shows the most recent
+ * lib/tauri/eventBridge.ts. The AppLayout event log drawer shows the most recent
  * ~20; this store keeps a slightly larger buffer for future scrollback.
  */
 export const useEventStore = create<EventStoreState>((set) => ({

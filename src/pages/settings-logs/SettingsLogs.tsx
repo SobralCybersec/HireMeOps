@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { useSettingsStore } from "../stores/useSettingsStore";
-import { useThemeStore } from "../stores/useThemeStore";
-import { Icon } from "../components/ui";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
+import { useThemeStore } from "../../stores/ui/useThemeStore";
+import { Icon } from "../../components/ui";
 import { Settings01Icon } from "@hugeicons/core-free-icons";
-import { errMessage, invokeStrict } from "../lib/tauriInvoke";
-import { SettingsLogsContent } from "./settings-logs/SettingsLogsContent";
-import { SettingsLogsNavigation, type Tab } from "./settings-logs/SettingsLogsNavigation";
-import type { ExportKey } from "./settings-logs/SettingsLogsExports";
+import { errMessage, invokeStrict } from "../../lib/tauri/tauriInvoke";
+import { SettingsLogsContent } from "./SettingsLogsContent";
+import { SettingsLogsNavigation, type Tab } from "./SettingsLogsNavigation";
+import type { ExportKey } from "./SettingsLogsExports";
 
 function downloadString(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });

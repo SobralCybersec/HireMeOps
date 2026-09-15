@@ -77,15 +77,15 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
   CDP-native click. OS-input escape hatch, IF ever needed, = **nut.js/robotjs (Node), never Python**.
 
 ## ✅ CORRECTED current state (read the real files — more built than memory implied)
-- `automation/human.js` (mature): Bézier mouse w/ overshoot, Fitts timing, Gaussian dwell/flight
+- `automation/core/human/human.js` (mature): Bézier mouse w/ overshoot, Fitts timing, Gaussian dwell/flight
   typing w/ typos+backspace, log-normal think-time, LinkedIn-SDUI click escape (focus+Enter for
   trusted activation), self-check via `node human.js`. This IS our humanized CDP input layer — it
   already exists; memory antibot-strategy-2026 "build human.js" is DONE.
-- `automation/captcha.js` (exists, gated by HIREMEOPS_AUTO_CAPTCHA): CF interstitial wait,
+- `automation/core/captcha/captcha.js` (exists, gated by HIREMEOPS_AUTO_CAPTCHA): CF interstitial wait,
   Turnstile humanize+WAIT (no click), reCAPTCHA-v2 frameLocator `#recaptcha-anchor` click, human
   fallback. **GAP: does NOT import human.js** — uses crude `page.mouse.move` + bare `anchor.click()`.
   No Turnstile checkbox click, no hCaptcha/DataDome, no selector fallback tables.
-- `automation/capture.js` (solid): writes html/json/png/**mhtml** bundles, prunes to 40, aria
+- `automation/core/capture/capture.js` (solid): writes html/json/png/**mhtml** bundles, prunes to 40, aria
   snapshot, network ring, visible-error scrape. **MHTML via `Page.captureSnapshot` ALREADY DONE**
   (capture.js:184) → the "borrow MHTML from zendriver" item is already shipped. **GAP: no PDF.**
 - `automation/worker.js` (102KB) = the script the Rust driver spawns (`locate_worker_script`,
@@ -93,7 +93,7 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
 
 ## 🎯 IMPLEMENTATION ROADMAP (ordered by value/effort)
 
-### Phase 1 — Captcha hardening (highest value, small diff) [automation/captcha.js]
+### Phase 1 — Captcha hardening (highest value, small diff) [automation/core/captcha/captcha.js]
 1. Route ALL captcha interaction through `human.js` (`humanClick` on reCAPTCHA anchor; replace the
    crude `humanize()` mouse loop with `humanMove`/`thinkTime`).
 2. ADD Turnstile checkbox click: locate the CF Turnstile iframe/shadow-DOM checkbox and humanClick
@@ -106,7 +106,7 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
    Test: extend the existing self-check pattern; assert selector tables resolve on saved captures.
 
 ### Phase 2 — Evidence PDF + wake the Evidence Viewer
-6. `automation/capture.js`: add `capturePdf()` sibling to `captureMhtml()` using
+6. `automation/core/capture/capture.js`: add `capturePdf()` sibling to `captureMhtml()` using
    `newCDPSession().send("Page.printToPDF", {...})` (proven headful via SeleniumBase). Write
    `{base}.pdf` into the bundle; prune regex already covers extensions — extend to `|pdf`.
 7. Wake the Evidence Viewer: `screencast.rs` currently screencasts a THROWAWAY browser. Re-point it
@@ -254,7 +254,7 @@ Source: patchright-nodejs (README + codemod source).
   Runtime.enable). (b) every `page.evaluate` that needs main-world globals must pass
   `isolatedContext:false` or it silently runs in the isolated world.
 - **Residual gap = input.** Playwright mouse/keyboard are CDP-based and detectable (Brotector).
-  Fix = CDP-Patches lib OR our own `automation/human.js` (memory: antibot-strategy-2026). 📌
+  Fix = CDP-Patches lib OR our own `automation/core/human/human.js` (memory: antibot-strategy-2026). 📌
   highest-value hardening.
 
 ### 📌 DECIDED — PDF/print: do NOT use patchright page.pdf()
@@ -283,7 +283,7 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
 - No Docker, no headless — **Xvfb virtual display** (real-mouse needs a display).
 - ⚠️ **No LinkedIn tested anywhere** → treat LinkedIn Turnstile as best-effort. PerimeterX
   (Walmart) flaky/commented out.
-- Confirms: build `automation/human.js` real-input (CDP `Input.dispatchMouseEvent` humanized),
+- Confirms: build `automation/core/human/human.js` real-input (CDP `Input.dispatchMouseEvent` humanized),
   keep UA untouched, never headless, and **rate-discipline is the real ban vector** (repo silent
   on it — it's on us; matches memory antibot-strategy-2026).
 
@@ -314,14 +314,14 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
 
 ## 🔨 BUILD STATUS (2026-08-03)
 - ✅ **Phase 1 — captcha hardening + ShyMouse** (SHIPPED, unit-verified, 101/101 automation tests pass)
-  - NEW `automation/shy-mouse.js` — coordinate-level humanized mouse (Fitts timing, Bézier +
+  - NEW `automation/core/human/shy-mouse.js` — coordinate-level humanized mouse (Fitts timing, Bézier +
     overshoot, fatigue, jerk-smoothing, 60–144Hz polling sim); ESM + added `clickAtPoint(x,y)`.
     Motion via patchright `page.mouse.*` → CDP Input (real pointer never moves).
-  - REWROTE `automation/captcha.js`: now CLICKS the Turnstile/reCAPTCHA/hCaptcha checkbox by
+  - REWROTE `automation/core/captcha/captcha.js`: now CLICKS the Turnstile/reCAPTCHA/hCaptcha checkbox by
     coordinate (outer-widget box + SeleniumBase offset; inner iframe is cross-origin) via ShyMouse
     instead of only waiting. Ported SeleniumBase selector fallback tables + offsets (CF +28/+30,
     RC +29/+33, hC +30/+38). Added hCaptcha branch. Keyless-first; human fallback on real challenge.
-  - NEW `automation/shy-mouse.test.js`.
+  - NEW `automation/core/human/shy-mouse.test.js`.
 - ✅ **Phase 1b — full keyless captcha coverage** (SHIPPED, live-verified): expanded `captcha.js` to
   match SeleniumBase's `solve_captcha` keyless set — CF Turnstile (bigger selector chain + left-align
   normalization), reCAPTCHA v2 (+ invisible-badge skip), hCaptcha/Incapsula, Friendly, and DataDome
@@ -337,7 +337,7 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
   ⚠️ observed pre-existing gap (not introduced): humanClick's final `el.click()` escape has no catch,
   so a click that triggers full navigation can throw — harmless for apply flows (modal buttons don't
   navigate) but worth a one-line guard later.
-- ✅ **Phase 2 (PDF/print)** (SHIPPED): `automation/capture.js` `capturePdf()` via CDP
+- ✅ **Phase 2 (PDF/print)** (SHIPPED): `automation/core/capture/capture.js` `capturePdf()` via CDP
   `Page.printToPDF` (Page domain only, no Runtime.enable leak; headful-proven). PDF in bundle + prune.
 - ✅ **CDP audit**: input = patchright `page.mouse/keyboard` → CDP Input; MHTML/PDF/screens =
   `newCDPSession` Page domain; no raw `Runtime.enable`; launch = persistentContext + channel:chrome +

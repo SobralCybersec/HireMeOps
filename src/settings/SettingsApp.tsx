@@ -6,10 +6,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Settings01Icon } from "@hugeicons/core-free-icons";
 
 import { cn } from "@/lib/utils";
-import { useSettingsStore } from "@/stores/useSettingsStore";
-import { useThemeStore } from "@/stores/useThemeStore";
+import { useSettingsStore } from "@/stores/system/useSettingsStore";
+import { useThemeStore } from "@/stores/ui/useThemeStore";
 import type { DockerStatus } from "@/types/domain";
-import { errMessage, invokeStrict, safeInvoke } from "@/lib/tauriInvoke";
+import { errMessage, invokeStrict, safeInvoke } from "@/lib/tauri/tauriInvoke";
 import { WindowControls } from "./WindowControls";
 import { SettingsNav } from "./SettingsNav";
 import { isSettingsTab, readInitialTab, type SettingsTab } from "./settingsTabModel";

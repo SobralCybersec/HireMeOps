@@ -31,7 +31,7 @@ export { evaluateQualityGate, POLICY } from "./quality-policy.mjs";
 import { parseLizardFindings, writeQualityReport } from "./quality-report.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../..");
+export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../../..");
 export const DEFAULT_QUALITY_PATHS = ["src"];
 
 function positiveInteger(value, name) {

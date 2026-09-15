@@ -1,10 +1,10 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useEventStore } from "../stores/useEventStore";
-import { useAutomationStore } from "../stores/useAutomationStore";
-import { useJobStore } from "../stores/useJobStore";
-import { useAiStatusStore, type AiPhase } from "../stores/useAiStatusStore";
-import type { AppEvent } from "../types/events";
-import type { AutomationState, JobPostDto } from "../types/domain";
+import { useEventStore } from "../../stores/system/useEventStore";
+import { useAutomationStore } from "../../stores/automation/useAutomationStore";
+import { useJobStore } from "../../stores/jobs/useJobStore";
+import { useAiStatusStore, type AiPhase } from "../../stores/system/useAiStatusStore";
+import type { AppEvent } from "../../types/events";
+import type { AutomationState, JobPostDto } from "../../types/domain";
 
 const EVENT_CHANNEL = "hiremeops://event";
 

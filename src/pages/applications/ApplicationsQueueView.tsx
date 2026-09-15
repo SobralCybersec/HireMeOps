@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { AutomationState } from "../types/domain";
+import type { AutomationState } from "../../types/domain";
 import {
   Button,
   DataTable,
@@ -10,9 +10,9 @@ import {
   ToolbarSep,
   ToolbarSpacer,
   automationVariant,
-} from "../components/ui";
-import type { Column } from "../components/ui";
-import PreviewViewer from "../components/PreviewViewer";
+} from "../../components/ui";
+import type { Column } from "../../components/ui";
+import PreviewViewer from "../../components/browser/PreviewViewer";
 import { FILTERS, type ApplicationRow, type FilterKey } from "./ApplicationsQueueModel";
 
 function humanState(state: AutomationState): string {

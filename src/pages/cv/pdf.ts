@@ -7,7 +7,7 @@
 
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
 import PdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { safeInvoke } from "../../lib/tauriInvoke";
+import { safeInvoke } from "../../lib/tauri/tauriInvoke";
 import type { CvBytesLoader } from "./types";
 
 GlobalWorkerOptions.workerSrc = PdfWorkerUrl;

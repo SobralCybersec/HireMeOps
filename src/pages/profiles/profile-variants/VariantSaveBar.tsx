@@ -1,4 +1,4 @@
-import { Button } from "../../components/ui";
+import { Button } from "../../../components/ui";
 import type { useProfileVariantsController } from "./useProfileVariantsController";
 
 type ProfileVariantsModel = ReturnType<typeof useProfileVariantsController>;

@@ -46,7 +46,7 @@
     "userHome": "/home/satu"
   },
   "startup": {
-    "command": "/home/satu/.local/share/mise/installs/node/25.8.0/bin/node /home/satu/Documents/HireMeOps/scripts/benchmark-changes.mjs --help",
+    "command": "/home/satu/.local/share/mise/installs/node/25.8.0/bin/node /home/satu/Documents/HireMeOps/scripts/benchmark/benchmark-changes.mjs --help",
     "timing": {
       "samples": 30,
       "minMs": 27.065,

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { safeInvoke } from "../../lib/tauriInvoke";
+import { safeInvoke } from "../../lib/tauri/tauriInvoke";
 import type { JobPostDto } from "../../types/domain";
 import type { FilterStatus } from "./job-search-types";
 

@@ -11,16 +11,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Hoist the mock before any imports that depend on tauriInvoke.
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown) =>
     typeof e === "string" ? e : e instanceof Error ? e.message : String(e),
 }));
 
-import { safeInvoke, invokeStrict } from "../lib/tauriInvoke";
+import { safeInvoke, invokeStrict } from "../../lib/tauri/tauriInvoke";
 import { useSearchQueryStore } from "./useSearchQueryStore";
-import type { SearchQueryDto, SearchQueryInput } from "../types/domain";
+import type { SearchQueryDto, SearchQueryInput } from "../../types/domain";
 
 /* ── Fixtures ─────────────────────────────────────────────────────── */
 

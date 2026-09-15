@@ -1,5 +1,5 @@
 import { chromium } from "patchright";
-import { baseLaunchOptions } from "./browser-launch.js";
+import { baseLaunchOptions } from "../../core/browser/browser-launch.js";
 const jar = "/home/satu/.local/share/com.hiremeops.app/profiles/default/browser";
 const headed = process.env.PROBE_HEADED === "1";
 const ctx = await chromium.launchPersistentContext(jar, baseLaunchOptions({ headless: !headed, executablePath: "/usr/bin/chromium" }));

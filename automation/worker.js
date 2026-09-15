@@ -1,25 +1,25 @@
 import readline from "readline";
-import { initPerf, perfEnabled, nowMs, logSpan } from "./perf.js";
-import { sessions, activePage, closeAll, writeLine } from "./worker-context.js";
-import { attachDiagnostics, captureResult, captureDom } from "./capture.js";
+import { initPerf, perfEnabled, nowMs, logSpan } from "./core/worker/perf.js";
+import { sessions, activePage, closeAll, writeLine } from "./core/worker/worker-context.js";
+import { attachDiagnostics, captureResult, captureDom } from "./core/capture/capture.js";
 import {
   cmdOpen, cmdNavigate, cmdProbe, cmdSolveCaptcha, cmdFillEasyApply, cmdAnswerEasyApply,
   cmdConfirmSubmit, cmdRejectSubmit, cmdScreenshot, cmdDomSnapshot, cmdExtractHr,
-} from "./worker-lifecycle.js";
-import { cmdSearchJobs, cmdSearchLinkedInPosts, cmdSearchGoogle } from "./worker-linkedin.js";
-import { cmdCheckLogin, cmdOpenLoginTabs, cmdCheckLogins, cmdClose } from "./worker-auth.js";
+} from "./core/worker/worker-lifecycle.js";
+import { cmdSearchJobs, cmdSearchLinkedInPosts, cmdSearchGoogle } from "./platforms/linkedin/worker-linkedin.js";
+import { cmdCheckLogin, cmdOpenLoginTabs, cmdCheckLogins, cmdClose } from "./core/worker/worker-auth.js";
 import {
   cmdSearchIndeedJobs, cmdFillIndeedApply, cmdAnswerIndeedFreeText, cmdConfirmIndeedSubmit,
   cmdRejectIndeedSubmit, cmdShutdown,
-} from "./worker-indeed.js";
-import { cmdPushProfile } from "./worker-profile.js";
+} from "./platforms/indeed/worker-indeed.js";
+import { cmdPushProfile } from "./platforms/linkedin/worker-profile.js";
 import {
   cmdCathoPushProfile, cmdGupyPushProfile, cmdSearchGupyJobs, cmdGupyStartLogin,
   cmdInfojobsPushProfile, cmdCapture, cmdCathoSearchJobs, cmdCathoApply, cmdUpworkSearchJobs,
   cmdFreelas99SearchJobs, cmdProgramathorSearchJobs, cmdGeekhunterSearchJobs,
   cmdInfojobsSearchJobs, cmdInfojobsApply,
-} from "./worker-platform.js";
-import { cmdAutoConnect, cmdGmailSend } from "./worker-network.js";
+} from "./core/worker/worker-platform.js";
+import { cmdAutoConnect, cmdGmailSend } from "./core/worker/worker-network.js";
 
 initPerf();
 

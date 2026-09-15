@@ -113,7 +113,7 @@ Adjacent changes are included in the same worktree and are documented here. They
 | File | Change | Reason |
 |---|---|---|
 | .gitignore | Adds local/generated challenge artifacts to ignore rules. | Keep unrelated generated files out of normal diffs. |
-| PROGRESS.md | Updates progress, completed work, evidence, known debt, and verification state. | Preserve execution history. |
+| ../../project/PROGRESS.md | Updates progress, completed work, evidence, known debt, and verification state. | Preserve execution history. |
 | package.json | Adds benchmark:changes; includes benchmark modules in formatting checks. | Make benchmark and formatting commands reproducible. |
 | bun.lock | Locks root dependency graph updates. | Reproducible Bun installs. |
 | automation/package.json | Updates Patchright from 1.61.1 to 1.62.1. | Keep automation/browser package current with bridge resources. |
@@ -151,15 +151,15 @@ Adjacent changes are included in the same worktree and are documented here. They
 
 | File | Change | Result |
 |---|---|---|
-| src/pages/CommandCenter.tsx | Reduces page orchestration surface. | Keeps page entry point smaller after extraction. |
+| src/pages/command-center/CommandCenter.tsx | Reduces page orchestration surface. | Keeps page entry point smaller after extraction. |
 | src/pages/command-center/CommandCenterVariant.tsx | New extracted Command Center variant component. | Isolates variant rendering and state. |
-| src/pages/JobSearch.tsx | Consumes bounded job summaries, cursor pagination, load-more state, search results, and optimized detail behavior. | UI no longer assumes large full-row list payloads. |
-| src/stores/useJobStore.ts | Adds pagination cursor state, summary/detail loading, batched search state, and typed job actions. | Preserves UI behavior over new IPC contracts. |
-| src/stores/useJobStore.test.ts | Covers cursor state, loading behavior, and new job-store contracts. | Regression protection for frontend state transitions. |
+| src/pages/job-search/JobSearch.tsx | Consumes bounded job summaries, cursor pagination, load-more state, search results, and optimized detail behavior. | UI no longer assumes large full-row list payloads. |
+| src/stores/jobs/useJobStore.ts | Adds pagination cursor state, summary/detail loading, batched search state, and typed job actions. | Preserves UI behavior over new IPC contracts. |
+| src/stores/jobs/useJobStore.test.ts | Covers cursor state, loading behavior, and new job-store contracts. | Regression protection for frontend state transitions. |
 | src/types/domain.ts | Adds/updates shared job and CV domain types. | Keeps Rust-to-TypeScript payloads explicit. |
-| src/pages/CvLibrary.tsx | Uses summary history and detail loading; adds CV import/metadata behavior. | Large histories render from lightweight rows. |
-| src/pages/CvAnalysis.tsx | Adapts analysis view to updated CV data contracts. | Keeps analysis UI compatible with structured CV data. |
-| src/pages/ProfileVariants.tsx | Adapts variant data and related controls. | Preserves profile-variant workflow. |
+| src/pages/cv/CvLibrary.tsx | Uses summary history and detail loading; adds CV import/metadata behavior. | Large histories render from lightweight rows. |
+| src/pages/cv/CvAnalysis.tsx | Adapts analysis view to updated CV data contracts. | Keeps analysis UI compatible with structured CV data. |
+| src/pages/profiles/ProfileVariants.tsx | Adapts variant data and related controls. | Preserves profile-variant workflow. |
 | src/pages/cv/index.ts | Updates CV module exports. | Centralizes new CV types/helpers. |
 | src/pages/cv/rewrite.ts | Adds rewrite request/result handling for summary/detail and structured fields. | Aligns UI with Rust rewrite contracts. |
 | src/pages/cv/types.ts | Adds structured CV, rewrite, certificate, language, and cover-letter types. | Avoids untyped payload drift. |
@@ -175,10 +175,10 @@ Adjacent changes are included in the same worktree and are documented here. They
 |---|---|---|
 | examples/certificates.tex | New representative certificate input. | Export/parser fixture. |
 | examples/coverletter.tex | New representative cover-letter input. | Export/parser fixture. |
-| scripts/benchmark-changes.mjs | New end-to-end benchmark runner with baseline archive, candidate tree, smoke/performance profiles, clone handling, five read cases, two throughput cases, robust statistics, semantic equivalence, RSS, persisted fixture, query plans, and optional release metrics. | Reproducible change comparison. |
-| scripts/benchmark-changes-metrics.mjs | New helper for file-size metrics, FTS diagnostics, CLI startup probe, and release-build measurements. | Keeps benchmark orchestration focused. |
-| scripts/benchmark-changes.node-test.mjs | New assert-based tests for CLI parsing, profiles, statistics, quality options, and report parsing. | Runnable benchmark self-check. |
-| scripts/benchmark-sqlite.sh | New SQLite fixture/diagnostic helper. | Repeatable SQLite tuning and WAL/FTS inspection. |
+| scripts/benchmark/benchmark-changes.mjs | New end-to-end benchmark runner with baseline archive, candidate tree, smoke/performance profiles, clone handling, five read cases, two throughput cases, robust statistics, semantic equivalence, RSS, persisted fixture, query plans, and optional release metrics. | Reproducible change comparison. |
+| scripts/benchmark/benchmark-changes-metrics.mjs | New helper for file-size metrics, FTS diagnostics, CLI startup probe, and release-build measurements. | Keeps benchmark orchestration focused. |
+| scripts/benchmark/benchmark-changes.node-test.mjs | New assert-based tests for CLI parsing, profiles, statistics, quality options, and report parsing. | Runnable benchmark self-check. |
+| scripts/benchmark/benchmark-sqlite.sh | New SQLite fixture/diagnostic helper. | Repeatable SQLite tuning and WAL/FTS inspection. |
 | reports/todo-performance/benchmark-performance.json | Final 10-warmup/30-sample performance report. | Machine-readable evidence. |
 | reports/todo-performance/benchmark-results.json | Final 2-warmup/5-sample smoke report. | Fast regression evidence. |
 | reports/todo-performance/sanitized-fixture.sqlite3 | Persisted sanitized 5,000-row fixture. | Stable database input. |
@@ -188,7 +188,7 @@ Adjacent changes are included in the same worktree and are documented here. They
 | reports/todo-performance/original/ | Baseline copies for focused performance files. | Offline rollback source. |
 | reports/todo-performance/performance.patch | Patch representation of the focused performance changes. | Review/diff artifact. |
 | reports/todo-performance/release-metrics.json | Separate release binary/build comparison. | Release trade-off evidence. |
-| ISSUE.md, ISSUE2.md, ISSUE3.md, TODO.md | Existing issue/task records retained in the worktree. | Historical context and source checklist. |
+| ISSUE.md, ISSUE2.md, ISSUE3.md, ../../project/TODO.md | Existing issue/task records retained in the worktree. | Historical context and source checklist. |
 | session_memory.json | Session-generated metadata. | Process artifact; not runtime product behavior. |
 | FullIssue.md | This document. | Full review and completion record. |
 
@@ -521,7 +521,7 @@ Decision: record the size/build cost explicitly. For a desktop application, the 
 | cargo fmt --check | pass |
 | cargo clippy --all-targets --all-features -- -D warnings | pass |
 | git diff --check | pass |
-| bash -n scripts/benchmark-sqlite.sh reports/todo-performance/ROLLBACK.sh | pass |
+| bash -n scripts/benchmark/benchmark-sqlite.sh reports/todo-performance/ROLLBACK.sh | pass |
 | sha256sum -c reports/todo-performance/original.sha256 | 18/18 baseline files pass |
 | smoke benchmark | 7 cases, 2 warmups, 5 samples, equivalence pass |
 | performance benchmark | 7 cases, 10 warmups, 30 samples, equivalence pass |
@@ -529,7 +529,7 @@ Decision: record the size/build cost explicitly. For a desktop application, the 
 
 ### Known repository quality debt
 
-node scripts/quality-review.mjs --strict exits 1 because:
+node ../../../scripts/quality/quality-review.mjs --strict exits 1 because:
 
 - 9 files exceed the repository file-size policy;
 - Lizard is unavailable in the environment;

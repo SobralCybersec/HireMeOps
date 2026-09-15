@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { useJobFiltersStore } from "../../stores/useJobFiltersStore";
-import { useJobPreferencesStore } from "../../stores/useJobPreferencesStore";
-import { useProfileStore } from "../../stores/useProfileStore";
+import { useJobFiltersStore } from "../../stores/jobs/useJobFiltersStore";
+import { useJobPreferencesStore } from "../../stores/jobs/useJobPreferencesStore";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
 import {
   Badge,
   Button,

@@ -1,5 +1,5 @@
 import { chromium } from "patchright";
-import { baseLaunchOptions } from "./browser-launch.js";
+import { baseLaunchOptions } from "../browser/browser-launch.js";
 import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import fs from "fs/promises";
@@ -7,10 +7,10 @@ import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { descendantPids, logSpan } from "./perf.js";
 import { sessions, indeedPopups, session } from "./worker-context.js";
-import { handleResumeStep, fillStep } from "./worker-profile.js";
-import { attachDiagnostics, attachNetworkCapture } from "./capture.js";
-import { passCaptchaOnPage, captchaSolvingEnabled } from "./captcha.js";
-import { humanClick, thinkTime } from "./human.js";
+import { handleResumeStep, fillStep } from "../../platforms/linkedin/worker-profile.js";
+import { attachDiagnostics, attachNetworkCapture } from "../capture/capture.js";
+import { passCaptchaOnPage, captchaSolvingEnabled } from "../captcha/captcha.js";
+import { humanClick, thinkTime } from "../human/human.js";
 
 const RECYCLE_EVERY = Number(process.env.HIREMEOPS_RECYCLE_EVERY ?? 25) || 0;
 let openCount = 0;

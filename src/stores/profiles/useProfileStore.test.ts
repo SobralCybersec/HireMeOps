@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useProfileStore } from "./useProfileStore";
-import { useSettingsStore } from "./useSettingsStore";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import type { Profile } from "../types/domain";
-import type { AppSettings } from "../types/settings";
+import { useSettingsStore } from "../system/useSettingsStore";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import type { Profile } from "../../types/domain";
+import type { AppSettings } from "../../types/settings";
 
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

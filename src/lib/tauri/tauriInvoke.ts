@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getMockResponse, isMockEnabled } from "./devMocks";
+import { getMockResponse, isMockEnabled } from "../devMocks";
 
 /**
  * Thin wrapper around Tauri's `invoke` that never throws. Use ONLY for

@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { invokeStrict } from "../lib/tauriInvoke";
-import type { ProfileVariantDto, SyncSectionResult } from "../types/domain";
-import linkedinIcon from "../assets/platform-icons/linkedin.png";
-import cathoIcon from "../assets/platform-icons/catho.png";
-import infojobsIcon from "../assets/platform-icons/infojobs.png";
-import indeedIcon from "../assets/platform-icons/indeed.png";
-import gupyIcon from "../assets/platform-icons/gupy.png";
-import upworkIcon from "../assets/platform-icons/upwork.png";
-import freelas99Icon from "../assets/platform-icons/freelas99.png";
-import inhireIcon from "../assets/platform-icons/inhire.png";
-import googleIcon from "../assets/platform-icons/google.png";
-import programathorIcon from "../assets/platform-icons/programathor.png";
-import geekhunterIcon from "../assets/platform-icons/geekhunter.png";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
+import type { ProfileVariantDto, SyncSectionResult } from "../../types/domain";
+import linkedinIcon from "../../assets/platform-icons/linkedin.png";
+import cathoIcon from "../../assets/platform-icons/catho.png";
+import infojobsIcon from "../../assets/platform-icons/infojobs.png";
+import indeedIcon from "../../assets/platform-icons/indeed.png";
+import gupyIcon from "../../assets/platform-icons/gupy.png";
+import upworkIcon from "../../assets/platform-icons/upwork.png";
+import freelas99Icon from "../../assets/platform-icons/freelas99.png";
+import inhireIcon from "../../assets/platform-icons/inhire.png";
+import googleIcon from "../../assets/platform-icons/google.png";
+import programathorIcon from "../../assets/platform-icons/programathor.png";
+import geekhunterIcon from "../../assets/platform-icons/geekhunter.png";
 
 /** One action a platform icon offers. `fill`/`sync` invoke a push command against
  *  the selected variant; `link` navigates. Login is intentionally absent — the

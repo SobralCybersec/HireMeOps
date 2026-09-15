@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
-import type { CvDocument } from "../types/domain";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import { useJobStore } from "../stores/useJobStore";
-import { useProfileStore } from "../stores/useProfileStore";
-import { useProfileVariantStore } from "../stores/useProfileVariantStore";
+import type { CvDocument } from "../../types/domain";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import { useJobStore } from "../../stores/jobs/useJobStore";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
+import { useProfileVariantStore } from "../../stores/profiles/useProfileVariantStore";
 
 const CV_KEY = "hiremeops-selected-cv";
 const AC_KEY = "hiremeops-autoconnect";

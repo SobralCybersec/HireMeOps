@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
-import type { ApplicationStatus, AutomationState, JobStatus } from "../types/domain";
-import { useJobStore } from "../stores/useJobStore";
-import { useProfileStore } from "../stores/useProfileStore";
-import { useAutomationStore } from "../stores/useAutomationStore";
-import { useAnime } from "../lib/useAnime";
+import type { ApplicationStatus, AutomationState, JobStatus } from "../../types/domain";
+import { useJobStore } from "../../stores/jobs/useJobStore";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
+import { useAutomationStore } from "../../stores/automation/useAutomationStore";
+import { useAnime } from "../../lib/animation/useAnime";
 import { animate, stagger } from "animejs";
 import {
   FILTERS,

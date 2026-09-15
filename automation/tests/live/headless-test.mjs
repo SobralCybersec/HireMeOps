@@ -15,11 +15,11 @@
 // (full-page) + .pdf + .json + .mhtml — under automation/captures/.
 //
 // Run:
-//   node automation/headless-test.mjs                     # all sites, query "developer"
-//   node automation/headless-test.mjs linkedin,google     # only these
-//   node automation/headless-test.mjs all "react"         # custom query
-//   HMO_PROFILE_DIR=<jar> node automation/headless-test.mjs   # logged-in jar (linkedin/catho/…)
-//   HMO_HEADED=1 node automation/headless-test.mjs        # watch it (headed vs headless)
+//   node automation/tests/live/headless-test.mjs                     # all sites, query "developer"
+//   node automation/tests/live/headless-test.mjs linkedin,google     # only these
+//   node automation/tests/live/headless-test.mjs all "react"         # custom query
+//   HMO_PROFILE_DIR=<jar> node automation/tests/live/headless-test.mjs   # logged-in jar (linkedin/catho/…)
+//   HMO_HEADED=1 node automation/tests/live/headless-test.mjs        # watch it (headed vs headless)
 //
 // Exit code = number of sites that ERRORED (crash/timeout). A login-gated site
 // returning 0 without a jar is noted, not an error. NOTE: hits live sites —
@@ -33,17 +33,17 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { captureDom, attachDiagnostics, attachNetworkCapture, CAPTURE_DIR } from "./capture.js";
-import { baseLaunchOptions } from "./browser-launch.js";
-import { gupySearchJobs } from "./gupy.js";
-import { infojobsSearchJobs } from "./infojobs-jobs.js";
-import { cathoSearchJobs } from "./catho-jobs.js";
-import { upworkSearchJobs } from "./upwork-jobs.js";
-import { freelas99SearchJobs } from "./freelas99-jobs.js";
-import { programathorSearchJobs } from "./programathor-jobs.js";
-import { geekhunterSearchJobs } from "./geekhunter-jobs.js";
+import { captureDom, attachDiagnostics, attachNetworkCapture, CAPTURE_DIR } from "../../core/capture/capture.js";
+import { baseLaunchOptions } from "../../core/browser/browser-launch.js";
+import { gupySearchJobs } from "../../platforms/gupy/gupy.js";
+import { infojobsSearchJobs } from "../../platforms/infojobs/infojobs-jobs.js";
+import { cathoSearchJobs } from "../../platforms/catho/catho-jobs.js";
+import { upworkSearchJobs } from "../../platforms/upwork/upwork-jobs.js";
+import { freelas99SearchJobs } from "../../platforms/freelas99/freelas99-jobs.js";
+import { programathorSearchJobs } from "../../platforms/programathor/programathor-jobs.js";
+import { geekhunterSearchJobs } from "../../platforms/geekhunter/geekhunter-jobs.js";
 
-const WORKER = fileURLToPath(new URL("./worker.js", import.meta.url));
+const WORKER = fileURLToPath(new URL("../../worker.js", import.meta.url));
 
 // Module-exported board scrapers — the harness drives the page directly.
 const MODULE_SITES = [

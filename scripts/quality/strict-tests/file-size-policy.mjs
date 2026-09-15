@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOTS = ["."];
-export const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const HARD_LIMIT = 800;
 // UI composition files in this project legitimately contain markup-heavy sections.
 export const REVIEW_LIMIT = 700;

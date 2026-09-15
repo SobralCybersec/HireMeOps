@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import type { Profile } from "../types/domain";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import { useSettingsStore } from "./useSettingsStore";
+import type { Profile } from "../../types/domain";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import { useSettingsStore } from "../system/useSettingsStore";
 
 interface ProfileStoreState {
   profiles: Profile[];

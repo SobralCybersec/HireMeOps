@@ -1,5 +1,5 @@
-import type { CvRewriteSummary } from "../cv/types";
-import type { ProfileVariantDto } from "../../types/domain";
+import type { CvRewriteSummary } from "../../cv/types";
+import type { ProfileVariantDto } from "../../../types/domain";
 
 export interface Variant {
   id: string;

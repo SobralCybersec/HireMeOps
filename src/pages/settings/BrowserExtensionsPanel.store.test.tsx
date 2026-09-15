@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserExtensionsPanel } from "./BrowserExtensionsPanel";
-import { useSettingsStore } from "../../stores/useSettingsStore";
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { AppSettings } from "../../types/settings";
 
 // Existing BrowserExtensionsPanel.test.tsx covers the controlled value/onChange
@@ -11,7 +11,7 @@ import type { AppSettings } from "../../types/settings";
 // reads browserExtensions from useSettingsStore and persists via updateSettings
 // -> invokeStrict("update_settings", ...). Mock only the IPC boundary; the real
 // settings store runs.
-vi.mock("../../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   invokeStrict: vi.fn(),
   safeInvoke: vi.fn(),
   errMessage: (e: unknown): string =>

@@ -1,6 +1,6 @@
 import { parseDates } from "./linkedin-helpers.js";
-import { humanType } from "./human.js";
-import { activePage, isHostname, session } from "./worker-context.js";
+import { humanType } from "../../core/human/human.js";
+import { activePage, isHostname, session } from "../../core/worker/worker-context.js";
 
 const HUMAN_TYPE_MAX = 120;
 

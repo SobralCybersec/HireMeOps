@@ -2,13 +2,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BrowserProviderPanel } from "./BrowserProviderPanel";
-import { invokeStrict, safeInvoke } from "../../lib/tauriInvoke";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
 import type { AiProviderSettings } from "../../types/settings";
 
 // Replace the Tauri IPC boundary before the panel is imported. safeInvoke is
 // graceful (returns null on failure); invokeStrict throws. errMessage keeps its
 // real logic so error-string assertions stay stable.
-vi.mock("../../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

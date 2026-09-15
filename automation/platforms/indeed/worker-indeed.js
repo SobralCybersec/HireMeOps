@@ -1,7 +1,7 @@
-import { session, indeedPopups, closeAll } from "./worker-context.js";
-import { passCaptchaIfChallenged } from "./captcha.js";
+import { session, indeedPopups, closeAll } from "../../core/worker/worker-context.js";
+import { passCaptchaIfChallenged } from "../../core/captcha/captcha.js";
 import { classifyIndeedQuestion } from "./indeed-helpers.js";
-import { humanClick, humanType, thinkTime } from "./human.js";
+import { humanClick, humanType, thinkTime } from "../../core/human/human.js";
 
 const APPLY_BTN_SEL =
   'button[aria-label="Candidatar-se com o Indeed"], ' +

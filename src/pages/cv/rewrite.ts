@@ -6,7 +6,7 @@
 // A rewrite is the tailored CV *itself* (structured content + derived PDF
 // metadata), NOT a critique - it is additive alongside `analysis.ts`.
 
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { CvLanguage, CvRewriteReport, CvRewriteSummary } from "./types";
 
 const rewriteListRequests = new Map<string, Promise<CvRewriteSummary[]>>();

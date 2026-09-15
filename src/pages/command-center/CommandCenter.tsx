@@ -1,4 +1,4 @@
-import { CommandCenterVariants } from "./command-center/CommandCenterVariant";
+import { CommandCenterVariants } from "./CommandCenterVariant";
 import { useCommandCenterController } from "./useCommandCenterController";
 import "./CommandCenter.css";
 import "./CommandCenterVariants.css";

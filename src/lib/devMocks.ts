@@ -1,9 +1,9 @@
 import type { JobFilters, Profile } from "../types/domain";
 import type { AppSettings } from "../types/settings";
 import type { AppEvent, AppEventType } from "../types/events";
-import { useEventStore } from "../stores/useEventStore";
-import { useAutomationStore } from "../stores/useAutomationStore";
-import { useJobFiltersStore } from "../stores/useJobFiltersStore";
+import { useEventStore } from "../stores/system/useEventStore";
+import { useAutomationStore } from "../stores/automation/useAutomationStore";
+import { useJobFiltersStore } from "../stores/jobs/useJobFiltersStore";
 import { MOCK_LIBRARY, MOCK_HISTORY } from "../pages/cv/mockData";
 
 /**

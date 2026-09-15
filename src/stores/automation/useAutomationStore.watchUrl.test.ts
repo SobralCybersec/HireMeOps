@@ -3,7 +3,7 @@ import { useAutomationStore } from "./useAutomationStore";
 
 // Store touches invokeStrict for its command actions; stub the whole IPC module
 // so the store can be exercised without a backend.
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

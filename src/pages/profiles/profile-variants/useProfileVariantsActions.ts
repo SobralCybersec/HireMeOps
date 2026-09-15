@@ -1,9 +1,9 @@
-import { useProfileVariantStore } from "../../stores/useProfileVariantStore";
-import { invokeStrict } from "../../lib/tauriInvoke";
-import { loadCvLibrary } from "../cv/library";
-import { loadCvRewrites } from "../cv/rewrite";
-import type { ProfileVariantDto } from "../../types/domain";
-import type { CvRewriteSummary } from "../cv/types";
+import { useProfileVariantStore } from "../../../stores/profiles/useProfileVariantStore";
+import { invokeStrict } from "../../../lib/tauri/tauriInvoke";
+import { loadCvLibrary } from "../../cv/library";
+import { loadCvRewrites } from "../../cv/rewrite";
+import type { ProfileVariantDto } from "../../../types/domain";
+import type { CvRewriteSummary } from "../../cv/types";
 import { variantUpdateInput } from "./model";
 import type { ProfileVariantsState } from "./useProfileVariantsState";
 import type { useProfileVariantsData } from "./useProfileVariantsData";

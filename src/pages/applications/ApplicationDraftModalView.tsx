@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, RefObject } from "react";
-import { Button, EmptyState } from "./ui";
+import { Button, EmptyState } from "../../components/ui";
 
 interface DraftModalBodyProps {
   isDrafting: boolean;

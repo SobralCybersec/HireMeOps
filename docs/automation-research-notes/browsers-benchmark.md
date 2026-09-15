@@ -160,6 +160,6 @@ Justification (quoting the run):
 
 Two operational takeaways that matter more than the library choice:
 1. **Run patchright headed, not headless.** patchright 100% vs patchright_headless **40%** is the largest single gap in the whole table. HireMeOps already keeps windows visible (per project memory "Focus-safe automation") — that decision is exactly what this benchmark rewards. Never run the anti-bot automations headless.
-2. **Proxy/IP reputation dominates.** The README hammers this (README:48-56) and the per-engine-different-proxy confound proves it. Our evasion budget is better spent on clean residential IPs + human-pacing (the `automation/human.js` plan in project memory) than on swapping browser libs.
+2. **Proxy/IP reputation dominates.** The README hammers this (README:48-56) and the per-engine-different-proxy confound proves it. Our evasion budget is better spent on clean residential IPs + human-pacing (the `automation/core/human/human.js` plan in project memory) than on swapping browser libs.
 
 Only reasons to revisit later: if patchright's headed RAM (**1314 MB/instance**) becomes a scaling problem (AdsPower is ~130 MB but proprietary + 80% headed bypass), or if we ever need *concurrent headless* at scale — in which case none of these libs are great (all headless-Chromium ≤40% on DataDome) and the answer is more IPs, not a different lib.

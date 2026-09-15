@@ -10,7 +10,7 @@ Baseline before implementation:
 - npm run lint — exit 0
 - npm run test — 33 Vitest files, 255 tests; 5 Node tests passed; exit 0
 - cargo test --manifest-path src-tauri/Cargo.toml --lib — 199 passed, 0 failed; exit 0
-- node scripts/quality-review.mjs — no issues found; exit 0
+- node scripts/quality/quality-review.mjs — no issues found; exit 0
 
 Current implementation checks:
 - npm run test — 33 Vitest files, 257 tests; 8 Node tests passed; exit 0
@@ -23,7 +23,7 @@ Current implementation checks:
 - cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings — exit 0
 - git diff --check — exit 0
 - bash -n scripts/benchmark-sqlite.sh reports/todo-performance/ROLLBACK.sh — exit 0
-- node --test scripts/benchmark-changes.node-test.mjs — 8 passed; exit 0
+- node --test scripts/benchmark/benchmark-changes.node-test.mjs — 8 passed; exit 0
 
 Benchmark evidence:
 - smoke: 7 scenarios, 2 warmups and 5 measured samples; all equivalence checks passed
@@ -41,7 +41,7 @@ Artifact verification:
 - rollback copy comparison — snapshots byte-equal; migration and benchmark additions absent
 
 Known quality output:
-- node scripts/quality-review.mjs — exit 1 because nine files exceed the existing 1,000-line gate and Lizard is missing
+- node scripts/quality/quality-review.mjs — exit 1 because nine files exceed the existing 1,000-line gate and Lizard is missing
 - Jscpd: 4.526%, below the configured 5% threshold
 - npm run verify reaches the quality-review failure after native checks
 

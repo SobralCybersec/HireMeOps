@@ -4,7 +4,7 @@
 // Key: nuxtJobToCard / scrapeUpworkDom — map to shared JobCard shape (NUXT path / DOM fallback)
 // Key: upworkSearchJobs — pages results, dedups by job_id; clears the Cloudflare wall via the keyless pass
 
-import { passCaptchaIfChallenged } from "./captcha.js";
+import { passCaptchaIfChallenged } from "../../core/captcha/captcha.js";
 
 export function buildUpworkSearchUrl({
   query = "",

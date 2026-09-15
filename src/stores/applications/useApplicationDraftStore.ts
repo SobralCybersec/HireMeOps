@@ -1,4 +1,4 @@
-import { errMessage, invokeStrict } from "../lib/tauriInvoke";
+import { errMessage, invokeStrict } from "../../lib/tauri/tauriInvoke";
 import {
   createApplicationDraftStore,
   type ApplicationDraftStoreState,

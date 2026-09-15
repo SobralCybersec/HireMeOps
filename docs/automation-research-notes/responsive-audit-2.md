@@ -47,7 +47,7 @@ remaining problems are a handful of specific gaps, not a systemic failure.
 ## MEDIUM — can overflow with long content, guard is missing
 
 ### 3. JobSearch detail metadata grid: inline `1fr 1fr` without min-width:0
-- **File:line:** src/pages/JobSearch.tsx:1494-1500
+- **File:line:** src/pages/job-search/JobSearch.tsx:1494-1500
 - **Culprit:** inline `style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}`. This grid
   lives inside the Detail panel (the fixed `290px` third column of `.three-pane`). Each `1fr`
   track defaults to `min-width: auto`; a long unbroken Location value or platform slug in a
@@ -61,7 +61,7 @@ remaining problems are a handful of specific gaps, not a systemic failure.
 ## LOW — noted, unlikely to bite in practice
 
 ### 4. `.cc-field { min-width: 12rem }` in flex rows
-- **File:line:** src/pages/CommandCenter.css:726-732; used CommandCenter.tsx:311/417/428
+- **File:line:** src/pages/command-center/CommandCenter.css:726-732; used CommandCenter.tsx:311/417/428
 - **Culprit:** `.cc-field { flex: 1; min-width: 12rem; }` (192px hard floor). Two fields in a
   non-wrapping flex row on a narrow window would overflow. Mitigated in practice: the main
   consumer `.cc-foot` sets `flex-wrap: wrap` (CommandCenter.css:787), so fields drop to the next

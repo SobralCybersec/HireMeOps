@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { errMessage } from "../../lib/tauriInvoke";
+import { errMessage } from "../../lib/tauri/tauriInvoke";
 import { loadCvLibrary, loadCvRewrites } from "../cv";
 import type { CvLibraryState } from "./useCvLibraryState";
 

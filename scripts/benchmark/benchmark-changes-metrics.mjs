@@ -44,7 +44,7 @@ export function ftsDiagnostics(makeDb, { currentFtsSelect, sqliteMetadata, query
 }
 
 export function measureHarnessStartup(root, args, summarize) {
-  const script = path.join(root, "scripts/benchmark-changes.mjs");
+  const script = path.join(root, "scripts/benchmark/benchmark-changes.mjs");
   const samples = [];
   for (let i = 0; i < Math.max(5, Math.min(args.iterations, 30)); i += 1) {
     const started = performance.now();

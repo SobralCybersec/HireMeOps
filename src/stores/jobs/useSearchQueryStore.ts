@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { SearchQueryDto, SearchQueryInput } from "../types/domain";
-import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
+import type { SearchQueryDto, SearchQueryInput } from "../../types/domain";
+import { safeInvoke, invokeStrict, errMessage } from "../../lib/tauri/tauriInvoke";
 
 interface SearchQueryStoreState {
   queries: SearchQueryDto[];

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutomationStore } from "./useAutomationStore";
-import { invokeStrict } from "../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

@@ -9,7 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Button, Dropdown, Icon, Switch } from "../../components/ui";
 import { VisitorsChart } from "../../components/ui/VisitorsChart";
-import { PlatformHub } from "../../components/PlatformHub";
+import { PlatformHub } from "./PlatformHub";
 import type { CvDocument, JobPostDto, Profile, ProfileVariantDto } from "../../types/domain";
 
 interface Tip {

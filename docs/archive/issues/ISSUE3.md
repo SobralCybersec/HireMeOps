@@ -6,7 +6,7 @@ Validate database, CV, job-search, browser, and UI performance changes against a
 
 ## Summary
 
-This change set addresses the performance work in `TODO.md` and adds behavior needed by the
+This change set addresses the performance work in `../../project/TODO.md` and adds behavior needed by the
 current CV, job-search, provider, and export flows. It needs one reviewable Issue that records:
 
 - what changed;
@@ -96,7 +96,7 @@ npm run benchmark:changes -- --create-clone --keep-clone
 
 ## Benchmark implementation
 
-`scripts/benchmark-changes.mjs` uses only built-in Node and SQLite APIs. It creates deterministic
+`scripts/benchmark/benchmark-changes.mjs` uses only built-in Node and SQLite APIs. It creates deterministic
 old/current SQLite fixtures, applies the old or current query shape, checks returned row identity,
 and records p50/p95 timings plus serialized payload size.
 
@@ -120,7 +120,7 @@ Default run parameters:
 Run smaller smoke checks with:
 
 ```sh
-node scripts/benchmark-changes.mjs --rows 200 --rewrites 30 --warmup 1 --iterations 2
+node scripts/benchmark/benchmark-changes.mjs --rows 200 --rewrites 30 --warmup 1 --iterations 2
 ```
 
 Run the complete comparison with a newly created baseline clone:
@@ -159,7 +159,7 @@ pool/cache/mmap values.
 - [x] Rust formatter and Clippy pass.
 - [x] TypeScript, ESLint, and Prettier checks pass.
 - [ ] Resolve or explicitly accept repository-wide file-size debt reported by
-      `node scripts/quality-review.mjs`.
+      `node scripts/quality/quality-review.mjs`.
 - [ ] Install or provide the repository's Lizard dependency, then clear its structural gate.
 - [ ] Repeat benchmark on a representative persisted SQLite database and record p50/p95/p99,
       RSS, WAL size, and selected pool/cache/mmap configuration.

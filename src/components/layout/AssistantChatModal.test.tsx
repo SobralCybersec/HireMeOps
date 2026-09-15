@@ -9,7 +9,7 @@ const chatMock = vi.hoisted(() => ({
   stop: vi.fn(),
 }));
 
-vi.mock("../lib/ai/useChat", () => ({
+vi.mock("../../lib/ai/useChat", () => ({
   useChat: () => ({
     messages: [],
     status: "ready",
@@ -19,7 +19,7 @@ vi.mock("../lib/ai/useChat", () => ({
   }),
 }));
 
-vi.mock("../lib/ai/tauriChat", () => ({
+vi.mock("../../lib/ai/tauriChat", () => ({
   createTauriChatTransport: () => ({}),
 }));
 

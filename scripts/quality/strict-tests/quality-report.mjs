@@ -3,7 +3,7 @@ import path, { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../..");
+export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../../..");
 
 async function readJson(file, fallback) {
   try {

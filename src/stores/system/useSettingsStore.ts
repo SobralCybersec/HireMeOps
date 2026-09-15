@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import type { AppSettings } from "../types/settings";
-import { errMessage, invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import { useThemeStore } from "./useThemeStore";
+import type { AppSettings } from "../../types/settings";
+import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import { useThemeStore } from "../ui/useThemeStore";
 
 interface SettingsStoreState {
   settings: AppSettings | null;

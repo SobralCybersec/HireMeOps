@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui";
-import { safeInvoke } from "../../lib/tauriInvoke";
+import { safeInvoke } from "../../lib/tauri/tauriInvoke";
 import type { DockerStatus } from "../../types/domain";
 
 /** Dot colour keyed to how ready the container runtime is. */

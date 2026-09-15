@@ -35,8 +35,8 @@ done
 rm -f \
   "$TARGET/src-tauri/migrations/0011_performance_paths.sql" \
   "$TARGET/scripts/benchmark-sqlite.sh" \
-  "$TARGET/scripts/benchmark-changes.mjs" \
-  "$TARGET/scripts/benchmark-changes.node-test.mjs" \
+  "$TARGET/scripts/benchmark/benchmark-changes.mjs" \
+  "$TARGET/scripts/benchmark/benchmark-changes.node-test.mjs" \
   "$TARGET/ISSUE.md" \
   "$TARGET/reports/todo-performance/benchmark-results.json" \
   "$TARGET/reports/todo-performance/benchmark-performance.json" \

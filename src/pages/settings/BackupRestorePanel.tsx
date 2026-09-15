@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, EmptyState } from "../../components/ui";
-import { useBackupStore } from "../../stores/useBackupStore";
+import { useBackupStore } from "../../stores/system/useBackupStore";
 import "./BackupRestorePanel.css";
 
 function formatBytes(n: number): string {

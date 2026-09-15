@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { AutomationState } from "../types/domain";
-import { errMessage, invokeStrict } from "../lib/tauriInvoke";
+import type { AutomationState } from "../../types/domain";
+import { errMessage, invokeStrict } from "../../lib/tauri/tauriInvoke";
 
 interface AutomationStoreState {
   state: AutomationState;

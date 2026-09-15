@@ -5,7 +5,7 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai";
-import { invokeStrict } from "../tauriInvoke";
+import { invokeStrict } from "../tauri/tauriInvoke";
 
 export type ChatStreamEvent =
   | { type: "start"; messageId: string }

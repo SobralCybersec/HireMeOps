@@ -1,5 +1,5 @@
 import type { JobPostDto } from "../../types/domain";
-import { extractPhone } from "../JobSearch.helpers";
+import { extractPhone } from "./JobSearch.helpers";
 import type { ContactFilter, FilterStatus, WorkModeFilter } from "./job-search-types";
 
 const WORK_MODE_SYNONYMS: Record<string, string[]> = {

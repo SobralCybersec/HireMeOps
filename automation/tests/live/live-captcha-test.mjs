@@ -2,12 +2,12 @@
 // live Cloudflare Turnstile demo, and drives it through our ACTUAL captcha.js + ShyMouse (CDP click).
 // LO watches the window and confirms pass/fail. Not a mock — this is the shipping code.
 //
-// Run:  HIREMEOPS_AUTO_CAPTCHA=1 node automation/live-captcha-test.mjs [url]
+// Run:  HIREMEOPS_AUTO_CAPTCHA=1 node automation/tests/live/live-captcha-test.mjs [url]
 import { chromium } from "patchright";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { passCaptchaOnPage } from "./captcha.js";
+import { passCaptchaOnPage } from "../../core/captcha/captcha.js";
 
 const URL = process.argv[2] || "https://seleniumbase.io/apps/turnstile";
 const SUCCESS = "img#captcha-success"; // SeleniumBase demo's success marker

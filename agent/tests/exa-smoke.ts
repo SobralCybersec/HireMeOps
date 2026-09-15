@@ -1,4 +1,4 @@
-import { advancedSearchExa, connectExa } from "./exa";
+import { advancedSearchExa, connectExa } from "../exa";
 
 if (Bun.env.EXA_MCP_SMOKE !== "1") {
   console.log("Exa MCP smoke skipped; set EXA_MCP_SMOKE=1 to run tools/list.");

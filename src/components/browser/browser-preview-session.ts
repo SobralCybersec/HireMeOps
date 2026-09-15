@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { PREVIEW_CLOSE_LIVE, PREVIEW_OPEN_LIVE, type PreviewFrame } from "../types/preview";
+import { PREVIEW_CLOSE_LIVE, PREVIEW_OPEN_LIVE, type PreviewFrame } from "../../types/preview";
 
 const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 type PreviewStatus = "connecting" | "live" | "idle" | "error";

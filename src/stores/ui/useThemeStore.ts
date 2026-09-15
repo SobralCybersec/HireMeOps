@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ReducedEffectsMode, ThemeMode } from "../types/settings";
+import type { ReducedEffectsMode, ThemeMode } from "../../types/settings";
 
 interface ThemeStoreState {
   theme: ThemeMode;

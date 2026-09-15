@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CvExportButton } from "./CvExportButton";
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { CvRewriteReport } from "./types";
 
-vi.mock("../../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string => (e instanceof Error ? e.message : String(e)),
 }));

@@ -9,17 +9,17 @@
 #
 #   HireMeOps-linux64/
 #     HireMeOps                 <- the binary (frontend embedded)
-#     automation/*.js           <- worker + human.js + site modules (no tests)
+#     automation/**/*.js        <- worker + core/platform modules (no tests)
 #     resources/                <- LaTeX cvtex + vendored patchright bridge
 #     automation/package.json, automation/package-lock <- so `npm ci` restores
 #     patchright for the worker
 #
-#   scripts/build-linux.sh          # build the binary
-#   scripts/build-linux.sh --tar    # build + pack dist/HireMeOps-linux64.tar.gz
+#   scripts/build/build-linux.sh          # build the binary
+#   scripts/build/build-linux.sh --tar    # build + pack dist/HireMeOps-linux64.tar.gz
 #
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 REL="src-tauri/target/release"
 
@@ -59,7 +59,7 @@ chmod +x "$STAGE/HireMeOps"
 # Automation worker (js only — no tests, captures, or node_modules). The worker
 # resolves `patchright` by walking up to $STAGE/node_modules (created by npm ci).
 mkdir -p "$STAGE/automation"
-find automation -maxdepth 1 -name '*.js' ! -name '*.test.js' -exec cp {} "$STAGE/automation/" \;
+find automation -type f -name '*.js' ! -name '*.test.js' -exec cp --parents {} "$STAGE" \;
 
 # Bundled runtime resources (LaTeX CV render + vendored patchright bridge). The
 # bridge finds itself at <exe_dir>/resources/playwright-bridge (resolve_helper_dir).

@@ -6,8 +6,8 @@
 // Key: gupySearchJobs — portal.gupy.io scraper, drives MUI pagination via scrapeGupyPage
 
 import { parseGupyDate, gupyActivities, skillKey } from "./gupy-helpers.js";
-import { perfEnabled, nowMs, logSpan } from "./perf.js";
-import { captureDom } from "./capture.js";
+import { perfEnabled, nowMs, logSpan } from "../../core/worker/perf.js";
+import { captureDom } from "../../core/capture/capture.js";
 
 const GUPY_LOGIN_RE = /\/candidates\/(sign-?in|login)/i;
 const GUPY_RESUME_URL = "https://login.gupy.io/candidates/curriculum";

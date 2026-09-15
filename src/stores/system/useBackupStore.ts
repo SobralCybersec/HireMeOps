@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { errMessage, invokeStrict, safeInvoke } from "../lib/tauriInvoke";
+import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
 
 // snake_case matches the wire format - BackupInfo has NO serde rename in Rust.
 export interface BackupInfo {

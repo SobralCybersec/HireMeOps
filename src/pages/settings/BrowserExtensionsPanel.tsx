@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, EmptyState, Field, Input } from "../../components/ui";
-import { useSettingsStore } from "../../stores/useSettingsStore";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
 
 export interface BrowserExtensionsPanelProps {
   /** Current extension paths. Falls back to the settings store when omitted. */

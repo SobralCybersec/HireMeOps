@@ -13,7 +13,7 @@ import {
   matchScoreVariant,
 } from "../../components/ui";
 import { CoverLetterExportButton, CvCard, CvExportButton, defaultCvBytesLoader } from "../cv";
-import type { CvLibraryViewModel } from "../CvLibrary";
+import type { CvLibraryViewModel } from "./CvLibrary";
 import type { CvRewriteReport, CvRewriteSummary } from "./types";
 
 const loader = defaultCvBytesLoader;

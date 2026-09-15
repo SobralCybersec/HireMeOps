@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, Dropdown, Field, Input, Select, Textarea } from "../../components/ui";
+import { Button, Dropdown, Field, Input, Select, Textarea } from "../../../components/ui";
 import { TABS, rewriteLabel, type EditDraft } from "./model";
 import { VariantSaveBar } from "./VariantSaveBar";
 import { VariantEducationTab, VariantExperienceTab } from "./ProfileVariantHistoryTabs";

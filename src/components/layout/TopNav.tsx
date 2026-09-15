@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { AiChat01Icon, Moon01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
-import { Icon } from "./ui/Icon";
-import { NAV_GROUPS } from "../app/routes";
-import { useThemeStore } from "../stores/useThemeStore";
-import { useSettingsStore } from "../stores/useSettingsStore";
-import { useUiStore } from "../stores/useUiStore";
-import { openSettingsWindow, IS_TAURI } from "../lib/openSettingsWindow";
+import { Icon } from "../ui/Icon";
+import { NAV_GROUPS } from "../../app/routes";
+import { useThemeStore } from "../../stores/ui/useThemeStore";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
+import { useUiStore } from "../../stores/ui/useUiStore";
+import { openSettingsWindow, IS_TAURI } from "../../lib/tauri/openSettingsWindow";
 import "./TopNav.css";
 
 /**

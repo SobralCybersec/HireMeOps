@@ -5,7 +5,7 @@ import {
   ArrowRight02Icon,
   Globe02Icon,
 } from "@hugeicons/core-free-icons";
-import { Icon } from "./ui/Icon";
+import { Icon } from "../ui/Icon";
 import type { EmbeddedBrowserStatus } from "./embedded-browser-session";
 
 interface ViewProps {

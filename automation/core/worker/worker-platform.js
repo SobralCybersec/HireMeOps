@@ -1,14 +1,14 @@
-import { cathoPushProfile } from "./catho.js";
-import { gupyPushProfile, gupySearchJobs, gupyStartLogin } from "./gupy.js";
-import { infojobsPushProfile } from "./infojobs.js";
-import { infojobsSearchJobs, infojobsApply } from "./infojobs-jobs.js";
-import { cathoSearchJobs, cathoApply } from "./catho-jobs.js";
-import { upworkSearchJobs } from "./upwork-jobs.js";
-import { freelas99SearchJobs } from "./freelas99-jobs.js";
-import { programathorSearchJobs } from "./programathor-jobs.js";
-import { geekhunterSearchJobs } from "./geekhunter-jobs.js";
+import { cathoPushProfile } from "../../platforms/catho/catho.js";
+import { gupyPushProfile, gupySearchJobs, gupyStartLogin } from "../../platforms/gupy/gupy.js";
+import { infojobsPushProfile } from "../../platforms/infojobs/infojobs.js";
+import { infojobsSearchJobs, infojobsApply } from "../../platforms/infojobs/infojobs-jobs.js";
+import { cathoSearchJobs, cathoApply } from "../../platforms/catho/catho-jobs.js";
+import { upworkSearchJobs } from "../../platforms/upwork/upwork-jobs.js";
+import { freelas99SearchJobs } from "../../platforms/freelas99/freelas99-jobs.js";
+import { programathorSearchJobs } from "../../platforms/programathor/programathor-jobs.js";
+import { geekhunterSearchJobs } from "../../platforms/geekhunter/geekhunter-jobs.js";
 import { activePage } from "./worker-context.js";
-import { attachDiagnostics, captureDom } from "./capture.js";
+import { attachDiagnostics, captureDom } from "../capture/capture.js";
 
 export async function cmdCathoPushProfile({ handle, sections = [] }) {
   const page = await activePage(handle);

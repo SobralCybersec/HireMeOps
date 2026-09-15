@@ -3,7 +3,7 @@
 ## Summary
 
 This change set removes the major database and IPC performance bottlenecks identified in
-`TODO.md` while preserving result semantics. Adjacent CV, provider, browser, and export changes
+`../../project/TODO.md` while preserving result semantics. Adjacent CV, provider, browser, and export changes
 are listed separately so review scope stays explicit.
 
 ### Performance-critical changes
@@ -163,7 +163,7 @@ Passing evidence:
 
 ```text
 sha256sum -c reports/todo-performance/original.sha256          all 18 focused files OK
-node --test scripts/benchmark-changes.node-test.mjs             3 passed
+node --test scripts/benchmark/benchmark-changes.node-test.mjs             3 passed
 npm run test                                                    33 Vitest files, 257 tests; 8 Node tests
 npm run typecheck                                               exit 0
 npm run lint                                                     exit 0
@@ -177,10 +177,10 @@ performance profile                                              7 scenarios, 30
 release-metrics.json                                             baseline/current binary size hashes recorded
 ```
 
-`node scripts/quality-review.mjs` remains a known repository gate issue: nine files exceed the
+`node scripts/quality/quality-review.mjs` remains a known repository gate issue: nine files exceed the
 existing 1,000-line limit and Lizard is missing in the runner. Jscpd is `4.526%`, below the `5%`
 threshold. `npm run verify` reaches that quality-review failure after the native checks. The
-oversized files are `automation/shy-mouse.js`, `automation/worker.js`, `src-tauri/src/ai/prompt.rs`,
+oversized files are `automation/core/human/shy-mouse.js`, `automation/worker.js`, `src-tauri/src/ai/prompt.rs`,
 `src-tauri/src/browser/playwright.rs`, `src-tauri/src/commands/jobs/scrapers.rs`,
 `src-tauri/src/commands/profile_variants.rs`, `src-tauri/src/domain/automation.rs`,
 `src-tauri/src/domain/cv.rs`, and `src-tauri/src/domain/jobs.rs`; eight were already over limit

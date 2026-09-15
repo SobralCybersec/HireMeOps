@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useProfileStore } from "../../stores/useProfileStore";
-import { useProfileVariantStore } from "../../stores/useProfileVariantStore";
-import type { CvLanguage, CvLibraryDoc, CvRewriteSummary } from "../cv/types";
+import { useProfileStore } from "../../../stores/profiles/useProfileStore";
+import { useProfileVariantStore } from "../../../stores/profiles/useProfileVariantStore";
+import type { CvLanguage, CvLibraryDoc, CvRewriteSummary } from "../../cv/types";
 import type { EditDraft, Tab } from "./model";
 
 export function useProfileVariantsState() {

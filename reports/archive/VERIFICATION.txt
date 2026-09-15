@@ -9,9 +9,9 @@ src-tauri/src/ai/prompt.rs — cv_rewrite_system(Language::Pt/En) and CV_REWRITE
 
 Artifacts:
 MODIFIED_FILE: /home/satu/Documents/HireMeOps/src-tauri/src/ai/prompt.rs
-DIFF_FILE: /home/satu/Documents/HireMeOps/DIFF_FILE
-VERIFICATION.txt: /home/satu/Documents/HireMeOps/VERIFICATION.txt
-ROLLBACK.sh: /home/satu/Documents/HireMeOps/ROLLBACK.sh
+DIFF_FILE: /home/satu/Documents/HireMeOps/reports/archive/DIFF_FILE
+VERIFICATION.txt: /home/satu/Documents/HireMeOps/reports/archive/VERIFICATION.txt
+ROLLBACK.sh: /home/satu/Documents/HireMeOps/scripts/maintenance/ROLLBACK.sh
 
 Original hash:
 7fb013358fcef3cf916822dc1e425df181787587b784aa61d4f1479896dc3979  /tmp/hiremeops-cv-transaction/prompt.rs.original

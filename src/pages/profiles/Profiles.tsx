@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Tick01Icon } from "@hugeicons/core-free-icons";
-import { safeInvoke, invokeStrict } from "../lib/tauriInvoke";
-import { useProfileStore } from "../stores/useProfileStore";
-import { Badge, Button, Field, FormRow, Icon, Input, Select } from "../components/ui";
-import type { Profile } from "../types/domain";
+import { safeInvoke, invokeStrict } from "../../lib/tauri/tauriInvoke";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
+import { Badge, Button, Field, FormRow, Icon, Input, Select } from "../../components/ui";
+import type { Profile } from "../../types/domain";
 import { ProfileRail } from "./ProfileRail";
 import { ProfilesPageHeader } from "./ProfilesPageHeader";
 import "./Profiles.css";

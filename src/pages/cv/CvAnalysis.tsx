@@ -1,9 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { AnalysisPageBody } from "./cv/AnalysisPageBody";
-import { useCvAnalysisWorkspace } from "./cv/useCvAnalysisWorkspace";
-import { useSettingsStore } from "../stores/useSettingsStore";
-import "./cv/cv.css";
-import "./cv/analysis.css";
+import { AnalysisPageBody } from "./AnalysisPageBody";
+import { useCvAnalysisWorkspace } from "./useCvAnalysisWorkspace";
+import { useSettingsStore } from "../../stores/system/useSettingsStore";
+import "./cv.css";
+import "./analysis.css";
 
 function AnalysisHero() {
   return (

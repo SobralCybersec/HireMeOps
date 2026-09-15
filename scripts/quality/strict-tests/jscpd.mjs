@@ -4,7 +4,7 @@ import path, { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../..");
+export const DEFAULT_REPO_ROOT = resolve(scriptDir, "../../..");
 export const DEFAULT_OUTPUT = resolve(DEFAULT_REPO_ROOT, "reports/quality/jscpd");
 export const DEFAULT_METRICS = resolve(DEFAULT_REPO_ROOT, "reports/quality/jscpd-metrics.json");
 export const DEFAULT_REPORTERS = ["console", "json", "sarif"];
@@ -313,7 +313,7 @@ export async function runJscpd(options) {
 }
 
 export function helpText() {
-  return `Usage: node scripts/jscpd.mjs [PATH...] [options]
+  return `Usage: node scripts/quality/jscpd.mjs [PATH...] [options]
 
 Options:
   --reporters LIST      Comma-separated reporters; json is always added

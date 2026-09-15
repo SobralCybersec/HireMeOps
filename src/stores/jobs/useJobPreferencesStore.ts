@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { JobPreferenceDto, CreateJobPreferenceInput } from "../types/domain";
-import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
+import type { JobPreferenceDto, CreateJobPreferenceInput } from "../../types/domain";
+import { safeInvoke, invokeStrict, errMessage } from "../../lib/tauri/tauriInvoke";
 import { useJobFiltersStore } from "./useJobFiltersStore";
 
 interface JobPreferencesStoreState {

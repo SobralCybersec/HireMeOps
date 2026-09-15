@@ -8,7 +8,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 
-export const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "captures");
+export const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..", "captures");
 const MAX_CONSOLE = 60;
 const MAX_BUNDLES = 40;
 

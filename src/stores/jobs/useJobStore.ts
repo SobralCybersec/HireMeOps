@@ -4,8 +4,8 @@ import type {
   JobMatchDto,
   LinkedInSearchResult,
   GoogleSearchResult,
-} from "../types/domain";
-import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
+} from "../../types/domain";
+import { safeInvoke, invokeStrict, errMessage } from "../../lib/tauri/tauriInvoke";
 
 const JOB_PAGE_SIZE = 50;
 

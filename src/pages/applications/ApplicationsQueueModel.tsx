@@ -1,4 +1,4 @@
-import type { ApplicationStatus } from "../types/domain";
+import type { ApplicationStatus } from "../../types/domain";
 import {
   Badge,
   Button,
@@ -6,8 +6,8 @@ import {
   StatusDot,
   applicationStatusVariant,
   humanizeStatus,
-} from "../components/ui";
-import type { Column } from "../components/ui";
+} from "../../components/ui";
+import type { Column } from "../../components/ui";
 
 export interface ApplicationRow {
   id: string;

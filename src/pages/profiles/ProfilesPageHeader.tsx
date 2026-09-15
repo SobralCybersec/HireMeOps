@@ -1,4 +1,4 @@
-import { Button } from "../components/ui";
+import { Button } from "../../components/ui";
 
 interface ProfilesPageHeaderProps {
   count: number;

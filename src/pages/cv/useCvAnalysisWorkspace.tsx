@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { matchScoreVariant, type Column } from "../../components/ui";
-import { errMessage } from "../../lib/tauriInvoke";
+import { errMessage } from "../../lib/tauri/tauriInvoke";
 import { loadCvAnalysisReports, loadCvLibrary, runCvAnalysis } from "../cv";
 import type { CvAnalysisReport, CvLibraryDoc } from "./types";
 

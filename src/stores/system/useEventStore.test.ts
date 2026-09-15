@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useEventStore } from "./useEventStore";
-import type { AppEvent } from "../types/events";
+import type { AppEvent } from "../../types/events";
 
 function makeEvent(id: string): AppEvent {
   return {

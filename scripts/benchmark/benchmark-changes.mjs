@@ -940,11 +940,11 @@ export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (args.help) {
     console.log(
-      "usage: node scripts/benchmark-changes.mjs [--profile smoke|performance] [--rows N] [--rewrites N] [--iterations N] [--warmup N] [--baseline-ref REF] [--candidate-ref REF] [--fixture FILE] [--output FILE] [--create-clone] [--keep-clone] [--build-release]",
+      "usage: node scripts/benchmark/benchmark-changes.mjs [--profile smoke|performance] [--rows N] [--rewrites N] [--iterations N] [--warmup N] [--baseline-ref REF] [--candidate-ref REF] [--fixture FILE] [--output FILE] [--create-clone] [--keep-clone] [--build-release]",
     );
     return;
   }
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   let report;
   let createdClone;
   try {

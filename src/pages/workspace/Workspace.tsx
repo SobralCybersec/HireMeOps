@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Profiles } from "./Profiles";
-import { ProfileVariants } from "./ProfileVariants";
+import { Profiles } from "../profiles/Profiles";
+import { ProfileVariants } from "../profiles/ProfileVariants";
 import "./Workspace.css";
 
 type Tab = "profiles" | "variants";

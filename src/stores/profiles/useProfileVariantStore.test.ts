@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useProfileVariantStore } from "./useProfileVariantStore";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import type { ProfileVariantDto, ProfileSyncPlan } from "../types/domain";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import type { ProfileVariantDto, ProfileSyncPlan } from "../../types/domain";
 
 // vi.mock is hoisted above imports - tauriInvoke is replaced before the store
 // module runs. Preserve the real errMessage so error strings stay stable.
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

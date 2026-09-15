@@ -3,7 +3,7 @@ import { Outlet } from "react-router-dom";
 import { TopNav } from "./TopNav";
 import { OnboardingOverlay } from "./OnboardingOverlay";
 import { AssistantChatModal } from "./AssistantChatModal";
-import { useUiStore } from "../stores/useUiStore";
+import { useUiStore } from "../../stores/ui/useUiStore";
 
 export function AppLayout() {
   const isDesktopRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

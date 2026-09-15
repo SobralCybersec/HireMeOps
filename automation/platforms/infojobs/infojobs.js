@@ -4,8 +4,8 @@
 // Key: selCascade — drives cascading selects (Área→Especialidade, País→Estado), polls for repopulation
 // Key: saveCv — clicks a.js_btSend, waits for the POST, reports save status by HTTP code
 
-import { perfEnabled, nowMs, logSpan } from "./perf.js";
-import { captureDom } from "./capture.js";
+import { perfEnabled, nowMs, logSpan } from "../../core/worker/perf.js";
+import { captureDom } from "../../core/capture/capture.js";
 import {
   parseInfojobsDate,
   isFutureDate,

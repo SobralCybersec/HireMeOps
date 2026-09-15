@@ -631,7 +631,7 @@ async function initChatGPT({ runtime_dir, headless, browser }) {
   // (the --user-agent flag, not the context `userAgent` option, so Sec-CH-UA stays
   // coherent) to strip only "Headless", on a Linux UA that matches this binary's
   // platform and major. Headed launches keep the genuine UA (a visible window is
-  // never "HeadlessChrome"). Mirrors automation/browser-launch.js HEADLESS_UA.
+  // never "HeadlessChrome"). Mirrors automation/core/browser/browser-launch.js HEADLESS_UA.
   // ponytail: bump the major when the system Chromium jumps a major.
   const uaArgs = headless
     ? ['--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36']

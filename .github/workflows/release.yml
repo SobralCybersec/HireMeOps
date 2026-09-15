@@ -6,7 +6,7 @@
 # job adds SHA256SUMS + build provenance and flips the draft to published.
 #
 # Native windows-latest replaces the mingw cross-compile for releases (real
-# MSVC + WebView2 + installers); scripts/build-windows.sh stays for local dev.
+# MSVC + WebView2 + installers); scripts/build/build-windows.sh stays for local dev.
 # tauri-action is v1 (action-v1.0.0, 2026-06); all `uses:` SHA-pinned.
 # ============================================================
 name: Release

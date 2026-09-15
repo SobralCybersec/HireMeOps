@@ -5,10 +5,10 @@ import type {
   JobStatus,
   SearchQueryInput,
 } from "../../types/domain";
-import { invokeStrict, errMessage } from "../../lib/tauriInvoke";
-import { useAutomationStore } from "../../stores/useAutomationStore";
-import { draftApplication, submitApplication } from "../../stores/useJobStore";
-import { useSearchQueryStore } from "../../stores/useSearchQueryStore";
+import { invokeStrict, errMessage } from "../../lib/tauri/tauriInvoke";
+import { useAutomationStore } from "../../stores/automation/useAutomationStore";
+import { draftApplication, submitApplication } from "../../stores/jobs/useJobStore";
+import { useSearchQueryStore } from "../../stores/jobs/useSearchQueryStore";
 import { runPlatformSearch, type SearchPlatform } from "./search-runners";
 
 export function createSearchInput(options: {

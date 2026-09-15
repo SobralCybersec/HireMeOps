@@ -10,8 +10,8 @@
 // `prefers-reduced-motion` setting (live, via matchMedia subscription).
 
 import { useSyncExternalStore } from "react";
-import { useThemeStore } from "../stores/useThemeStore";
-import type { ReducedEffectsMode } from "../types/settings";
+import { useThemeStore } from "../../stores/ui/useThemeStore";
+import type { ReducedEffectsMode } from "../../types/settings";
 
 const MEDIA_QUERY = "(prefers-reduced-motion: reduce)";
 

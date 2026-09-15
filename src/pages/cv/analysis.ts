@@ -3,7 +3,7 @@
 // functions so the real Tauri commands and the off-Tauri dev mocks are the
 // only things that differ between environments.
 
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { CvAnalysisReport, CvLanguage } from "./types";
 
 /**

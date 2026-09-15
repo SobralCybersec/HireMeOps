@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AiChat01Icon, ArrowUp02Icon, Cancel01Icon, SquareIcon } from "@hugeicons/core-free-icons";
 import type { UIMessage } from "ai";
-import { Button, Icon, Textarea } from "./ui";
-import { createTauriChatTransport } from "../lib/ai/tauriChat";
-import { useChat, type ChatStatus } from "../lib/ai/useChat";
+import { Button, Icon, Textarea } from "../ui";
+import { createTauriChatTransport } from "../../lib/ai/tauriChat";
+import { useChat, type ChatStatus } from "../../lib/ai/useChat";
 import "./AssistantChatModal.css";
 
 interface AssistantChatModalProps {

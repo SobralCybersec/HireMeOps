@@ -9,7 +9,7 @@ import {
   PointElement,
   Tooltip,
 } from "chart.js";
-import { useThemeStore } from "../../stores/useThemeStore";
+import { useThemeStore } from "../../stores/ui/useThemeStore";
 
 Chart.register(
   CategoryScale,

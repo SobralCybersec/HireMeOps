@@ -1,17 +1,17 @@
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { CvExperienceMeta } from "./cv/CvExperienceMeta";
-import { Badge, Button, Card, Icon, Input, Textarea } from "../components/ui";
+import { CvExperienceMeta } from "./CvExperienceMeta";
+import { Badge, Button, Card, Icon, Input, Textarea } from "../../components/ui";
 import {
   CoverLetterExportButton,
   CvExportButton,
   CvViewer,
   defaultCvBytesLoader,
   renderInlineBold,
-} from "./cv";
-import type { CvLanguage, CvLibraryDoc, CvRewriteReport, CvRewriteSummary } from "./cv";
-import { useCvLibraryController } from "./cv/useCvLibraryController";
-import { CvLibraryAlerts, CvLibraryDocuments, CvLibraryToolbar } from "./cv/CvLibraryViewParts";
-import "./cv/cv.css";
+} from "./index";
+import type { CvLanguage, CvLibraryDoc, CvRewriteReport, CvRewriteSummary } from "./index";
+import { useCvLibraryController } from "./useCvLibraryController";
+import { CvLibraryAlerts, CvLibraryDocuments, CvLibraryToolbar } from "./CvLibraryViewParts";
+import "./cv.css";
 
 /*
  * Bytes seam: the viewer/thumbnails render against `defaultCvBytesLoader`, which

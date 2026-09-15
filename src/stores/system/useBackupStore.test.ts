@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useBackupStore } from "./useBackupStore";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
 
 // vi.mock is hoisted above all imports by vitest's transform - the
 // tauriInvoke module is replaced before useBackupStore is imported.
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   // Preserve the real errMessage logic so error-string assertions are stable.

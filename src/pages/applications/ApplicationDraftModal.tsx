@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useApplicationDraftStore } from "../stores/useApplicationDraftStore";
+import { useApplicationDraftStore } from "../../stores/applications/useApplicationDraftStore";
 import { ApplicationDraftModalView } from "./ApplicationDraftModalView";
 import "./ApplicationDraftModal.css";
 

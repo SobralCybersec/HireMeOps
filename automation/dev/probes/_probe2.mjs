@@ -1,5 +1,5 @@
 import { chromium } from "patchright";
-import { baseLaunchOptions } from "./browser-launch.js";
+import { baseLaunchOptions } from "../../core/browser/browser-launch.js";
 const jar = "/home/satu/.local/share/com.hiremeops.app/profiles/default/browser";
 const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 const ctx = await chromium.launchPersistentContext(jar, baseLaunchOptions({ headless: true, executablePath: "/usr/bin/chromium", extraArgs: [`--user-agent=${REAL_UA}`] }));

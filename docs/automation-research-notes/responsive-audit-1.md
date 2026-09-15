@@ -16,8 +16,8 @@ symptom (button cut off, grid clipped right).
 
 ## FINDING 1 — Page header: non-wrapping flex + fixed 16rem dropdown clips the primary button  ⬅ THE VISIBLE "+ New Profile cut off" BUG
 
-**File:** `src/pages/Profiles.tsx:112-149` (header container), `:127-139` (Dropdown), `:141-148` ("+ New Profile" button)
-**Twin:** `src/pages/ProfileVariants.tsx:420-469` (same pattern; clips "+ Generate from CV" / Delete)
+**File:** `src/pages/profiles/Profiles.tsx:112-149` (header container), `:127-139` (Dropdown), `:141-148` ("+ New Profile" button)
+**Twin:** `src/pages/profiles/ProfileVariants.tsx:420-469` (same pattern; clips "+ Generate from CV" / Delete)
 
 The header is a flex row with **no `flex-wrap`**:
 
@@ -57,7 +57,7 @@ and is clipped by the `overflow:hidden` on `.page--fill`/`.ws-panel`.
 ## FINDING 2 — 3-column `.form-row` collapses on VIEWPORT width, not container width (stays 3-wide & cramped inside the sidebar-offset Workspace)
 
 **File:** `src/styles/theme.css:2583-2613` (`.form-row`, `.form-row--3`, `.form-row--4`, the `@media (max-width:720px)` collapse)
-**Consumers:** `src/pages/Profiles.tsx:356,394,439,485,521` — every `<FormRow cols={3}>` (Salary/Currency/Period; Brazil/EU/Visa; Start/Relocation/English; Location/Years; Links). Component: `src/components/ui/Field.tsx:131-145`.
+**Consumers:** `src/pages/profiles/Profiles.tsx:356,394,439,485,521` — every `<FormRow cols={3}>` (Salary/Currency/Period; Brazil/EU/Visa; Start/Relocation/English; Location/Years; Links). Component: `src/components/ui/Field.tsx:131-145`.
 
 The grid itself is well-defended against true overflow:
 - `theme.css:2586` tracks are `repeat(var(--form-row-cols,2), minmax(0, 1fr))` → tracks can shrink to 0.
@@ -98,7 +98,7 @@ by switching the `@media` to a container query (`@container`) on `.section-group
 
 ## FINDING 3 — Scroll wrapper lacks `min-width:0` / `max-width:100%` guard (defense-in-depth)
 
-**File:** `src/pages/Profiles.tsx:166` — `<div style={{ flex:1, minHeight:0, overflowY:"auto" }}>`
+**File:** `src/pages/profiles/Profiles.tsx:166` — `<div style={{ flex:1, minHeight:0, overflowY:"auto" }}>`
 
 This is the only bounded scroll box for the detail form, but it sets `overflowY`
 only. It relies entirely on descendants behaving. Given the page is already known
@@ -112,10 +112,10 @@ this wrapper is not one of the classes they target (`.field/.card/.stat-tile/.pa
 
 ## CLEARED (checked, NOT overflow sources)
 
-- `src/pages/SettingsLogs.tsx:728,794` — grids already use
+- `src/pages/settings-logs/SettingsLogs.tsx:728,794` — grids already use
   `repeat(auto-fill, minmax(200px/160px, 1fr))`. Correctly responsive; no fixed N,
   no fixed px width, no tables, no `white-space:nowrap`. Nothing to fix.
-- `src/pages/Workspace.tsx` / `Workspace.css` — `.ws-panel` is `overflow:hidden` +
+- `src/pages/workspace/Workspace.tsx` / `Workspace.css` — `.ws-panel` is `overflow:hidden` +
   flex-column with `.ws-panel > * { min-height:0 }` (Workspace.css:57-67). Sound.
   It does NOT add horizontal overflow; it is the CLIP surface that makes Finding 1
   visible, not the cause.

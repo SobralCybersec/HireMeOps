@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "./useSettingsStore";
-import { invokeStrict, safeInvoke } from "../lib/tauriInvoke";
-import type { AppSettings } from "../types/settings";
+import { invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import type { AppSettings } from "../../types/settings";
 
-vi.mock("../lib/tauriInvoke", () => ({
+vi.mock("../../lib/tauri/tauriInvoke", () => ({
   safeInvoke: vi.fn(),
   invokeStrict: vi.fn(),
   errMessage: (e: unknown): string =>

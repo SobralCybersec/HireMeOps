@@ -2,7 +2,7 @@
 // press, plus a smoke test that captcha.js loads and honors the auto-off gate.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import ShyMouse, { getShyMouse } from "./shy-mouse.js";
-import { passCaptchaOnPage, captchaSolvingEnabled } from "./captcha.js";
+import { passCaptchaOnPage, captchaSolvingEnabled } from "../captcha/captcha.js";
 
 const VIEWPORT = {
   width: 1280,

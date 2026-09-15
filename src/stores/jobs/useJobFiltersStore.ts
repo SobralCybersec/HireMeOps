@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { JobFilters } from "../types/domain";
+import type { JobFilters } from "../../types/domain";
 
 const DEFAULT_FILTERS: JobFilters = {
   targetRoles: [],

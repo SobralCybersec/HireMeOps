@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, Card } from "../../components/ui";
 import type { AiProviderSettings } from "../../types/settings";
-import { invokeStrict } from "../../lib/tauriInvoke";
+import { invokeStrict } from "../../lib/tauri/tauriInvoke";
 import { ProviderIcon } from "./ProviderIcon";
 import { isProviderConfigured } from "./providerMeta";
 import { BrowserProviderPanel } from "./BrowserProviderPanel";

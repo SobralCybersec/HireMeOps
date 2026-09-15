@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { ProfileVariantDto, ProfileSyncPlan } from "../types/domain";
-import { safeInvoke, invokeStrict, errMessage } from "../lib/tauriInvoke";
+import type { ProfileVariantDto, ProfileSyncPlan } from "../../types/domain";
+import { safeInvoke, invokeStrict, errMessage } from "../../lib/tauri/tauriInvoke";
 
 interface ProfileVariantStoreState {
   variants: ProfileVariantDto[];

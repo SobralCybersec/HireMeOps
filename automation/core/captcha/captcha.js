@@ -17,7 +17,7 @@
 // Key: captchaSolvingEnabled — gated by env HIREMEOPS_AUTO_CAPTCHA
 // Key: passCaptchaOnPage — detects the challenge type and runs the matching keyless solve.
 
-import { getShyMouse } from "./shy-mouse.js";
+import { getShyMouse } from "../human/shy-mouse.js";
 
 const enabled = () => /^(1|true|yes|on)$/i.test(process.env.HIREMEOPS_AUTO_CAPTCHA || "");
 

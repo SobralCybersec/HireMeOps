@@ -6,7 +6,7 @@ import {
   encodeBrowserModel,
   isAutomaticBrowserModel,
 } from "./browser-model-selection";
-import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauriInvoke";
+import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
 import type { AiProviderSettings } from "../../types/settings";
 
 /**

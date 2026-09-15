@@ -8,17 +8,17 @@ Node + [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) browser 
 
 ```bash
 # all sites, query "developer"
-node automation/headless-test.mjs
+node automation/tests/live/headless-test.mjs
 
 # only these sites, custom query
-node automation/headless-test.mjs linkedin,gupy react
+node automation/tests/live/headless-test.mjs linkedin,gupy react
 
 # against a logged-in jar (required for the login-gated boards)
 HMO_PROFILE_DIR=~/.local/share/com.hiremeops.app/profiles/default/browser \
-  node automation/headless-test.mjs
+  node automation/tests/live/headless-test.mjs
 
 # watch it run (headed instead of headless)
-HMO_HEADED=1 node automation/headless-test.mjs
+HMO_HEADED=1 node automation/tests/live/headless-test.mjs
 ```
 
 Exit code = number of sites that **errored** (crash/timeout). A login-gated site returning `0` without a jar is noted, not an error.
