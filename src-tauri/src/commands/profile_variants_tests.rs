@@ -1,30 +1,32 @@
+use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
+
+fn variant() -> ProfileVariantDto {
+    ProfileVariantDto {
+        id: "v1".into(),
+        profile_id: "p1".into(),
+        name: "Base".into(),
+        target_title: String::new(),
+        headline: String::new(),
+        summary: String::new(),
+        about_text: String::new(),
+        keywords: vec![],
+        positions: vec![],
+        skills: vec![],
+        experience: vec![],
+        education: vec![],
+        contact: ContactInfo::default(),
+        source_cv_document_id: None,
+        source_rewrite_id: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+    }
+}
+
 #[cfg(all(test, feature = "real-browser"))]
 mod catho_section_tests {
     use super::super::{catho_sections_from_variant, CathoSection};
+    use super::variant;
     use crate::ai::prompt::{CvEducationEntry, CvExperienceEntry};
-    use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
-
-    fn variant() -> ProfileVariantDto {
-        ProfileVariantDto {
-            id: "v1".into(),
-            profile_id: "p1".into(),
-            name: "Base".into(),
-            target_title: String::new(),
-            headline: String::new(),
-            summary: String::new(),
-            about_text: String::new(),
-            keywords: vec![],
-            positions: vec![],
-            skills: vec![],
-            experience: vec![],
-            education: vec![],
-            contact: ContactInfo::default(),
-            source_cv_document_id: None,
-            source_rewrite_id: None,
-            created_at: String::new(),
-            updated_at: String::new(),
-        }
-    }
 
     fn kinds(sections: &[CathoSection]) -> Vec<&str> {
         sections.iter().map(|s| s.kind.as_str()).collect()
@@ -142,30 +144,8 @@ mod catho_section_tests {
 #[cfg(all(test, feature = "real-browser"))]
 mod gupy_profile_tests {
     use super::super::gupy_profile_from_variant;
+    use super::variant;
     use crate::ai::prompt::{CvExperienceEntry, CvSkillGroup};
-    use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
-
-    fn variant() -> ProfileVariantDto {
-        ProfileVariantDto {
-            id: "v1".into(),
-            profile_id: "p1".into(),
-            name: "Base".into(),
-            target_title: String::new(),
-            headline: String::new(),
-            summary: String::new(),
-            about_text: String::new(),
-            keywords: vec![],
-            positions: vec![],
-            skills: vec![],
-            experience: vec![],
-            education: vec![],
-            contact: ContactInfo::default(),
-            source_cv_document_id: None,
-            source_rewrite_id: None,
-            created_at: String::new(),
-            updated_at: String::new(),
-        }
-    }
 
     #[test]
     fn flattens_and_dedups_skills_case_insensitively() {
@@ -221,30 +201,8 @@ mod gupy_profile_tests {
 #[cfg(all(test, feature = "real-browser"))]
 mod infojobs_profile_tests {
     use super::super::{infojobs_profile_from_variant, split_br_phone, split_first_surname};
+    use super::variant;
     use crate::ai::prompt::CvSkillGroup;
-    use crate::domain::profile_variants::{ContactInfo, ProfileVariantDto};
-
-    fn variant() -> ProfileVariantDto {
-        ProfileVariantDto {
-            id: "v1".into(),
-            profile_id: "p1".into(),
-            name: "Base".into(),
-            target_title: String::new(),
-            headline: String::new(),
-            summary: String::new(),
-            about_text: String::new(),
-            keywords: vec![],
-            positions: vec![],
-            skills: vec![],
-            experience: vec![],
-            education: vec![],
-            contact: ContactInfo::default(),
-            source_cv_document_id: None,
-            source_rewrite_id: None,
-            created_at: String::new(),
-            updated_at: String::new(),
-        }
-    }
 
     #[test]
     fn splits_name_into_first_and_surname() {

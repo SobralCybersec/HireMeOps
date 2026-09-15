@@ -531,32 +531,13 @@ mod indeed_answer_tests {
 pub async fn indeed_login(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
-        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-
-        let handle = state
-            .playwright
-            .open_login_session(&SessionSpec {
-                profile_id,
-                platform: "indeed".into(),
-                user_data_dir: dir,
-                extensions: vec![],
-                headless: false,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-        state
-            .playwright
-            .navigate(&handle, "https://secure.indeed.com/auth")
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
+        super::open_login_page(
+            &state,
+            profile_id,
+            "indeed",
+            "https://secure.indeed.com/auth",
+        )
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {

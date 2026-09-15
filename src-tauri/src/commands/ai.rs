@@ -4,14 +4,237 @@
 //! Key: list_models — discovers the models a provider endpoint exposes
 //! Key: set_api_key / clear_api_key / has_api_key — OS keyring management, secret never read back to the UI
 
+use serde::Deserialize;
 use serde::Serialize;
-use std::time::Duration;
+use std::{
+    collections::HashSet,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use crate::ai::{provider_from_settings, resolve_api_key, Provider};
 use crate::domain::ai::{AiProvider, CompletionRequest};
 use crate::storage::settings::AiProviderSettings;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+static CANCELLED_CHATS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn cancelled_chats() -> &'static Mutex<HashSet<String>> {
+    CANCELLED_CHATS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatModelMessage {
+    pub role: String,
+    pub content: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatRequest {
+    pub run_id: String,
+    pub model: Option<String>,
+    pub messages: Vec<ChatModelMessage>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ChatStreamEvent {
+    Start {
+        message_id: String,
+    },
+    TextDelta {
+        message_id: String,
+        delta: String,
+    },
+    ToolCall {
+        tool_call_id: String,
+        tool_name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_call_id: String,
+        output: serde_json::Value,
+    },
+    Finish {
+        message_id: String,
+    },
+    Abort {
+        message_id: String,
+    },
+}
+
+fn set_chat_cancelled(run_id: String) {
+    if let Ok(mut ids) = cancelled_chats().lock() {
+        ids.insert(run_id);
+    }
+}
+
+fn take_chat_cancelled(run_id: &str) -> bool {
+    cancelled_chats()
+        .lock()
+        .map(|mut ids| ids.remove(run_id))
+        .unwrap_or(false)
+}
+
+fn is_chat_cancelled(run_id: &str) -> bool {
+    cancelled_chats()
+        .lock()
+        .map(|ids| ids.contains(run_id))
+        .unwrap_or(false)
+}
+
+fn content_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                let object = part.as_object()?;
+                if object.get("type").and_then(serde_json::Value::as_str) == Some("text") {
+                    object
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+fn chat_prompt(messages: &[ChatModelMessage]) -> String {
+    messages
+        .iter()
+        .filter_map(|message| {
+            let text = content_text(&message.content);
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "{}: {}",
+                    message.role.to_ascii_uppercase(),
+                    text.trim()
+                ))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn text_chunks(text: &str, max_chars: usize) -> Vec<String> {
+    let mut chunk = String::new();
+    let mut chunks = Vec::new();
+    for character in text.chars() {
+        chunk.push(character);
+        if chunk.chars().count() >= max_chars && character.is_whitespace() {
+            chunks.push(std::mem::take(&mut chunk));
+        }
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    chunks
+}
+
+#[tauri::command]
+pub async fn chat_cancel(run_id: String) {
+    if !run_id.trim().is_empty() {
+        set_chat_cancelled(run_id);
+    }
+}
+
+#[tauri::command]
+pub async fn chat_stream(
+    state: tauri::State<'_, crate::AppState>,
+    request: ChatRequest,
+    channel: tauri::ipc::Channel<ChatStreamEvent>,
+) -> Result<(), String> {
+    let run_id = request.run_id.trim().to_string();
+    if run_id.is_empty() {
+        return Err("chat run id is empty".into());
+    }
+    if request.messages.is_empty() {
+        return Err("chat message history is empty".into());
+    }
+
+    take_chat_cancelled(&run_id);
+    let result = stream_chat_response(&state, &request, &run_id, &channel).await;
+    take_chat_cancelled(&run_id);
+    result
+}
+
+async fn stream_chat_response(
+    state: &crate::AppState,
+    request: &ChatRequest,
+    run_id: &str,
+    channel: &tauri::ipc::Channel<ChatStreamEvent>,
+) -> Result<(), String> {
+    let prompt = chat_prompt(&request.messages);
+    if prompt.trim().is_empty() {
+        return Err("chat message history has no text".into());
+    }
+    let (providers, default_index) = crate::storage::settings::load_ai_providers(&state.db)
+        .await
+        .map_err(|error| error.to_string())?;
+    let provider = crate::ai::select_provider_resolved(&providers, default_index).await;
+    let model = request
+        .model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(provider.default_model())
+        .to_string();
+    if model.is_empty() {
+        return Err("no AI model configured — choose one in Settings".into());
+    }
+
+    let system = Some(
+        "You are ENI, the HireMeOps assistant. Answer in the user's language. Be concise, practical, and never invent application state.".to_string(),
+    );
+    let response = crate::ai::complete_fresh(
+        &state.db,
+        &provider,
+        crate::domain::ai::CompletionRequest {
+            model,
+            prompt,
+            system,
+            input_hash: crate::ai::input_hash(&[run_id]),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+
+    let message_id = crate::util::new_id();
+    channel
+        .send(ChatStreamEvent::Start {
+            message_id: message_id.clone(),
+        })
+        .map_err(|error| error.to_string())?;
+
+    for delta in text_chunks(&response.text, 48) {
+        if is_chat_cancelled(run_id) {
+            channel
+                .send(ChatStreamEvent::Abort { message_id })
+                .map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        channel
+            .send(ChatStreamEvent::TextDelta {
+                message_id: message_id.clone(),
+                delta,
+            })
+            .map_err(|error| error.to_string())?;
+        tokio::time::sleep(Duration::from_millis(8)).await;
+    }
+
+    channel
+        .send(ChatStreamEvent::Finish { message_id })
+        .map_err(|error| error.to_string())
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,4 +393,34 @@ pub fn clear_api_key(kind: String) -> Result<(), String> {
 #[tauri::command]
 pub fn has_api_key(kind: String) -> bool {
     crate::ai::has_api_key(&kind)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chat_prompt, content_text, text_chunks, ChatModelMessage};
+    use serde_json::json;
+
+    #[test]
+    fn model_message_parts_become_prompt_text() {
+        let message = ChatModelMessage {
+            role: "user".into(),
+            content: json!([
+                {"type": "text", "text": " Find"},
+                {"type": "text", "text": " roles "},
+                {"type": "image", "image": "ignored"}
+            ]),
+        };
+
+        assert_eq!(content_text(&message.content), " Find roles ");
+        assert_eq!(chat_prompt(&[message]), "USER: Find roles");
+    }
+
+    #[test]
+    fn response_chunks_preserve_unicode_and_text() {
+        let text = "one two 你好";
+        let chunks = text_chunks(text, 4);
+
+        assert_eq!(chunks.join(""), text);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 5));
+    }
 }

@@ -134,6 +134,22 @@ async fn ingest_cards(ctx: &IngestContext<'_>, cards: &[JobCard]) -> Result<(u32
 }
 
 #[cfg(feature = "real-browser")]
+async fn ingest_search_result(
+    ctx: &IngestContext<'_>,
+    cards: &[JobCard],
+    has_next_page: bool,
+    pages_scraped: u32,
+) -> Result<LinkedInSearchResult, String> {
+    let (ingested, skipped_duplicates) = ingest_cards(ctx, cards).await?;
+    Ok(LinkedInSearchResult {
+        ingested,
+        skipped_duplicates,
+        has_next_page,
+        pages_scraped,
+    })
+}
+
+#[cfg(feature = "real-browser")]
 async fn ingest_card(ctx: &IngestContext<'_>, card: &JobCard, url: &str) -> Result<bool, String> {
     let canonical = canonicalize(url);
     let dedupe = check_dedupe(ctx.db, ctx.profile_id, ctx.platform, &canonical)

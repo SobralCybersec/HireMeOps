@@ -7,32 +7,13 @@ pub async fn linkedin_job_login(
 ) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
-        let linkedin_profile_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-
-        let handle = state
-            .playwright
-            .open_login_session(&SessionSpec {
-                profile_id,
-                platform: "linkedin".into(),
-                user_data_dir: linkedin_profile_dir,
-                extensions: vec![],
-                headless: false,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-        state
-            .playwright
-            .navigate(&handle, "https://www.linkedin.com/login")
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
+        crate::commands::open_login_page(
+            &state,
+            profile_id,
+            "linkedin",
+            "https://www.linkedin.com/login",
+        )
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Moon01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
+import { AiChat01Icon, Moon01Icon, Sun01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./ui/Icon";
 import { NAV_GROUPS } from "../app/routes";
 import { useThemeStore } from "../stores/useThemeStore";
 import { useSettingsStore } from "../stores/useSettingsStore";
+import { useUiStore } from "../stores/useUiStore";
 import { openSettingsWindow, IS_TAURI } from "../lib/openSettingsWindow";
 import "./TopNav.css";
 
@@ -16,6 +17,7 @@ export function TopNav() {
   const [open, setOpen] = useState(false);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
+  const toggleAssistant = useUiStore((s) => s.toggleAssistant);
   const isDark = theme !== "light";
 
   function toggleTheme() {
@@ -102,6 +104,16 @@ export function TopNav() {
       </div>
 
       <footer className="hud-rail__foot">
+        <button
+          type="button"
+          className="hud-rail__theme"
+          onClick={toggleAssistant}
+          aria-label="Open AI assistant"
+          title="AI assistant"
+        >
+          <Icon icon={AiChat01Icon} size={16} />
+          {!open && <span>AI assistant</span>}
+        </button>
         <button
           type="button"
           className="hud-rail__theme"

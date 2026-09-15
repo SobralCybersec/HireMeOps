@@ -248,6 +248,8 @@ macro_rules! app_invoke_handler {
             commands::browser_view::preview_webview_close,
             commands::ai::test_provider,
             commands::ai::list_models,
+            commands::ai::chat_stream,
+            commands::ai::chat_cancel,
             commands::ai::set_api_key,
             commands::ai::clear_api_key,
             commands::ai::has_api_key,

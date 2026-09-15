@@ -2,9 +2,13 @@ import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 import { TopNav } from "./TopNav";
 import { OnboardingOverlay } from "./OnboardingOverlay";
+import { AssistantChatModal } from "./AssistantChatModal";
+import { useUiStore } from "../stores/useUiStore";
 
 export function AppLayout() {
   const isDesktopRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const assistantOpen = useUiStore((s) => s.assistantOpen);
+  const setAssistantOpen = useUiStore((s) => s.setAssistantOpen);
 
   return (
     <div className="app-shell">
@@ -15,6 +19,7 @@ export function AppLayout() {
       </a>
 
       <TopNav />
+      <AssistantChatModal open={assistantOpen} onOpenChange={setAssistantOpen} />
 
       <div className="app-main">
         {!isDesktopRuntime && (

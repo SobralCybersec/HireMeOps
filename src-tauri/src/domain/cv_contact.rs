@@ -18,14 +18,21 @@ pub(super) fn backfill_contact(src: &str, contact: &mut CvContact) {
     }
 
     let links = extract_links(src);
+    backfill_link_fields(&links, contact);
+    if contact.phone.is_empty() {
+        contact.phone = extract_phone(src).unwrap_or_default();
+    }
+}
+
+fn backfill_link_fields(links: &[SourceLink], contact: &mut CvContact) {
     if contact.github.is_empty() {
-        contact.github = first_profile_handle(&links, "github.com");
+        contact.github = first_profile_handle(links, "github.com");
     }
     if contact.gitlab.is_empty() {
-        contact.gitlab = first_profile_handle(&links, "gitlab.com");
+        contact.gitlab = first_profile_handle(links, "gitlab.com");
     }
     if contact.linkedin.is_empty() {
-        contact.linkedin = first_linkedin_handle(&links);
+        contact.linkedin = first_linkedin_handle(links);
     }
     if contact.website.is_empty() {
         contact.website = links
@@ -34,27 +41,28 @@ pub(super) fn backfill_contact(src: &str, contact: &mut CvContact) {
             .map(|link| link.url.clone())
             .unwrap_or_default();
     }
+}
 
-    if contact.phone.is_empty() {
-        let mut scratch: Vec<char> = Vec::new();
-        let mut digit_count = 0;
-        for c in src.chars().chain(std::iter::once('\0')) {
-            let keep = c.is_ascii_digit() || matches!(c, '+' | '(' | ')' | '.' | '-' | ' ');
-            if keep {
-                scratch.push(c);
-                if c.is_ascii_digit() {
-                    digit_count += 1;
-                }
-            } else {
-                if digit_count >= 10 && scratch.len() <= 24 {
-                    contact.phone = scratch.iter().collect::<String>().trim().to_string();
-                    break;
-                }
-                scratch.clear();
-                digit_count = 0;
+fn extract_phone(src: &str) -> Option<String> {
+    let mut scratch: Vec<char> = Vec::new();
+    let mut digit_count = 0;
+    for character in src.chars().chain(std::iter::once('\0')) {
+        let keep =
+            character.is_ascii_digit() || matches!(character, '+' | '(' | ')' | '.' | '-' | ' ');
+        if keep {
+            scratch.push(character);
+            if character.is_ascii_digit() {
+                digit_count += 1;
             }
+            continue;
         }
+        if digit_count >= 10 && scratch.len() <= 24 {
+            return Some(scratch.iter().collect::<String>().trim().to_string());
+        }
+        scratch.clear();
+        digit_count = 0;
     }
+    None
 }
 
 /// Fill empty project/portfolio URLs from source lines that mention each entry.

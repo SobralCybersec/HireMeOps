@@ -220,7 +220,7 @@ pub async fn run_catho_search(
             .await
             .map_err(|e| e.to_string())?;
 
-        let (ingested, skipped_duplicates) = ingest_cards(
+        ingest_search_result(
             &IngestContext {
                 app: &app,
                 db: &state.db,
@@ -232,15 +232,10 @@ pub async fn run_catho_search(
                 extract_contact_email: false,
             },
             &result.jobs,
+            result.has_next_page,
+            max_pages.unwrap_or(3),
         )
-        .await?;
-
-        Ok(LinkedInSearchResult {
-            ingested,
-            skipped_duplicates,
-            has_next_page: result.has_next_page,
-            pages_scraped: max_pages.unwrap_or(3),
-        })
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -291,7 +286,7 @@ pub async fn run_upwork_search(
             .await
             .map_err(|e| e.to_string())?;
 
-        let (ingested, skipped_duplicates) = ingest_cards(
+        ingest_search_result(
             &IngestContext {
                 app: &app,
                 db: &state.db,
@@ -303,15 +298,10 @@ pub async fn run_upwork_search(
                 extract_contact_email: false,
             },
             &result.jobs,
+            result.has_next_page,
+            max_pages.unwrap_or(3),
         )
-        .await?;
-
-        Ok(LinkedInSearchResult {
-            ingested,
-            skipped_duplicates,
-            has_next_page: result.has_next_page,
-            pages_scraped: max_pages.unwrap_or(3),
-        })
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -356,7 +346,7 @@ pub async fn run_freelas99_search(
             .await
             .map_err(|e| e.to_string())?;
 
-        let (ingested, skipped_duplicates) = ingest_cards(
+        ingest_search_result(
             &IngestContext {
                 app: &app,
                 db: &state.db,
@@ -368,15 +358,10 @@ pub async fn run_freelas99_search(
                 extract_contact_email: false,
             },
             &result.jobs,
+            result.has_next_page,
+            max_pages.unwrap_or(3),
         )
-        .await?;
-
-        Ok(LinkedInSearchResult {
-            ingested,
-            skipped_duplicates,
-            has_next_page: result.has_next_page,
-            pages_scraped: max_pages.unwrap_or(3),
-        })
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -410,7 +395,7 @@ pub async fn run_programathor_search(
             .await
             .map_err(|e| e.to_string())?;
 
-        let (ingested, skipped_duplicates) = ingest_cards(
+        ingest_search_result(
             &IngestContext {
                 app: &app,
                 db: &state.db,
@@ -422,15 +407,10 @@ pub async fn run_programathor_search(
                 extract_contact_email: false,
             },
             &result.jobs,
+            result.has_next_page,
+            max_pages.unwrap_or(5),
         )
-        .await?;
-
-        Ok(LinkedInSearchResult {
-            ingested,
-            skipped_duplicates,
-            has_next_page: result.has_next_page,
-            pages_scraped: max_pages.unwrap_or(5),
-        })
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {

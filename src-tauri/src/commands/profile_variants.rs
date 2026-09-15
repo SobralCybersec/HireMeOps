@@ -19,6 +19,13 @@ fn service(state: &AppState) -> ProfileVariantServiceImpl {
     ProfileVariantServiceImpl::new(state.db.clone())
 }
 
+async fn load_variant(state: &AppState, variant_id: &str) -> Result<ProfileVariantDto, String> {
+    service(state)
+        .get(variant_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn create_profile_variant(
     state: State<'_, AppState>,
@@ -145,10 +152,7 @@ pub async fn push_variant_to_linkedin(
     variant_id: String,
     section_ids: Option<Vec<String>>,
 ) -> Result<Vec<SyncSectionResult>, String> {
-    let variant = service(&state)
-        .get(&variant_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let variant = load_variant(&state, &variant_id).await?;
 
     let plan = plan_from_variant(&variant);
 
@@ -195,32 +199,13 @@ pub async fn push_variant_to_linkedin(
 pub async fn catho_login(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
-        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-
-        let handle = state
-            .playwright
-            .open_login_session(&SessionSpec {
-                profile_id,
-                platform: "catho".into(),
-                user_data_dir: dir,
-                extensions: vec![],
-                headless: false,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-        state
-            .playwright
-            .navigate(&handle, "https://www.catho.com.br/signin/")
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
+        super::open_login_page(
+            &state,
+            profile_id,
+            "catho",
+            "https://www.catho.com.br/signin/",
+        )
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -335,10 +320,7 @@ pub async fn push_variant_to_catho(
     variant_id: String,
     section_ids: Option<Vec<String>>,
 ) -> Result<Vec<SyncSectionResult>, String> {
-    let variant = service(&state)
-        .get(&variant_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let variant = load_variant(&state, &variant_id).await?;
 
     let sections: Vec<CathoSection> = catho_sections_from_variant(&variant)
         .into_iter()
@@ -395,37 +377,44 @@ pub struct GupyProfile {
 }
 
 #[cfg(feature = "real-browser")]
+fn normalized_skills(variant: &crate::domain::profile_variants::ProfileVariantDto) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    variant
+        .skills
+        .iter()
+        .flat_map(|group| group.skills.split([',', '\n', ';']))
+        .map(str::trim)
+        .filter(|skill| !skill.is_empty() && seen.insert(skill.to_lowercase()))
+        .map(str::to_string)
+        .collect()
+}
+
+#[cfg(feature = "real-browser")]
+fn normalized_experiences(
+    variant: &crate::domain::profile_variants::ProfileVariantDto,
+) -> Vec<GupyExperience> {
+    variant
+        .experience
+        .iter()
+        .filter(|entry| !entry.title.trim().is_empty())
+        .map(|entry| GupyExperience {
+            company: entry.organization.trim().to_string(),
+            role: entry.title.trim().to_string(),
+            dates: entry.dates.trim().to_string(),
+            bullets: entry
+                .bullets
+                .iter()
+                .map(|bullet| bullet.trim().to_string())
+                .filter(|bullet| !bullet.is_empty())
+                .collect(),
+        })
+        .collect()
+}
+
+#[cfg(feature = "real-browser")]
 fn gupy_profile_from_variant(
     variant: &crate::domain::profile_variants::ProfileVariantDto,
 ) -> GupyProfile {
-    let experiences = variant
-        .experience
-        .iter()
-        .filter(|e| !e.title.trim().is_empty())
-        .map(|e| GupyExperience {
-            company: e.organization.trim().to_string(),
-            role: e.title.trim().to_string(),
-            dates: e.dates.trim().to_string(),
-            bullets: e
-                .bullets
-                .iter()
-                .map(|b| b.trim().to_string())
-                .filter(|b| !b.is_empty())
-                .collect(),
-        })
-        .collect();
-
-    let mut seen = std::collections::HashSet::new();
-    let mut skills = Vec::new();
-    for group in &variant.skills {
-        for s in group.skills.split([',', '\n', ';']) {
-            let s = s.trim();
-            if !s.is_empty() && seen.insert(s.to_lowercase()) {
-                skills.push(s.to_string());
-            }
-        }
-    }
-
     let linkedin_url = variant
         .contact
         .website
@@ -435,8 +424,8 @@ fn gupy_profile_from_variant(
         .to_string();
 
     GupyProfile {
-        experiences,
-        skills,
+        experiences: normalized_experiences(variant),
+        skills: normalized_skills(variant),
         linkedin_url,
     }
 }
@@ -447,10 +436,7 @@ pub async fn push_variant_to_gupy(
     state: State<'_, AppState>,
     variant_id: String,
 ) -> Result<Vec<SyncSectionResult>, String> {
-    let variant = service(&state)
-        .get(&variant_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let variant = load_variant(&state, &variant_id).await?;
 
     let profile = gupy_profile_from_variant(&variant);
     if profile.experiences.is_empty()
@@ -579,34 +565,6 @@ fn infojobs_profile_from_variant(
         .map(split_br_phone)
         .unwrap_or_default();
 
-    let mut seen = std::collections::HashSet::new();
-    let mut skills = Vec::new();
-    for group in &variant.skills {
-        for s in group.skills.split([',', '\n', ';']) {
-            let s = s.trim();
-            if !s.is_empty() && seen.insert(s.to_lowercase()) {
-                skills.push(s.to_string());
-            }
-        }
-    }
-
-    let experiences = variant
-        .experience
-        .iter()
-        .filter(|e| !e.title.trim().is_empty())
-        .map(|e| GupyExperience {
-            company: e.organization.trim().to_string(),
-            role: e.title.trim().to_string(),
-            dates: e.dates.trim().to_string(),
-            bullets: e
-                .bullets
-                .iter()
-                .map(|b| b.trim().to_string())
-                .filter(|b| !b.is_empty())
-                .collect(),
-        })
-        .collect();
-
     let education = variant
         .education
         .iter()
@@ -631,8 +589,8 @@ fn infojobs_profile_from_variant(
             .map(str::trim)
             .unwrap_or("")
             .to_string(),
-        skills,
-        experiences,
+        skills: normalized_skills(variant),
+        experiences: normalized_experiences(variant),
         education,
     }
 }
@@ -643,10 +601,7 @@ pub async fn push_variant_to_infojobs(
     state: State<'_, AppState>,
     variant_id: String,
 ) -> Result<Vec<SyncSectionResult>, String> {
-    let variant = service(&state)
-        .get(&variant_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    let variant = load_variant(&state, &variant_id).await?;
 
     let profile = infojobs_profile_from_variant(&variant);
     if profile.first_name.is_empty() && profile.summary.is_empty() && profile.skills.is_empty() {
@@ -681,35 +636,13 @@ pub async fn push_variant_to_infojobs(
 pub async fn infojobs_login(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
-        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-
-        let handle = state
-            .playwright
-            .open_login_session(&SessionSpec {
-                profile_id,
-                platform: "infojobs".into(),
-                user_data_dir: dir,
-                extensions: vec![],
-                headless: false,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-        state
-            .playwright
-            .navigate(
-                &handle,
-                "https://www.infojobs.com.br/candidate/cv/insert2.aspx",
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
+        super::open_login_page(
+            &state,
+            profile_id,
+            "infojobs",
+            "https://www.infojobs.com.br/candidate/cv/insert2.aspx",
+        )
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {
@@ -796,32 +729,13 @@ pub async fn check_all_logins(
 pub async fn open_gmail(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {
     #[cfg(feature = "real-browser")]
     {
-        use crate::domain::automation::{BrowserDriver, SessionSpec};
-        use crate::storage::paths::automation_profile_dir;
-
-        let dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
-            .to_string_lossy()
-            .into_owned();
-
-        let handle = state
-            .playwright
-            .open_login_session(&SessionSpec {
-                profile_id,
-                platform: "gmail".into(),
-                user_data_dir: dir,
-                extensions: vec![],
-                headless: false,
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-        state
-            .playwright
-            .navigate(&handle, "https://mail.google.com/mail/u/0/#inbox")
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
+        super::open_login_page(
+            &state,
+            profile_id,
+            "gmail",
+            "https://mail.google.com/mail/u/0/#inbox",
+        )
+        .await
     }
     #[cfg(not(feature = "real-browser"))]
     {

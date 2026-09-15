@@ -3,10 +3,8 @@ import {
   Field,
   FormRow,
   Icon,
-  Input,
   RadioGroup,
   Select,
-  Switch,
   Toolbar,
   ToolbarSep,
 } from "../../components/ui";
@@ -19,7 +17,6 @@ import { BrowserExtensionsPanel } from "../settings/BrowserExtensionsPanel";
 import { DataCleanupPanel } from "../settings/DataCleanupPanel";
 import { DockerStatusPanel } from "../settings/DockerStatusPanel";
 import { SectionHeader } from "../settings/SectionHeader";
-import { SettingRow } from "../settings/SettingRow";
 import type {
   AiProviderSettings,
   AppSettings,
@@ -30,6 +27,8 @@ import { SettingsLogsExports, type ExportKey } from "./SettingsLogsExports";
 import type { Tab } from "./SettingsLogsNavigation";
 import { GeneralPortableRow } from "./SettingsLogsGeneralPortableRow";
 import { HeadlessAutomationSection } from "./SettingsLogsHeadlessAutomation";
+import { BrowserAiProviderRow } from "./BrowserAiProviderRow";
+import { BrowserProfileInput } from "./BrowserProfileInput";
 
 const REDUCED_OPTS: { value: string; label: string }[] = [
   { value: "auto", label: "Auto - follow OS prefers-reduced-motion" },
@@ -380,21 +379,6 @@ interface BrowserSettingsProps {
   updateSettings: UpdateSettings;
 }
 
-function BrowserProfileInput({ settings }: Pick<BrowserSettingsProps, "settings">) {
-  return (
-    <Input
-      id="browser-root"
-      type="text"
-      value={settings?.browserProfileRootPath ?? ""}
-      readOnly
-      aria-readonly="true"
-      placeholder="Set by backend on first launch"
-      style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
-      onChange={() => {}}
-    />
-  );
-}
-
 function BrowserAiProviderSection({ settings, updateSettings }: BrowserSettingsProps) {
   return (
     <div style={{ marginTop: "var(--sp-2)" }}>
@@ -403,21 +387,6 @@ function BrowserAiProviderSection({ settings, updateSettings }: BrowserSettingsP
         <BrowserAiProviderRow settings={settings} updateSettings={updateSettings} />
       </div>
     </div>
-  );
-}
-
-function BrowserAiProviderRow({ settings, updateSettings }: BrowserSettingsProps) {
-  return (
-    <SettingRow
-      title="Auto-start AI provider on launch"
-      description="Warms up the ChatGPT browser session silently at startup so the first AI completion has no cold-start delay."
-    >
-      <Switch
-        checked={settings?.aiAutoInit ?? true}
-        onChange={(checked) => void updateSettings({ aiAutoInit: checked })}
-        aria-label="Auto-start AI provider on launch"
-      />
-    </SettingRow>
   );
 }
 

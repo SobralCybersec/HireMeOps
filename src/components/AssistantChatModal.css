@@ -1,0 +1,201 @@
+.assistant-chat-modal {
+  width: min(760px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-3, 0 20px 60px rgb(0 0 0 / 0.32));
+  animation: assistant-chat-pop var(--tx-base, 200ms) var(--ease-standard, ease-out);
+}
+
+.assistant-chat-modal::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.assistant-chat__header,
+.assistant-chat__composer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.assistant-chat__header {
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.assistant-chat__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.assistant-chat__title h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.assistant-chat__status {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+}
+
+.assistant-chat__status--streaming,
+.assistant-chat__status--submitted {
+  color: var(--color-accent);
+}
+
+.assistant-chat__status--error {
+  color: var(--color-danger);
+}
+
+.assistant-chat__messages {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}
+
+.assistant-chat__empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.assistant-chat__empty strong {
+  color: var(--color-text);
+}
+
+.assistant-chat__empty span {
+  max-width: 32rem;
+  font-size: var(--text-xs);
+}
+
+.assistant-chat__message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-width: 88%;
+}
+
+.assistant-chat__message--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.assistant-chat__message-label {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+}
+
+.assistant-chat__message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.assistant-chat__message--user .assistant-chat__message-text {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-2);
+}
+
+.assistant-chat__tool {
+  width: min(100%, 38rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 4px);
+  font-size: var(--text-xs);
+}
+
+.assistant-chat__tool summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.assistant-chat__tool summary span:last-child {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.assistant-chat__tool-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.assistant-chat__tool pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--sp-2);
+  border-top: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.assistant-chat__error {
+  flex-shrink: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+.assistant-chat__composer {
+  align-items: flex-end;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 0;
+}
+
+.assistant-chat__composer .field__textarea {
+  flex: 1;
+  min-height: 48px;
+  resize: vertical;
+}
+
+@keyframes assistant-chat-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
