@@ -16,7 +16,7 @@
 
 FROM mcr.microsoft.com/playwright:v1.62.1-noble
 # ^ Ubuntu 24.04; ships every Chromium shared-lib dep + Xvfb already. Pinned to
-#   match automation/package.json patchright 1.61.1 — bump both together.
+#   match automation/package.json patchright 1.62.1 — bump both together.
 
 ENV DEBIAN_FRONTEND=noninteractive
 

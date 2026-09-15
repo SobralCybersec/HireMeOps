@@ -292,7 +292,7 @@ HIREMEOPS_USE_DOCKER=1 bun run app
 
 | Flavour | Base | Trade |
 |---|---|---|
-| `noble` | `mcr.microsoft.com/playwright:v1.61.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
+| `noble` | `mcr.microsoft.com/playwright:v1.62.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
 | `slim` | `node:22-bookworm-slim` + `patchright install chromium` | Chromium only → noticeably smaller image |
 
 > **Why not Alpine?** patchright's Chromium is glibc-only — Playwright dropped musl/Alpine support and Chromium won't launch there. Slim **Debian** is the lightest base that actually runs a browser.
@@ -300,6 +300,14 @@ HIREMEOPS_USE_DOCKER=1 bun run app
 It runs Chromium **headed under Xvfb** inside the container (not headless) and NATs out through your own residential IP, so the stealth posture matches the host path — the container is a packaging convenience, not a detection change. The switch is fail-safe: if Docker is missing, the daemon is down, or the image isn't built, the worker silently falls back to `node worker.js` on the host. The per-profile cookie jars are volume-mounted at their real paths, so logins persist exactly as on the host. A `.dockerignore` keeps the build context tiny (excludes `target/`, `node_modules/`, `.git`) — without it the build would ship ~18 GB to the daemon.
 
 > **Detection tradeoff:** the hard-blocked sites (Indeed, Upwork, Cloudflare-gated boards, Catho, Google) still need the headed+Xvfb path — which the container provides. Don't run those headless anywhere.
+
+### One-shot Northflank cloud worker
+
+Cloud browser execution uses a separate headless image with no Tauri, frontend, AI
+agent or persistent profile volume. It restores encrypted BrowserContext storage
+state, runs the existing `automation/worker.js`, persists results and refreshed
+state, then exits. Setup, Secret Group variables, session sync/revoke and memory
+measurement live in [`docs/CLOUD_BROWSER.md`](docs/CLOUD_BROWSER.md).
 
 ---
 

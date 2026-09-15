@@ -714,7 +714,7 @@ pub async fn check_all_logins(
 
         let status = state
             .playwright
-            .check_logins(&dir)
+            .check_logins_detailed(&dir)
             .await
             .map_err(|e| e.to_string())?;
         Ok(serde_json::Value::Object(status))

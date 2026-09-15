@@ -14,6 +14,7 @@ impl PlaywrightDriver {
             parked: Mutex::new(None),
             parked_indeed: Mutex::new(None),
             login_session: Mutex::new(None),
+            login_profile_id: Mutex::new(None),
             current_session: Mutex::new(None),
         }
     }
@@ -79,7 +80,15 @@ impl PlaywrightDriver {
         }
         let handle = self.open(spec).await?;
         *self.login_session.lock().await = Some(handle.clone());
+        *self.login_profile_id.lock().await = Some(spec.profile_id.clone());
         Ok(handle)
+    }
+
+    pub async fn login_session_for(&self, profile_id: &str) -> Option<String> {
+        if self.login_profile_id.lock().await.as_deref() != Some(profile_id) {
+            return None;
+        }
+        self.login_session.lock().await.clone()
     }
 
     pub(super) async fn conn(&self) -> DomainResult<Arc<WorkerConn>> {
@@ -112,6 +121,10 @@ impl PlaywrightDriver {
 
     pub async fn close_session(&self, handle: &str) {
         let _ = self.rpc(json!({ "cmd": "close", "handle": handle })).await;
+        if self.login_session.lock().await.as_deref() == Some(handle) {
+            *self.login_session.lock().await = None;
+            *self.login_profile_id.lock().await = None;
+        }
     }
 
     pub async fn check_login(&self, user_data_dir: &str) -> DomainResult<bool> {
@@ -140,13 +153,51 @@ impl PlaywrightDriver {
     }
 
     pub async fn check_logins(&self, user_data_dir: &str) -> DomainResult<Map<String, Value>> {
-        let reply = self
-            .rpc(json!({ "cmd": "check_logins", "user_data_dir": user_data_dir }))
-            .await?;
+        let reply = self.check_logins_detailed(user_data_dir).await?;
         Ok(reply
             .get("status")
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default())
+    }
+
+    pub async fn check_logins_detailed(
+        &self,
+        user_data_dir: &str,
+    ) -> DomainResult<Map<String, Value>> {
+        self.rpc(json!({ "cmd": "check_logins", "user_data_dir": user_data_dir }))
+            .await
+    }
+
+    pub async fn export_storage_state(&self, handle: &str) -> DomainResult<(i32, Value)> {
+        let reply = self
+            .rpc(json!({ "cmd": "export_storage_state", "handle": handle }))
+            .await?;
+        let version = reply
+            .get("version")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| {
+                DomainError::Other(anyhow::anyhow!("storage state reply missing version"))
+            })? as i32;
+        let state = reply.get("storageState").cloned().ok_or_else(|| {
+            DomainError::Other(anyhow::anyhow!("storage state reply missing state"))
+        })?;
+        Ok((version, state))
+    }
+
+    pub async fn import_storage_state(
+        &self,
+        handle: &str,
+        version: i32,
+        storage_state: Value,
+    ) -> DomainResult<()> {
+        self.rpc(json!({
+            "cmd": "import_storage_state",
+            "handle": handle,
+            "version": version,
+            "storageState": storage_state,
+        }))
+        .await?;
+        Ok(())
     }
 }

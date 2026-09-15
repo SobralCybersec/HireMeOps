@@ -1954,8 +1954,10 @@ name = "hiremeops"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chromiumoxide",
  "futures",
+ "hex",
  "keyring",
  "lopdf 0.44.0",
  "memory-stats",
@@ -1963,6 +1965,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.11.0",

@@ -1,0 +1,71 @@
+{
+  "workload": "synthetic-local-browser",
+  "stages": [
+    {
+      "stage": "startup",
+      "at": "2026-09-15T17:59:29.566Z",
+      "nodeRssMb": 60.7,
+      "nodePssMb": 39.9,
+      "chromiumPssMb": 0,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 25.7,
+      "cgroupPeakMb": 25.7,
+      "chromiumProcesses": 0
+    },
+    {
+      "stage": "browser-open",
+      "at": "2026-09-15T17:59:30.079Z",
+      "nodeRssMb": 61.2,
+      "nodePssMb": 125,
+      "chromiumPssMb": 314.5,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 258,
+      "cgroupPeakMb": 260.4,
+      "chromiumProcesses": 9
+    },
+    {
+      "stage": "scraping-1",
+      "at": "2026-09-15T17:59:30.164Z",
+      "nodeRssMb": 62.3,
+      "nodePssMb": 126.3,
+      "chromiumPssMb": 394.8,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 304.2,
+      "cgroupPeakMb": 304.2,
+      "chromiumProcesses": 11
+    },
+    {
+      "stage": "scraping-2",
+      "at": "2026-09-15T17:59:30.220Z",
+      "nodeRssMb": 62.5,
+      "nodePssMb": 126.3,
+      "chromiumPssMb": 429.3,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 326.6,
+      "cgroupPeakMb": 326.6,
+      "chromiumProcesses": 11
+    },
+    {
+      "stage": "scraping-3",
+      "at": "2026-09-15T17:59:30.273Z",
+      "nodeRssMb": 62.8,
+      "nodePssMb": 127.1,
+      "chromiumPssMb": 452,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 348.5,
+      "cgroupPeakMb": 350.7,
+      "chromiumProcesses": 11
+    },
+    {
+      "stage": "shutdown",
+      "at": "2026-09-15T17:59:30.348Z",
+      "nodeRssMb": 62.8,
+      "nodePssMb": 35.3,
+      "chromiumPssMb": 0,
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 27.2,
+      "cgroupPeakMb": 350.7,
+      "chromiumProcesses": 0
+    }
+  ]
+}

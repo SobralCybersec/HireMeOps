@@ -18,6 +18,22 @@ export interface DockerStatus {
   summary: string;
 }
 
+export type BrowserSessionStatus =
+  "valid" | "expired" | "login_required" | "challenged" | "unknown" | "revoked";
+
+export interface BrowserSessionMetadata {
+  id: string;
+  profileId: string;
+  encryptionVersion: number;
+  stateFormatVersion: number;
+  revision: number;
+  status: BrowserSessionStatus;
+  platformStatus: Record<string, BrowserSessionStatus>;
+  createdAt: string;
+  updatedAt: string;
+  lastValidatedAt: string | null;
+}
+
 export interface CvDocument {
   id: string;
   profileId: string;

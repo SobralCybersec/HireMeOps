@@ -57,6 +57,7 @@ pub struct PlaywrightDriver {
     parked: Mutex<Option<ParkedInfo>>,
     parked_indeed: Mutex<Option<String>>,
     login_session: Mutex<Option<String>>,
+    login_profile_id: Mutex<Option<String>>,
     current_session: Mutex<Option<String>>,
 }
 

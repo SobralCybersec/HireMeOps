@@ -80,6 +80,12 @@ const LOGIN_PROBES = {
   },
 };
 
+export function classifyLogin(url, out) {
+  if (/checkpoint|challenge|captcha|mfa|verify|verification/i.test(url)) return "challenged";
+  if (out.test(url)) return "login_required";
+  return "valid";
+}
+
 export async function cmdOpenLoginTabs({ handle, sites }) {
   const sess = sessions.get(handle);
   if (!sess) throw new Error(`open_login_tabs: unknown handle ${handle}`);
@@ -99,26 +105,12 @@ export async function cmdOpenLoginTabs({ handle, sites }) {
   return { opened };
 }
 
-export async function cmdCheckLogins({ user_data_dir }) {
-  const status = { linkedin: false, catho: false, infojobs: false, indeed: false, gupy: false };
-  const probeOne = async (browser, site) => {
-    const { url, out } = LOGIN_PROBES[site];
-    let tab;
-    try {
-      tab = await browser.newPage();
-      await tab.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
-      status[site] = !out.test(tab.url());
-    } catch {
-      status[site] = false;
-    } finally {
-      if (tab) await tab.close().catch(() => {});
-    }
-  };
-
+export async function cmdCheckLogins({ user_data_dir, reuse_page = false }) {
+  const result = createLoginResult();
   const existing = [...sessions.values()].find((s) => s.user_data_dir === user_data_dir);
   if (existing) {
-    for (const site of Object.keys(LOGIN_PROBES)) await probeOne(existing.browser, site);
-    return { status };
+    const sharedPage = reuse_page ? existing.page : null;
+    return checkBrowserLogins(existing.browser, sharedPage, result);
   }
   await reclaimProfileDir(user_data_dir);
   const resolvedExec = resolveChromiumExec();
@@ -130,12 +122,42 @@ export async function cmdCheckLogins({ user_data_dir }) {
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
       executablePath: resolvedExec,
     });
-    for (const site of Object.keys(LOGIN_PROBES)) await probeOne(browser, site);
+    const sharedPage = reuse_page ? (browser.pages()[0] ?? (await browser.newPage())) : null;
+    await checkBrowserLogins(browser, sharedPage, result);
   } catch {
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
-  return { status };
+  return result;
+}
+
+function createLoginResult() {
+  return {
+    status: { linkedin: false, catho: false, infojobs: false, indeed: false, gupy: false },
+    platform_status: {},
+  };
+}
+
+async function checkBrowserLogins(browser, sharedPage, result) {
+  for (const site of Object.keys(LOGIN_PROBES)) {
+    await probeLogin(browser, site, sharedPage, result);
+  }
+  return result;
+}
+
+async function probeLogin(browser, site, sharedPage, result) {
+  const { url, out } = LOGIN_PROBES[site];
+  const tab = sharedPage ?? (await browser.newPage());
+  try {
+    await tab.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    result.platform_status[site] = classifyLogin(tab.url(), out);
+    result.status[site] = result.platform_status[site] === "valid";
+  } catch {
+    result.status[site] = false;
+    result.platform_status[site] = "unknown";
+  } finally {
+    if (!sharedPage) await tab.close().catch(() => {});
+  }
 }
 
 export async function cmdClose({ handle }) {

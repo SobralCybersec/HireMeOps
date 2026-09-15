@@ -224,14 +224,14 @@ async fn read_worker_lines(
         let value: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(error) => {
-                tracing::warn!("patchright worker: unparseable reply: {error} — {line}");
+                tracing::warn!("patchright worker: unparseable reply: {error}");
                 continue;
             }
         };
         if route_event(&value, &frame_tx, &progress_tx) {
             continue;
         }
-        route_reply(value, &line, &pending);
+        route_reply(value, &pending);
     }
     pending.lock().unwrap().clear();
     tracing::info!("patchright worker stdout closed");
@@ -278,13 +278,13 @@ fn route_progress(value: &Value, progress_tx: &ProgressSlot) {
     }
 }
 
-fn route_reply(value: Value, line: &str, pending: &PendingMap) {
+fn route_reply(value: Value, pending: &PendingMap) {
     match serde_json::from_value::<WorkerReply>(value) {
         Ok(reply) => {
             if let Some(tx) = pending.lock().unwrap().remove(&reply.id) {
                 let _ = tx.send(reply);
             }
         }
-        Err(error) => tracing::warn!("patchright worker: unparseable reply: {error} — {line}"),
+        Err(error) => tracing::warn!("patchright worker: unparseable reply: {error}"),
     }
 }

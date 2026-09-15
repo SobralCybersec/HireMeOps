@@ -20,6 +20,7 @@ import {
   cmdInfojobsSearchJobs, cmdInfojobsApply,
 } from "./core/worker/worker-platform.js";
 import { cmdAutoConnect, cmdGmailSend } from "./core/worker/worker-network.js";
+import { cmdExportStorageState, cmdImportStorageState } from "./core/worker/worker-storage.js";
 
 initPerf();
 
@@ -92,9 +93,18 @@ const CAPTURE_CMDS = new Set([
   "confirm_indeed_submit",
   "reject_indeed_submit",
 ]);
+const CAPTURE_ENABLED = !/^(1|true|yes)$/i.test(process.env.HIREMEOPS_DISABLE_CAPTURE ?? "");
 
 async function dispatch(cmd) {
-  if (!CAPTURE_CMDS.has(cmd.cmd) || cmd.handle == null) return route(cmd);
+  if (!shouldCapture(cmd)) return route(cmd);
+  return dispatchWithCapture(cmd);
+}
+
+function shouldCapture(cmd) {
+  return CAPTURE_ENABLED && CAPTURE_CMDS.has(cmd.cmd) && cmd.handle != null;
+}
+
+async function dispatchWithCapture(cmd) {
   let page = null;
   try {
     page = await activePage(cmd.handle);
@@ -152,6 +162,8 @@ const COMMAND_HANDLERS = {
   check_login: cmdCheckLogin,
   open_login_tabs: cmdOpenLoginTabs,
   check_logins: cmdCheckLogins,
+  export_storage_state: cmdExportStorageState,
+  import_storage_state: cmdImportStorageState,
   solve_captcha: cmdSolveCaptcha,
   start_screencast: cmdStartScreencast,
   stop_screencast: cmdStopScreencast,
@@ -196,6 +208,5 @@ export async function cmdStopScreencast({ handle }) {
   }
   return {};
 }
-
 
 process.stderr.write("[worker] HireMeOps patchright worker ready\n");

@@ -1,0 +1,42 @@
+HireMeOps cloud browser architecture verification
+Branch: develop
+Commit/push: not performed
+
+Baseline before edits
+- git status --short --branch: clean master branch (exit 0)
+- bun run typecheck / agent:typecheck / lint: bun not installed (exit 127)
+- npm run typecheck: pass (exit 0)
+- npm run agent:typecheck: pass (exit 0)
+- npm run lint: pass (exit 0)
+- npm run format:check: pass (exit 0)
+- npm run test:unit: 38 files, 290 tests passed (exit 0)
+- cargo test --manifest-path src-tauri/Cargo.toml: 228 passed (exit 0)
+
+Implementation verification
+- npm run test:unit: 40 files, 293 tests passed (exit 0)
+- npm run test:mjs: 3 tests passed (exit 0)
+- npm run test:cloud: 7 tests passed (exit 0)
+- npm run test:strict-tests: 6 tests passed (exit 0)
+- npm run build: Vite production build passed (exit 0)
+- npm run lint: no issues (exit 0)
+- npm run typecheck: pass (exit 0)
+- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check: pass (exit 0)
+- cargo check --manifest-path src-tauri/Cargo.toml --features real-browser: pass (exit 0)
+- cargo test --manifest-path src-tauri/Cargo.toml: 233 passed (exit 0)
+- cargo test --manifest-path src-tauri/Cargo.toml --features real-browser: 253 passed (exit 0)
+- cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings: no issues (exit 0)
+- node scripts/quality/quality-review.mjs: gate passed; duplication 1.2355% (exit 0)
+- git diff --check: pass (exit 0)
+
+Integration and benchmark
+- node automation/cloud-memory.node-test.mjs in isolated cgroup: peak 350.7 MB
+- synthetic sequential workload stages: 6
+- shutdown Chromium process count: 0
+- report: reports/cloud-memory-host-synthetic.json
+- target <=312 MB: not met; benchmark is local synthetic, not Northflank or live portals
+
+Environment constraints
+- Docker build: blocked by Docker socket permission denied
+- PostgreSQL smoke: skipped because HIREMEOPS_DATABASE_URL was not configured
+- live portal/MFA/Northflank run: not executed; no manual session/secret supplied
+- Vitest emitted existing Node --localstorage-file invalid-path warning

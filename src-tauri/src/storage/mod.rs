@@ -7,4 +7,6 @@
 pub mod db;
 pub mod paths;
 pub mod postgres;
+pub mod postgres_browser_sessions;
+pub mod session_crypto;
 pub mod settings;

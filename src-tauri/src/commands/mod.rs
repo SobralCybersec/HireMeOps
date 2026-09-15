@@ -36,6 +36,7 @@ pub mod applications;
 pub mod auth;
 pub mod automation;
 pub mod browser_provider;
+pub mod browser_sessions;
 pub mod browser_view;
 pub mod cv;
 pub mod docker;

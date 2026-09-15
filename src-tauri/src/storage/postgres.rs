@@ -10,6 +10,17 @@ use std::{env, time::Duration};
 use anyhow::{Context, Result};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 
+#[cfg(test)]
+use uuid::Uuid;
+
+pub use super::postgres_browser_sessions::{
+    get_browser_session_metadata, revoke_browser_session, try_lock_profile, BrowserSessionMetadata,
+};
+#[cfg(any(test, feature = "real-browser"))]
+pub use super::postgres_browser_sessions::{
+    update_browser_session_status, upsert_browser_session, BrowserSessionWrite, ProfileSessionLock,
+};
+
 const DEFAULT_MAX_CONNECTIONS: u32 = 5;
 const DEFAULT_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 5;
@@ -209,6 +220,9 @@ mod tests {
         let pool = connect_url(&url)
             .await
             .expect("PostgreSQL migrations should run");
+        assert_cloud_schema(&pool).await;
+        exercise_browser_session_repository(&pool).await;
+
         sqlx::query("DELETE FROM shared_jobs WHERE id LIKE 'test-postgres-%'")
             .execute(&pool)
             .await
@@ -265,6 +279,92 @@ mod tests {
 
         sqlx::query("DELETE FROM shared_jobs WHERE id LIKE 'test-postgres-%'")
             .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    async fn assert_cloud_schema(pool: &PgPool) {
+        let session_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT column_name::text FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'browser_sessions'",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        for column in [
+            "encrypted_state",
+            "encryption_version",
+            "state_format_version",
+            "revision",
+            "status",
+            "platform_status",
+        ] {
+            assert!(session_columns.iter().any(|value| value == column));
+        }
+        let shared_job_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT column_name::text FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'shared_jobs'",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        assert!(shared_job_columns
+            .iter()
+            .any(|value| value == "search_run_id"));
+    }
+
+    async fn exercise_browser_session_repository(pool: &PgPool) {
+        let fixture_profile = format!("test-postgres-session-{}", Uuid::new_v4());
+        let first = upsert_browser_session(
+            pool,
+            BrowserSessionWrite {
+                profile_id: &fixture_profile,
+                encrypted_state: &[0x01, 0x02, 0x03],
+                encryption_version: 1,
+                state_format_version: 1,
+                status: "valid",
+                platform_status: &serde_json::json!({ "fixture": "valid" }),
+                expected_revision: None,
+            },
+        )
+        .await
+        .unwrap()
+        .expect("session insert should return metadata");
+        assert_eq!(first.revision, 1);
+        let updated = update_browser_session_status(
+            pool,
+            &fixture_profile,
+            "challenged",
+            &serde_json::json!({ "fixture": "challenged" }),
+            first.revision,
+        )
+        .await
+        .unwrap()
+        .expect("session status update should return metadata");
+        assert_eq!(updated.status, "challenged");
+        assert!(upsert_browser_session(
+            pool,
+            BrowserSessionWrite {
+                profile_id: &fixture_profile,
+                encrypted_state: &[0x04],
+                encryption_version: 1,
+                state_format_version: 1,
+                status: "valid",
+                platform_status: &serde_json::json!({}),
+                expected_revision: Some(first.revision),
+            },
+        )
+        .await
+        .unwrap()
+        .is_none());
+        let revoked = revoke_browser_session(pool, &fixture_profile)
+            .await
+            .unwrap()
+            .expect("session revoke should return metadata");
+        assert_eq!(revoked.status, "revoked");
+        sqlx::query("DELETE FROM browser_sessions WHERE profile_id = $1")
+            .bind(&fixture_profile)
+            .execute(pool)
             .await
             .unwrap();
     }

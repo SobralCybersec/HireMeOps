@@ -8,6 +8,7 @@
     "install-browsers": "npx patchright install chromium"
   },
   "dependencies": {
-    "patchright": "1.62.1"
+    "patchright": "1.62.1",
+    "pg": "8.16.3"
   }
 }

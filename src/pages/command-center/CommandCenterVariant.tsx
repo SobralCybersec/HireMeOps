@@ -9,6 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Button, Dropdown, Icon, Switch } from "../../components/ui";
 import { VisitorsChart } from "../../components/ui/VisitorsChart";
+import { CloudSessionPanel } from "./CloudSessionPanel";
 import { PlatformHub } from "./PlatformHub";
 import type { CvDocument, JobPostDto, Profile, ProfileVariantDto } from "../../types/domain";
 
@@ -345,6 +346,8 @@ function CommandCenterVariantView({
             >
               {opening ? "Opening…" : "Open all logins"}
             </Button>
+
+            {variant.showReference ? <CloudSessionPanel profileId={activeProfileId} /> : null}
 
             <Switch
               checked={autoConnect}

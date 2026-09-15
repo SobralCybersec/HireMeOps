@@ -1,0 +1,32 @@
+# One-shot Northflank browser worker.
+# Contains only Node, the existing JSON-lines worker, Patchright and system
+# Chromium. No Tauri, frontend, AI agent, Xvfb or persistent profile volume.
+
+FROM node:22-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    NODE_ENV=production \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PATCHRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    HIREMEOPS_CLOUD=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium \
+      ca-certificates \
+      dumb-init \
+      fonts-liberation \
+      fonts-noto-core \
+      fonts-noto-cjk \
+      fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/automation
+COPY automation/package.json automation/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+
+COPY automation/ ./
+RUN chown -R node:node /app
+
+USER node
+ENTRYPOINT ["dumb-init", "--", "node", "cloud-runner.mjs"]

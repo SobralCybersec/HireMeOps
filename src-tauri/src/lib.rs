@@ -264,6 +264,11 @@ macro_rules! app_invoke_handler {
             commands::browser_provider::browser_provider_logout,
             commands::browser_provider::browser_provider_status,
             commands::browser_provider::browser_provider_models,
+            commands::browser_sessions::browser_session_status,
+            commands::browser_sessions::sync_browser_session,
+            commands::browser_sessions::validate_browser_session,
+            commands::browser_sessions::revoke_browser_session,
+            commands::browser_sessions::trigger_cloud_run,
         ]
     };
 }

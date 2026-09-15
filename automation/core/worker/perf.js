@@ -14,6 +14,42 @@ const SAMPLE_MS = Number(process.env.HIREMEOPS_PERF_INTERVAL_MS) || 15_000;
 const mb = (bytes) => +(bytes / 1_048_576).toFixed(1);
 const nsToMs = (ns) => +(Number(ns) / 1e6).toFixed(2);
 
+function cgroupBytes(...files) {
+  for (const file of files) {
+    try {
+      const value = fs.readFileSync(file, "utf8").trim();
+      if (value === "max") return null;
+      const bytes = Number(value);
+      if (Number.isFinite(bytes)) return bytes;
+    } catch {
+      // Try next cgroup layout.
+    }
+  }
+  return null;
+}
+
+function cgroupBytesByName(name) {
+  const path = processCgroupPath();
+  const files = path
+    ? [`/sys/fs/cgroup${path}/${name}`, `/sys/fs/cgroup/${name}`]
+    : [`/sys/fs/cgroup/${name}`];
+  return cgroupBytes(...[...new Set(files)]);
+}
+
+function processCgroupPath() {
+  try {
+    const path = fs
+      .readFileSync("/proc/self/cgroup", "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("0::"))
+      ?.slice(3)
+      .trim();
+    return path && path !== "/" ? path : "";
+  } catch {
+    return "";
+  }
+}
+
 function emit(obj) {
   process.stderr.write(`[perf] ${JSON.stringify(obj)}\n`);
 }
@@ -51,8 +87,7 @@ function readProcessTree() {
       const pp = Number(m[1]);
       if (!kids.has(pp)) kids.set(pp, []);
       kids.get(pp).push(Number(name));
-    } catch {
-    }
+    } catch {}
   }
   return kids;
 }
@@ -86,6 +121,10 @@ function sample() {
   const m = process.memoryUsage();
   const ru = process.resourceUsage();
   const hs = v8.getHeapStatistics();
+  const cgroupCurrent =
+    cgroupBytesByName("memory.current") ?? cgroupBytesByName("memory/memory.usage_in_bytes");
+  const cgroupPeak =
+    cgroupBytesByName("memory.peak") ?? cgroupBytesByName("memory/memory.max_usage_in_bytes");
   const snap = {
     event: "sample",
     rssMb: mb(m.rss),
@@ -93,6 +132,8 @@ function sample() {
     externalMb: mb(m.external),
     arrayBuffersMb: mb(m.arrayBuffers),
     maxRssMb: +(ru.maxRSS / 1024).toFixed(1),
+    cgroupCurrentMb: cgroupCurrent == null ? null : mb(cgroupCurrent),
+    cgroupPeakMb: cgroupPeak == null ? null : mb(cgroupPeak),
     heapLimitPct: +(hs.used_heap_size / hs.heap_size_limit).toFixed(3),
     nativeContexts: hs.number_of_native_contexts,
     detachedContexts: hs.number_of_detached_contexts,

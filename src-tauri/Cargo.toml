@@ -31,6 +31,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] } # RUST_LOG f
 pdf-extract = "0.12.0" # read text from uploaded CV PDFs
 lopdf = "0.44.0" # write/generate CV PDFs + metadata + page count
 sha2 = "0.11.0" # content hashing (CV / AI-cache / credential fingerprints)
+base64 = "0.22"
+hex = "0.4"
+ring = "0.17"
 tauri-plugin-dialog = "2.7.1" # native file-open dialogs
 zip = "8.6.0" # DOCX is a zip container (CV parsing)
 quick-xml = "0.41.0" # DOCX XML body parsing (CV parsing)

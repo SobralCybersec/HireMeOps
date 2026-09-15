@@ -1,0 +1,3530 @@
+diff --git i/README.md w/README.md
+index 5ea40ae..bfa5d74 100644
+--- i/README.md
++++ w/README.md
+@@ -292,7 +292,7 @@ HIREMEOPS_USE_DOCKER=1 bun run app
+ 
+ | Flavour | Base | Trade |
+ |---|---|---|
+-| `noble` | `mcr.microsoft.com/playwright:v1.61.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
++| `noble` | `mcr.microsoft.com/playwright:v1.62.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
+ | `slim` | `node:22-bookworm-slim` + `patchright install chromium` | Chromium only → noticeably smaller image |
+ 
+ > **Why not Alpine?** patchright's Chromium is glibc-only — Playwright dropped musl/Alpine support and Chromium won't launch there. Slim **Debian** is the lightest base that actually runs a browser.
+@@ -301,6 +301,14 @@ It runs Chromium **headed under Xvfb** inside the container (not headless) and N
+ 
+ > **Detection tradeoff:** the hard-blocked sites (Indeed, Upwork, Cloudflare-gated boards, Catho, Google) still need the headed+Xvfb path — which the container provides. Don't run those headless anywhere.
+ 
++### One-shot Northflank cloud worker
++
++Cloud browser execution uses a separate headless image with no Tauri, frontend, AI
++agent or persistent profile volume. It restores encrypted BrowserContext storage
++state, runs the existing `automation/worker.js`, persists results and refreshed
++state, then exits. Setup, Secret Group variables, session sync/revoke and memory
++measurement live in [`docs/CLOUD_BROWSER.md`](docs/CLOUD_BROWSER.md).
++
+ ---
+ 
+ <h1 align="center">
+diff --git i/automation/cloud-memory.mjs w/automation/cloud-memory.mjs
+new file mode 100644
+index 0000000..4addd30
+--- /dev/null
++++ w/automation/cloud-memory.mjs
+@@ -0,0 +1,121 @@
++import { readFileSync, readdirSync } from "node:fs";
++
++function cgroupBytes(file) {
++  try {
++    const value = readFileSync(file, "utf8").trim();
++    return value === "max" ? null : Number(value);
++  } catch {
++    return null;
++  }
++}
++
++function processCgroupPath() {
++  try {
++    for (const line of readFileSync("/proc/self/cgroup", "utf8").split("\n")) {
++      const [hierarchy, controllers, path] = line.split(":");
++      if (hierarchy === "0" || controllers?.split(",").includes("memory")) return path?.trim();
++    }
++  } catch {}
++  return null;
++}
++
++function cgroupBytesByName(name) {
++  const path = processCgroupPath();
++  const bases = [];
++  if (path && path !== "/") {
++    bases.push(`/sys/fs/cgroup${path}`, `/sys/fs/cgroup/memory${path}`);
++  }
++  bases.push("/sys/fs/cgroup");
++  for (const base of bases) {
++    const value = cgroupBytes(`${base}/${name}`);
++    if (value != null) return value;
++  }
++  return null;
++}
++
++function pssKb(pid) {
++  try {
++    const match = /^Pss:\s+(\d+)/m.exec(readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"));
++    return match ? Number(match[1]) : 0;
++  } catch {
++    return 0;
++  }
++}
++
++function processTree(root) {
++  const children = new Map();
++  try {
++    for (const name of readdirSync("/proc")) {
++      if (!/^\d+$/.test(name)) continue;
++      const match = /^PPid:\s+(\d+)/m.exec(readFileSync(`/proc/${name}/status`, "utf8"));
++      if (!match) continue;
++      const parent = Number(match[1]);
++      if (!children.has(parent)) children.set(parent, []);
++      children.get(parent).push(Number(name));
++    }
++  } catch {
++    return [];
++  }
++  const found = [];
++  const pending = [root];
++  while (pending.length) {
++    for (const pid of children.get(pending.pop()) ?? []) {
++      found.push(pid);
++      pending.push(pid);
++    }
++  }
++  return found;
++}
++
++function processName(pid) {
++  try {
++    return readFileSync(`/proc/${pid}/comm`, "utf8").trim();
++  } catch {
++    return "";
++  }
++}
++
++function collectProcessMemory(pids) {
++  let nodePss = pssKb(process.pid);
++  let chromiumPss = 0;
++  let otherPss = 0;
++  let chromiumProcesses = 0;
++  for (const pid of pids.slice(1)) {
++    const name = processName(pid);
++    const pss = pssKb(pid);
++    if (/chrom|headless_shell/i.test(name)) {
++      chromiumPss += pss;
++      chromiumProcesses += 1;
++    } else if (/node|cloud-runner/i.test(name)) {
++      nodePss += pss;
++    } else {
++      otherPss += pss;
++    }
++  }
++  return { nodePss, chromiumPss, otherPss, chromiumProcesses };
++}
++
++function cgroupMemory() {
++  return {
++    current:
++      cgroupBytesByName("memory.current") ?? cgroupBytesByName("memory/memory.usage_in_bytes"),
++    peak: cgroupBytesByName("memory.peak") ?? cgroupBytesByName("memory/memory.max_usage_in_bytes"),
++  };
++}
++
++export function memorySnapshot(stage) {
++  const pids = [process.pid, ...processTree(process.pid)];
++  const { nodePss, chromiumPss, otherPss, chromiumProcesses } = collectProcessMemory(pids);
++  const { current, peak } = cgroupMemory();
++  return {
++    stage,
++    at: new Date().toISOString(),
++    nodeRssMb: +(process.memoryUsage().rss / 1_048_576).toFixed(1),
++    nodePssMb: +(nodePss / 1024).toFixed(1),
++    chromiumPssMb: +(chromiumPss / 1024).toFixed(1),
++    otherProcessPssMb: +(otherPss / 1024).toFixed(1),
++    cgroupCurrentMb: current == null ? null : +(current / 1_048_576).toFixed(1),
++    cgroupPeakMb: peak == null ? null : +(peak / 1_048_576).toFixed(1),
++    chromiumProcesses,
++  };
++}
+diff --git i/automation/cloud-memory.node-test.mjs w/automation/cloud-memory.node-test.mjs
+new file mode 100644
+index 0000000..e1b1bf5
+--- /dev/null
++++ w/automation/cloud-memory.node-test.mjs
+@@ -0,0 +1,94 @@
++import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import { createServer } from "node:http";
++import { spawn } from "node:child_process";
++import { tmpdir } from "node:os";
++import { dirname, join } from "node:path";
++import { memorySnapshot } from "./cloud-memory.mjs";
++
++const reportPath =
++  process.env.HIREMEOPS_MEMORY_REPORT_PATH ?? "reports/cloud-memory-host-synthetic.json";
++const profileDir = await mkdtemp(join(tmpdir(), "hiremeops-memory-profile-"));
++const html = `<!doctype html><title>synthetic workload</title><main>${"<article><h2>fixture role</h2><p>Fixture company · São Paulo · remote</p></article>".repeat(20)}</main>`;
++const server = createServer((_, response) => {
++  response.writeHead(200, { "content-type": "text/html" });
++  response.end(html);
++});
++await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
++const url = `http://127.0.0.1:${server.address().port}/fixture`;
++const worker = spawn(process.execPath, [join(import.meta.dirname, "worker.js")], {
++  cwd: import.meta.dirname,
++  env: {
++    ...process.env,
++    HIREMEOPS_CLOUD: "1",
++    HIREMEOPS_DISABLE_CAPTURE: "1",
++    HIREMEOPS_PERF: "1",
++    HIREMEOPS_PERF_INTERVAL_MS: "250",
++    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:
++      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/chromium",
++  },
++  stdio: ["pipe", "pipe", "ignore"],
++});
++
++const pending = new Map();
++let sequence = 0;
++let stdoutBuffer = "";
++worker.stdout.setEncoding("utf8");
++worker.stdout.on("data", (chunk) => {
++  stdoutBuffer += chunk;
++  const lines = stdoutBuffer.split("\n");
++  stdoutBuffer = lines.pop() ?? "";
++  for (const line of lines.filter(Boolean)) {
++    const message = JSON.parse(line);
++    const resolve = pending.get(message.id);
++    if (!resolve) continue;
++    pending.delete(message.id);
++    if (message.ok === false) resolve.reject(new Error("synthetic worker command failed"));
++    else resolve.resolve(message);
++  }
++});
++
++function rpc(payload) {
++  return new Promise((resolve, reject) => {
++    const id = `memory-${sequence++}`;
++    pending.set(id, { resolve, reject });
++    worker.stdin.write(`${JSON.stringify({ ...payload, id })}\n`);
++  });
++}
++
++const stages = [];
++const record = (stage) => stages.push(memorySnapshot(stage));
++let handle;
++try {
++  record("startup");
++  ({ handle } = await rpc({
++    cmd: "open",
++    user_data_dir: profileDir,
++    extensions: [],
++    headless: true,
++  }));
++  record("browser-open");
++  for (let run = 0; run < 3; run += 1) {
++    await rpc({ cmd: "navigate", handle, url });
++    await rpc({ cmd: "probe", handle });
++    await rpc({ cmd: "export_storage_state", handle });
++    record(`scraping-${run + 1}`);
++  }
++} finally {
++  if (handle) await rpc({ cmd: "close", handle }).catch(() => {});
++  worker.stdin.end();
++  await new Promise((resolve) => worker.once("exit", resolve));
++  record("shutdown");
++  await rm(profileDir, { recursive: true, force: true });
++  await new Promise((resolve) => server.close(resolve));
++  await mkdir(dirname(reportPath), { recursive: true });
++  await writeFile(
++    reportPath,
++    `${JSON.stringify({ workload: "synthetic-local-browser", stages }, null, 2)}\n`,
++  );
++}
++
++const peak = stages.reduce(
++  (max, stage) => Math.max(max, stage.cgroupPeakMb ?? stage.nodePssMb + stage.chromiumPssMb),
++  0,
++);
++process.stdout.write(`${JSON.stringify({ reportPath, peakMb: peak, stages: stages.length })}\n`);
+diff --git i/automation/cloud-runner-contract.mjs w/automation/cloud-runner-contract.mjs
+new file mode 100644
+index 0000000..5a8c647
+--- /dev/null
++++ w/automation/cloud-runner-contract.mjs
+@@ -0,0 +1,104 @@
++import { createDecipheriv, createCipheriv, randomBytes } from "node:crypto";
++
++export const STORAGE_STATE_VERSION = 1;
++export const ENCRYPTION_VERSION = 1;
++const NONCE_BYTES = 12;
++const TAG_BYTES = 16;
++const COMMANDS = new Set([
++  "search_jobs",
++  "search_linkedin_posts",
++  "search_google",
++  "search_indeed_jobs",
++  "catho_search_jobs",
++  "search_gupy_jobs",
++  "infojobs_search_jobs",
++  "upwork_search_jobs",
++  "freelas99_search_jobs",
++  "programathor_search_jobs",
++  "geekhunter_search_jobs",
++  "catho_apply",
++  "infojobs_apply",
++]);
++const DEFAULT_COMMANDS = {
++  linkedin: "search_jobs",
++  linkedin_posts: "search_linkedin_posts",
++  google: "search_google",
++  indeed: "search_indeed_jobs",
++  catho: "catho_search_jobs",
++  gupy: "search_gupy_jobs",
++  infojobs: "infojobs_search_jobs",
++  upwork: "upwork_search_jobs",
++  freelas99: "freelas99_search_jobs",
++  programathor: "programathor_search_jobs",
++  geekhunter: "geekhunter_search_jobs",
++};
++
++export class CloudRunnerError extends Error {
++  constructor(code) {
++    super(code);
++    this.code = code;
++  }
++}
++
++export function summarizePlatformStatus(platformStatus) {
++  const values = Object.values(platformStatus ?? {});
++  if (values.includes("challenged")) return "challenged";
++  if (values.includes("valid")) return "valid";
++  if (values.includes("login_required")) return "login_required";
++  return "unknown";
++}
++
++export function buildOperationRequest(plan, handle) {
++  const command = plan?.command ?? DEFAULT_COMMANDS[plan?.platform];
++  if (!COMMANDS.has(command)) throw new CloudRunnerError("unsupported_operation");
++  const args = plan?.args && typeof plan.args === "object" ? { ...plan.args } : {};
++  return { ...args, cmd: command, handle };
++}
++
++function decodeKey(value) {
++  const encoded = String(value ?? "").trim();
++  let bytes;
++  try {
++    if (encoded.startsWith("hex:")) bytes = Buffer.from(encoded.slice(4), "hex");
++    else if (encoded.startsWith("base64:")) bytes = Buffer.from(encoded.slice(7), "base64");
++    else if (/^[0-9a-f]{64}$/i.test(encoded)) bytes = Buffer.from(encoded, "hex");
++    else bytes = Buffer.from(encoded, "base64");
++  } catch {
++    throw new CloudRunnerError("invalid_session_encryption_key");
++  }
++  if (bytes.length !== 32) throw new CloudRunnerError("invalid_session_encryption_key");
++  return bytes;
++}
++
++export function decryptSessionState(encryptedState, encodedKey) {
++  const bytes = Buffer.from(encryptedState ?? []);
++  if (bytes.length <= NONCE_BYTES + TAG_BYTES)
++    throw new CloudRunnerError("corrupted_session_ciphertext");
++  try {
++    const decipher = createDecipheriv(
++      "aes-256-gcm",
++      decodeKey(encodedKey),
++      bytes.subarray(0, NONCE_BYTES),
++    );
++    decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
++    const plaintext = Buffer.concat([
++      decipher.update(bytes.subarray(NONCE_BYTES, bytes.length - TAG_BYTES)),
++      decipher.final(),
++    ]);
++    const state = JSON.parse(plaintext.toString("utf8"));
++    if (!state || !Array.isArray(state.cookies) || !Array.isArray(state.origins)) {
++      throw new CloudRunnerError("invalid_storage_state");
++    }
++    return state;
++  } catch (error) {
++    if (error instanceof CloudRunnerError) throw error;
++    throw new CloudRunnerError("session_decryption_failed");
++  }
++}
++
++export function encryptSessionState(state, encodedKey) {
++  const nonce = randomBytes(NONCE_BYTES);
++  const cipher = createCipheriv("aes-256-gcm", decodeKey(encodedKey), nonce);
++  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(state), "utf8"), cipher.final()]);
++  return Buffer.concat([nonce, ciphertext, cipher.getAuthTag()]);
++}
+diff --git i/automation/cloud-runner.mjs w/automation/cloud-runner.mjs
+new file mode 100644
+index 0000000..dfec106
+--- /dev/null
++++ w/automation/cloud-runner.mjs
+@@ -0,0 +1,483 @@
++import { createHash, randomUUID } from "node:crypto";
++import { mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { spawn } from "node:child_process";
++import readline from "node:readline";
++import pg from "pg";
++import { memorySnapshot } from "./cloud-memory.mjs";
++import {
++  CloudRunnerError,
++  ENCRYPTION_VERSION,
++  STORAGE_STATE_VERSION,
++  buildOperationRequest,
++  decryptSessionState,
++  encryptSessionState,
++  summarizePlatformStatus,
++} from "./cloud-runner-contract.mjs";
++
++export {
++  CloudRunnerError,
++  ENCRYPTION_VERSION,
++  STORAGE_STATE_VERSION,
++  buildOperationRequest,
++  decryptSessionState,
++  encryptSessionState,
++  summarizePlatformStatus,
++} from "./cloud-runner-contract.mjs";
++
++const { Pool } = pg;
++function platformStatuses(reply) {
++  if (reply?.platform_status && typeof reply.platform_status === "object")
++    return reply.platform_status;
++  return Object.fromEntries(
++    Object.entries(reply?.status ?? {}).map(([platform, valid]) => [
++      platform,
++      valid ? "valid" : "login_required",
++    ]),
++  );
++}
++
++function targetStatus(statuses, platform) {
++  if (platform && statuses[platform]) return statuses[platform];
++  return summarizePlatformStatus(statuses);
++}
++
++async function persistInvalidSessionStatus(pool, row, status, statuses) {
++  const { rowCount } = await pool.query(
++    `UPDATE browser_sessions
++        SET status = $1, platform_status = $2::jsonb, revision = revision + 1,
++            updated_at = now(), last_validated_at = now()
++      WHERE profile_id = $3 AND revision = $4 AND status <> 'revoked'`,
++    [status, JSON.stringify(statuses), row.profile_id, row.revision],
++  );
++  if (rowCount !== 1) throw new CloudRunnerError("session_revision_conflict");
++}
++
++async function assertAndRecordTarget(pool, row, statuses, platform) {
++  const status = targetStatus(statuses, platform);
++  if (status === "valid") return;
++  await persistInvalidSessionStatus(pool, row, status, statuses);
++  throw new CloudRunnerError(status === "unknown" ? "session_status_unknown" : status);
++}
++
++function createRpc(child) {
++  const pending = new Map();
++  const reader = readline.createInterface({ input: child.stdout });
++  reader.on("line", (line) => {
++    try {
++      const message = JSON.parse(line);
++      const waiter = pending.get(message.id);
++      if (!waiter) return;
++      pending.delete(message.id);
++      if (message.ok === false) waiter.reject(new CloudRunnerError("worker_command_failed"));
++      else waiter.resolve(message);
++    } catch {
++      // Protocol diagnostics never include raw lines: a line may contain state data.
++    }
++  });
++  const failPending = () => {
++    for (const waiter of pending.values()) waiter.reject(new CloudRunnerError("worker_exited"));
++    pending.clear();
++  };
++  child.once("exit", failPending);
++  return (payload) =>
++    new Promise((resolve, reject) => {
++      const id = randomUUID();
++      const timer = setTimeout(
++        () => {
++          pending.delete(id);
++          reject(new CloudRunnerError("worker_command_timeout"));
++        },
++        Number(process.env.HIREMEOPS_CLOUD_COMMAND_TIMEOUT_MS) || 120_000,
++      );
++      pending.set(id, {
++        resolve: (value) => {
++          clearTimeout(timer);
++          resolve(value);
++        },
++        reject: (error) => {
++          clearTimeout(timer);
++          reject(error);
++        },
++      });
++      try {
++        child.stdin.write(`${JSON.stringify({ ...payload, id })}\n`);
++      } catch {
++        pending.delete(id);
++        clearTimeout(timer);
++        reject(new CloudRunnerError("worker_exited"));
++      }
++    });
++}
++
++async function closeWorker(child, rpc, handle) {
++  if (child.exitCode !== null || child.signalCode !== null) return;
++  if (handle) await rpc({ cmd: "close", handle }).catch(() => {});
++  if (!child.stdin.destroyed) child.stdin.end();
++  await new Promise((resolve) => {
++    const timer = setTimeout(() => {
++      child.kill("SIGTERM");
++      resolve();
++    }, 10_000);
++    child.once("exit", () => {
++      clearTimeout(timer);
++      resolve();
++    });
++  });
++}
++
++async function loadRun(pool, runId) {
++  const { rows } = await pool.query(
++    `SELECT r.id, r.profile_id, r.intent, r.query_plan, r.status,
++            s.encrypted_state, s.encryption_version, s.state_format_version,
++            s.revision, s.status AS session_status
++       FROM search_runs r
++       LEFT JOIN browser_sessions s ON s.profile_id = r.profile_id
++      WHERE r.id = $1`,
++    [runId],
++  );
++  if (!rows[0]) throw new CloudRunnerError("search_run_missing");
++  if (rows[0].status !== "started") throw new CloudRunnerError("search_run_not_started");
++  if (!rows[0].profile_id || !rows[0].encrypted_state)
++    throw new CloudRunnerError("session_missing");
++  if (rows[0].session_status !== "valid") throw new CloudRunnerError("session_not_valid");
++  if (rows[0].encryption_version !== ENCRYPTION_VERSION)
++    throw new CloudRunnerError("encryption_version_unsupported");
++  if (rows[0].state_format_version !== STORAGE_STATE_VERSION)
++    throw new CloudRunnerError("storage_state_version_unsupported");
++  return rows[0];
++}
++
++async function acquireProfileLock(pool, profileId) {
++  const client = await pool.connect();
++  let result;
++  try {
++    result = await client.query(
++      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired",
++      [profileId],
++    );
++  } catch (error) {
++    client.release();
++    if (error instanceof CloudRunnerError) throw error;
++    throw new CloudRunnerError("profile_lock_failed");
++  }
++  if (!result.rows[0]?.acquired) {
++    client.release();
++    throw new CloudRunnerError("profile_busy");
++  }
++  return client;
++}
++
++async function releaseProfileLock(client, profileId) {
++  if (!client) return;
++  try {
++    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [profileId]);
++  } finally {
++    client.release();
++  }
++}
++
++async function updateRun(pool, runId, status, error = null) {
++  await pool.query(
++    "UPDATE search_runs SET status = $2, finished_at = now(), error = $3 WHERE id = $1",
++    [runId, status, error],
++  );
++}
++
++function isResultJob(job) {
++  return job && typeof job === "object";
++}
++
++function jobExternalId(job) {
++  return String(job.job_id ?? job.apply_url ?? `${job.title ?? ""}:${job.company ?? ""}`);
++}
++
++function jobText(job, field, fallback) {
++  return job[field] ? String(job[field]) : fallback;
++}
++
++function resultRow(job, platform) {
++  const external = jobExternalId(job);
++  const key = `${platform}\0${external}`;
++  const id = `cloud-${createHash("sha256").update(key).digest("hex")}`;
++  const title = jobText(job, "title", "Untitled role");
++  const company = jobText(job, "company", "Unknown company");
++  const description = String(job.description ?? job.title ?? "Cloud result");
++  const contentHash = createHash("sha256")
++    .update(`${job.title ?? ""}\0${description}`)
++    .digest("hex");
++  return [
++    id,
++    platform,
++    title,
++    company,
++    job.location ? String(job.location) : null,
++    job.remote_mode ? String(job.remote_mode) : null,
++    description,
++    job.apply_url ?? null,
++    contentHash,
++  ];
++}
++
++function resultRows(result, platform) {
++  if (!Array.isArray(result?.jobs)) return [];
++  return result.jobs.filter(isResultJob).map((job) => resultRow(job, platform));
++}
++
++async function persistResults(pool, row, result, platform) {
++  const values = resultRows(result, platform);
++  for (const [
++    id,
++    site,
++    title,
++    company,
++    location,
++    remoteMode,
++    description,
++    url,
++    contentHash,
++  ] of values) {
++    await pool.query(
++      `INSERT INTO shared_jobs
++        (id, search_run_id, profile_id, platform, canonical_url, title, company, location,
++         remote_mode, description, content_hash)
++       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
++       ON CONFLICT (id) DO UPDATE SET
++         search_run_id = EXCLUDED.search_run_id, description = EXCLUDED.description,
++         content_hash = EXCLUDED.content_hash`,
++      [
++        id,
++        row.id,
++        row.profile_id,
++        site,
++        url,
++        title,
++        company,
++        location,
++        remoteMode,
++        description,
++        contentHash,
++      ],
++    );
++  }
++  return values.length;
++}
++
++export async function persistRefreshedState(pool, row, encrypted, platformStatus) {
++  const { rowCount } = await pool.query(
++    `UPDATE browser_sessions
++        SET encrypted_state = $1, encryption_version = $2, state_format_version = $3,
++            status = 'valid', platform_status = $4::jsonb, revision = revision + 1,
++            updated_at = now(), last_validated_at = now()
++      WHERE profile_id = $5 AND revision = $6 AND status <> 'revoked'`,
++    [
++      encrypted,
++      ENCRYPTION_VERSION,
++      STORAGE_STATE_VERSION,
++      JSON.stringify(platformStatus),
++      row.profile_id,
++      row.revision,
++    ],
++  );
++  if (rowCount !== 1) throw new CloudRunnerError("session_revision_conflict");
++}
++
++async function spawnWorker(tempProfile) {
++  const script = process.env.HIREMEOPS_WORKER_SCRIPT ?? join(import.meta.dirname, "worker.js");
++  const child = spawn(process.execPath, [script], {
++    cwd: join(import.meta.dirname),
++    env: {
++      ...process.env,
++      HIREMEOPS_CLOUD: "1",
++      HIREMEOPS_DISABLE_CAPTURE: "1",
++      HIREMEOPS_PERF: "1",
++      HIREMEOPS_PERF_INTERVAL_MS: process.env.HIREMEOPS_PERF_INTERVAL_MS ?? "1000",
++      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:
++        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/chromium",
++      HIREMEOPS_CLOUD_PROFILE: tempProfile,
++    },
++    stdio: ["pipe", "pipe", "ignore"],
++  });
++  return { child, rpc: createRpc(child) };
++}
++
++function cloudConfig(runId) {
++  if (!runId) throw new CloudRunnerError("HIREMEOPS_RUN_ID_required");
++  const databaseUrl = process.env.HIREMEOPS_DATABASE_URL;
++  const encodedKey = process.env.HIREMEOPS_SESSION_ENCRYPTION_KEY;
++  if (!databaseUrl) throw new CloudRunnerError("HIREMEOPS_DATABASE_URL_required");
++  if (!encodedKey) throw new CloudRunnerError("HIREMEOPS_SESSION_ENCRYPTION_KEY_required");
++  return { runId, databaseUrl, encodedKey };
++}
++
++function createMemoryRecorder(report) {
++  const record = (stage) => {
++    const snapshot = memorySnapshot(stage);
++    report.stages.push(snapshot);
++    process.stderr.write(`[cloud-memory] ${JSON.stringify(snapshot)}\n`);
++  };
++  return record;
++}
++
++function cloudContext(config, pool) {
++  const report = { runId: config.runId, stages: [] };
++  return {
++    ...config,
++    pool,
++    report,
++    record: createMemoryRecorder(report),
++    row: null,
++    lock: null,
++    worker: null,
++    handle: null,
++    tempProfile: null,
++  };
++}
++
++async function openCloudBrowser(context) {
++  context.tempProfile = await mkdtemp(join(tmpdir(), "hiremeops-cloud-profile-"));
++  context.worker = await spawnWorker(context.tempProfile);
++  const opened = await context.worker.rpc({
++    cmd: "open",
++    user_data_dir: context.tempProfile,
++    extensions: [],
++    headless: true,
++  });
++  context.handle = opened.handle;
++  context.record("browser-open");
++}
++
++async function probeLogins(context) {
++  const reply = await context.worker.rpc({
++    cmd: "check_logins",
++    user_data_dir: context.tempProfile,
++    reuse_page: true,
++  });
++  return platformStatuses(reply);
++}
++
++function requireStorageVersion(version) {
++  if (version !== STORAGE_STATE_VERSION)
++    throw new CloudRunnerError("storage_state_version_unsupported");
++}
++
++async function executeCloudRun(context) {
++  const { pool, runId, encodedKey } = context;
++  context.row = await loadRun(pool, runId);
++  context.lock = await acquireProfileLock(pool, context.row.profile_id);
++  const state = decryptSessionState(context.row.encrypted_state, encodedKey);
++  await openCloudBrowser(context);
++  await context.worker.rpc({
++    cmd: "import_storage_state",
++    handle: context.handle,
++    version: context.row.state_format_version,
++    storageState: state,
++  });
++  const platform = context.row.query_plan?.platform;
++  const initialStatuses = await probeLogins(context);
++  await assertAndRecordTarget(pool, context.row, initialStatuses, platform);
++  context.record("post-navigation");
++  const result = await context.worker.rpc(
++    buildOperationRequest(context.row.query_plan, context.handle),
++  );
++  context.record("scraping-peak");
++  await persistResults(pool, context.row, result, platform ?? "unknown");
++  const finalStatuses = await probeLogins(context);
++  await assertAndRecordTarget(pool, context.row, finalStatuses, platform);
++  const refreshed = await context.worker.rpc({
++    cmd: "export_storage_state",
++    handle: context.handle,
++  });
++  requireStorageVersion(refreshed.version);
++  await persistRefreshedState(
++    pool,
++    context.row,
++    encryptSessionState(refreshed.storageState, encodedKey),
++    finalStatuses,
++  );
++  await updateRun(pool, runId, "completed");
++  return {
++    runId,
++    status: "completed",
++    results: resultRows(result, platform ?? "unknown").length,
++    memory: context.report,
++  };
++}
++
++function cloudErrorCode(error) {
++  return error instanceof CloudRunnerError ? error.code : "cloud_run_failed";
++}
++
++async function refreshInvalidStatus(context) {
++  if (!context.row || !context.worker || !context.handle) return;
++  const statuses = await probeLogins(context);
++  const target = targetStatus(statuses, context.row.query_plan?.platform);
++  if (target === "valid") return;
++  await persistInvalidSessionStatus(context.pool, context.row, target, statuses).catch(() => {});
++}
++
++async function failCloudRun(context, error) {
++  const code = cloudErrorCode(error);
++  if (code !== "session_revision_conflict") await refreshInvalidStatus(context).catch(() => {});
++  await updateRun(context.pool, context.runId, "failed", code).catch(() => {});
++  throw error instanceof CloudRunnerError ? error : new CloudRunnerError(code);
++}
++
++async function cleanupCloudRun(context, injectedPool) {
++  await stopCloudWorker(context);
++  context.record("shutdown");
++  await removeCloudProfile(context);
++  await releaseProfileLock(context.lock, context.row?.profile_id).catch(() => {});
++  await closeCloudPool(context.pool, injectedPool);
++  await writeMemoryReport(context);
++}
++
++async function stopCloudWorker(context) {
++  if (!context.worker) return;
++  await closeWorker(context.worker.child, context.worker.rpc, context.handle).catch(() => {});
++}
++
++async function removeCloudProfile(context) {
++  if (!context.tempProfile) return;
++  await rm(context.tempProfile, { recursive: true, force: true }).catch(() => {});
++}
++
++async function closeCloudPool(pool, injectedPool) {
++  if (!injectedPool) await pool.end().catch(() => {});
++}
++
++async function writeMemoryReport(context) {
++  const path =
++    process.env.HIREMEOPS_MEMORY_REPORT_PATH ??
++    join(tmpdir(), `hiremeops-memory-${context.runId}.json`);
++  await writeFile(path, JSON.stringify(context.report, null, 2), "utf8").catch(() => {});
++}
++
++export async function runCloudJob({
++  runId = process.env.HIREMEOPS_RUN_ID,
++  pool: injectedPool,
++} = {}) {
++  const config = cloudConfig(runId);
++  const pool =
++    injectedPool ??
++    new Pool({ connectionString: config.databaseUrl, max: 2, idleTimeoutMillis: 10_000 });
++  const context = cloudContext(config, pool);
++  context.record("startup");
++  try {
++    return await executeCloudRun(context);
++  } catch (error) {
++    return await failCloudRun(context, error);
++  } finally {
++    await cleanupCloudRun(context, injectedPool);
++  }
++}
++
++if (import.meta.main) {
++  runCloudJob().catch((error) => {
++    process.stderr.write(
++      `[cloud-runner] failed: ${error instanceof CloudRunnerError ? error.code : "cloud_run_failed"}\n`,
++    );
++    process.exitCode = 1;
++  });
++}
+diff --git i/automation/cloud-runner.node-test.mjs w/automation/cloud-runner.node-test.mjs
+new file mode 100644
+index 0000000..de86884
+--- /dev/null
++++ w/automation/cloud-runner.node-test.mjs
+@@ -0,0 +1,114 @@
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import {
++  CloudRunnerError,
++  buildOperationRequest,
++  decryptSessionState,
++  encryptSessionState,
++  persistRefreshedState,
++  runCloudJob,
++  summarizePlatformStatus,
++} from "./cloud-runner.mjs";
++import { memorySnapshot } from "./cloud-memory.mjs";
++
++const key = `hex:${"11".repeat(32)}`;
++const state = {
++  cookies: [],
++  origins: [
++    { origin: "https://fixture.invalid", localStorage: [{ name: "auth", value: "synthetic" }] },
++  ],
++};
++
++describe("cloud runner crypto boundary", () => {
++  it("encrypts and decrypts a synthetic session fixture", () => {
++    const encrypted = encryptSessionState(state, key);
++    assert.notDeepEqual(encrypted, Buffer.from(JSON.stringify(state)));
++    assert.deepEqual(decryptSessionState(encrypted, key), state);
++  });
++
++  it("rejects corrupted ciphertext and wrong keys", () => {
++    const encrypted = encryptSessionState(state, key);
++    const corrupted = Buffer.from(encrypted);
++    corrupted[13] ^= 1;
++    assert.throws(
++      () => decryptSessionState(corrupted, key),
++      (error) => error.code === "session_decryption_failed",
++    );
++    assert.throws(
++      () => decryptSessionState(encrypted, `hex:${"22".repeat(32)}`),
++      (error) => error.code === "session_decryption_failed",
++    );
++  });
++
++  it("keeps status transitions explicit", () => {
++    assert.equal(summarizePlatformStatus({ linkedin: "valid" }), "valid");
++    assert.equal(summarizePlatformStatus({ linkedin: "login_required" }), "login_required");
++    assert.equal(summarizePlatformStatus({ linkedin: "challenged", catho: "valid" }), "challenged");
++    assert.equal(summarizePlatformStatus({}), "unknown");
++  });
++
++  it("keeps memory diagnostics metadata-only", () => {
++    const log = JSON.stringify(memorySnapshot("fixture"));
++    assert.doesNotMatch(log, /cookies|authorization|storageState|indexedDB|token/i);
++  });
++});
++
++describe("cloud runner lifecycle boundary", () => {
++  it("builds only allowlisted worker operations", () => {
++    assert.deepEqual(
++      buildOperationRequest({ platform: "linkedin", args: { keywords: "Rust" } }, "h"),
++      {
++        cmd: "search_jobs",
++        handle: "h",
++        keywords: "Rust",
++      },
++    );
++    assert.throws(
++      () => buildOperationRequest({ command: "arbitrary", args: {} }, "h"),
++      (error) => error instanceof CloudRunnerError && error.code === "unsupported_operation",
++    );
++  });
++
++  it("fails explicitly when a cloud run has no session", async () => {
++    const previous = {
++      database: process.env.HIREMEOPS_DATABASE_URL,
++      key: process.env.HIREMEOPS_SESSION_ENCRYPTION_KEY,
++    };
++    process.env.HIREMEOPS_DATABASE_URL = "postgres://fixture.invalid/db";
++    process.env.HIREMEOPS_SESSION_ENCRYPTION_KEY = key;
++    const pool = {
++      async query() {
++        return {
++          rows: [
++            {
++              id: "run-1",
++              profile_id: "profile-1",
++              query_plan: { platform: "linkedin" },
++              status: "started",
++            },
++          ],
++        };
++      },
++    };
++    await assert.rejects(
++      runCloudJob({ runId: "run-1", pool }),
++      (error) => error instanceof CloudRunnerError && error.code === "session_missing",
++    );
++    if (previous.database === undefined) delete process.env.HIREMEOPS_DATABASE_URL;
++    else process.env.HIREMEOPS_DATABASE_URL = previous.database;
++    if (previous.key === undefined) delete process.env.HIREMEOPS_SESSION_ENCRYPTION_KEY;
++    else process.env.HIREMEOPS_SESSION_ENCRYPTION_KEY = previous.key;
++  });
++
++  it("rejects a refreshed-state revision conflict", async () => {
++    const pool = {
++      async query() {
++        return { rowCount: 0 };
++      },
++    };
++    await assert.rejects(
++      persistRefreshedState(pool, { profile_id: "profile-1", revision: 4 }, Buffer.from("x"), {}),
++      (error) => error instanceof CloudRunnerError && error.code === "session_revision_conflict",
++    );
++  });
++});
+diff --git i/automation/core/browser/browser-launch.js w/automation/core/browser/browser-launch.js
+index b8b67a3..7de9353 100644
+--- i/automation/core/browser/browser-launch.js
++++ w/automation/core/browser/browser-launch.js
+@@ -51,13 +51,16 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
+   // forced here: on a headless box it needs specific hardware/Vulkan and did not
+   // move the needle on the IP-reputation-gated sites (Indeed/Upwork) in testing —
+   // that path lives in the headed + Xvfb "hidden" mode where a real GPU exists.
+-  const uaArgs = headless
+-    ? [`--user-agent=${HEADLESS_UA}`, "--window-size=1920,1080"]
++  const uaArgs = headless ? [`--user-agent=${HEADLESS_UA}`, "--window-size=1920,1080"] : [];
++  // Cloud uses one page/profile per job; cap renderer fan-out and use a smaller
++  // desktop viewport only there. Local headed/headless behavior stays unchanged.
++  const cloudArgs = process.env.HIREMEOPS_CLOUD
++    ? ["--renderer-process-limit=1", "--window-size=1024,768"]
+     : [];
+   return {
+     headless,
+     viewport: null,
+-    args: [...BASE_STEALTH_ARGS, ...uaArgs, ...extraArgs],
++    args: [...BASE_STEALTH_ARGS, ...uaArgs, ...cloudArgs, ...extraArgs],
+     ignoreDefaultArgs: ["--enable-automation"],
+     channel: executablePath ? undefined : "chrome",
+     executablePath,
+diff --git i/automation/core/worker/perf.js w/automation/core/worker/perf.js
+index d9dd1c0..996009b 100644
+--- i/automation/core/worker/perf.js
++++ w/automation/core/worker/perf.js
+@@ -14,6 +14,42 @@ const SAMPLE_MS = Number(process.env.HIREMEOPS_PERF_INTERVAL_MS) || 15_000;
+ const mb = (bytes) => +(bytes / 1_048_576).toFixed(1);
+ const nsToMs = (ns) => +(Number(ns) / 1e6).toFixed(2);
+ 
++function cgroupBytes(...files) {
++  for (const file of files) {
++    try {
++      const value = fs.readFileSync(file, "utf8").trim();
++      if (value === "max") return null;
++      const bytes = Number(value);
++      if (Number.isFinite(bytes)) return bytes;
++    } catch {
++      // Try next cgroup layout.
++    }
++  }
++  return null;
++}
++
++function cgroupBytesByName(name) {
++  const path = processCgroupPath();
++  const files = path
++    ? [`/sys/fs/cgroup${path}/${name}`, `/sys/fs/cgroup/${name}`]
++    : [`/sys/fs/cgroup/${name}`];
++  return cgroupBytes(...[...new Set(files)]);
++}
++
++function processCgroupPath() {
++  try {
++    const path = fs
++      .readFileSync("/proc/self/cgroup", "utf8")
++      .split("\n")
++      .find((line) => line.startsWith("0::"))
++      ?.slice(3)
++      .trim();
++    return path && path !== "/" ? path : "";
++  } catch {
++    return "";
++  }
++}
++
+ function emit(obj) {
+   process.stderr.write(`[perf] ${JSON.stringify(obj)}\n`);
+ }
+@@ -51,8 +87,7 @@ function readProcessTree() {
+       const pp = Number(m[1]);
+       if (!kids.has(pp)) kids.set(pp, []);
+       kids.get(pp).push(Number(name));
+-    } catch {
+-    }
++    } catch {}
+   }
+   return kids;
+ }
+@@ -86,6 +121,10 @@ function sample() {
+   const m = process.memoryUsage();
+   const ru = process.resourceUsage();
+   const hs = v8.getHeapStatistics();
++  const cgroupCurrent =
++    cgroupBytesByName("memory.current") ?? cgroupBytesByName("memory/memory.usage_in_bytes");
++  const cgroupPeak =
++    cgroupBytesByName("memory.peak") ?? cgroupBytesByName("memory/memory.max_usage_in_bytes");
+   const snap = {
+     event: "sample",
+     rssMb: mb(m.rss),
+@@ -93,6 +132,8 @@ function sample() {
+     externalMb: mb(m.external),
+     arrayBuffersMb: mb(m.arrayBuffers),
+     maxRssMb: +(ru.maxRSS / 1024).toFixed(1),
++    cgroupCurrentMb: cgroupCurrent == null ? null : mb(cgroupCurrent),
++    cgroupPeakMb: cgroupPeak == null ? null : mb(cgroupPeak),
+     heapLimitPct: +(hs.used_heap_size / hs.heap_size_limit).toFixed(3),
+     nativeContexts: hs.number_of_native_contexts,
+     detachedContexts: hs.number_of_detached_contexts,
+diff --git i/automation/core/worker/worker-auth.js w/automation/core/worker/worker-auth.js
+index cad65a5..29cc62b 100644
+--- i/automation/core/worker/worker-auth.js
++++ w/automation/core/worker/worker-auth.js
+@@ -80,6 +80,12 @@ const LOGIN_PROBES = {
+   },
+ };
+ 
++export function classifyLogin(url, out) {
++  if (/checkpoint|challenge|captcha|mfa|verify|verification/i.test(url)) return "challenged";
++  if (out.test(url)) return "login_required";
++  return "valid";
++}
++
+ export async function cmdOpenLoginTabs({ handle, sites }) {
+   const sess = sessions.get(handle);
+   if (!sess) throw new Error(`open_login_tabs: unknown handle ${handle}`);
+@@ -99,26 +105,12 @@ export async function cmdOpenLoginTabs({ handle, sites }) {
+   return { opened };
+ }
+ 
+-export async function cmdCheckLogins({ user_data_dir }) {
+-  const status = { linkedin: false, catho: false, infojobs: false, indeed: false, gupy: false };
+-  const probeOne = async (browser, site) => {
+-    const { url, out } = LOGIN_PROBES[site];
+-    let tab;
+-    try {
+-      tab = await browser.newPage();
+-      await tab.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+-      status[site] = !out.test(tab.url());
+-    } catch {
+-      status[site] = false;
+-    } finally {
+-      if (tab) await tab.close().catch(() => {});
+-    }
+-  };
+-
++export async function cmdCheckLogins({ user_data_dir, reuse_page = false }) {
++  const result = createLoginResult();
+   const existing = [...sessions.values()].find((s) => s.user_data_dir === user_data_dir);
+   if (existing) {
+-    for (const site of Object.keys(LOGIN_PROBES)) await probeOne(existing.browser, site);
+-    return { status };
++    const sharedPage = reuse_page ? existing.page : null;
++    return checkBrowserLogins(existing.browser, sharedPage, result);
+   }
+   await reclaimProfileDir(user_data_dir);
+   const resolvedExec = resolveChromiumExec();
+@@ -130,12 +122,42 @@ export async function cmdCheckLogins({ user_data_dir }) {
+       args: ["--no-sandbox", "--disable-dev-shm-usage"],
+       executablePath: resolvedExec,
+     });
+-    for (const site of Object.keys(LOGIN_PROBES)) await probeOne(browser, site);
++    const sharedPage = reuse_page ? (browser.pages()[0] ?? (await browser.newPage())) : null;
++    await checkBrowserLogins(browser, sharedPage, result);
+   } catch {
+   } finally {
+     if (browser) await browser.close().catch(() => {});
+   }
+-  return { status };
++  return result;
++}
++
++function createLoginResult() {
++  return {
++    status: { linkedin: false, catho: false, infojobs: false, indeed: false, gupy: false },
++    platform_status: {},
++  };
++}
++
++async function checkBrowserLogins(browser, sharedPage, result) {
++  for (const site of Object.keys(LOGIN_PROBES)) {
++    await probeLogin(browser, site, sharedPage, result);
++  }
++  return result;
++}
++
++async function probeLogin(browser, site, sharedPage, result) {
++  const { url, out } = LOGIN_PROBES[site];
++  const tab = sharedPage ?? (await browser.newPage());
++  try {
++    await tab.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
++    result.platform_status[site] = classifyLogin(tab.url(), out);
++    result.status[site] = result.platform_status[site] === "valid";
++  } catch {
++    result.status[site] = false;
++    result.platform_status[site] = "unknown";
++  } finally {
++    if (!sharedPage) await tab.close().catch(() => {});
++  }
+ }
+ 
+ export async function cmdClose({ handle }) {
+diff --git i/automation/core/worker/worker-auth.test.js w/automation/core/worker/worker-auth.test.js
+new file mode 100644
+index 0000000..c8c1719
+--- /dev/null
++++ w/automation/core/worker/worker-auth.test.js
+@@ -0,0 +1,12 @@
++import { describe, expect, it } from "vitest";
++import { classifyLogin } from "./worker-auth.js";
++
++const loginUrl = /\/login|\/signin/;
++
++describe("login probe classification", () => {
++  it("distinguishes valid, login-required and challenged URLs", () => {
++    expect(classifyLogin("https://fixture.invalid/dashboard", loginUrl)).toBe("valid");
++    expect(classifyLogin("https://fixture.invalid/login", loginUrl)).toBe("login_required");
++    expect(classifyLogin("https://fixture.invalid/mfa/challenge", loginUrl)).toBe("challenged");
++  });
++});
+diff --git i/automation/core/worker/worker-storage.js w/automation/core/worker/worker-storage.js
+new file mode 100644
+index 0000000..bffcde6
+--- /dev/null
++++ w/automation/core/worker/worker-storage.js
+@@ -0,0 +1,32 @@
++import { session } from "./worker-context.js";
++
++export const STORAGE_STATE_VERSION = 1;
++
++function validateStorageState(storageState) {
++  if (!storageState || typeof storageState !== "object") {
++    throw new Error("storage state must be an object");
++  }
++  if (!Array.isArray(storageState.cookies) || !Array.isArray(storageState.origins)) {
++    throw new Error("storage state has unsupported format");
++  }
++}
++
++export async function cmdExportStorageState({ handle }) {
++  const { browser } = session(handle);
++  const storageState = await browser.storageState({ indexedDB: true });
++  return { version: STORAGE_STATE_VERSION, storageState };
++}
++
++export async function cmdImportStorageState({
++  handle,
++  version = STORAGE_STATE_VERSION,
++  storageState,
++}) {
++  if (version !== STORAGE_STATE_VERSION) {
++    throw new Error(`unsupported storage state version: ${version}`);
++  }
++  validateStorageState(storageState);
++  const { browser } = session(handle);
++  await browser.setStorageState(storageState);
++  return { version: STORAGE_STATE_VERSION, imported: true };
++}
+diff --git i/automation/core/worker/worker-storage.test.js w/automation/core/worker/worker-storage.test.js
+new file mode 100644
+index 0000000..eb1c946
+--- /dev/null
++++ w/automation/core/worker/worker-storage.test.js
+@@ -0,0 +1,127 @@
++import { beforeAll, afterAll, describe, expect, it } from "vitest";
++import { chromium } from "patchright";
++import { mkdtemp, rm } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import http from "node:http";
++import { sessions } from "./worker-context.js";
++import {
++  cmdExportStorageState,
++  cmdImportStorageState,
++  STORAGE_STATE_VERSION,
++} from "./worker-storage.js";
++import { decryptSessionState, encryptSessionState } from "../../cloud-runner.mjs";
++
++let server;
++let origin;
++const dirs = [];
++
++beforeAll(async () => {
++  server = await new Promise((resolve) => {
++    const value = http.createServer((_, response) => {
++      response.writeHead(200, { "content-type": "text/html" });
++      response.end("<!doctype html><title>fixture</title>");
++    });
++    value.listen(0, "127.0.0.1", () => resolve(value));
++  });
++  origin = `http://127.0.0.1:${server.address().port}`;
++});
++
++afterAll(async () => {
++  for (const handle of ["a", "b"]) {
++    const current = sessions.get(handle);
++    await current?.browser.close();
++    sessions.delete(handle);
++  }
++  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
++  await new Promise((resolve) => server.close(resolve));
++});
++
++async function openContext() {
++  const dir = await mkdtemp(join(tmpdir(), "hiremeops-storage-test-"));
++  dirs.push(dir);
++  return chromium.launchPersistentContext(dir, {
++    headless: true,
++    executablePath: "/usr/bin/chromium",
++    args: ["--no-sandbox", "--disable-dev-shm-usage"],
++  });
++}
++
++describe("worker storage state commands", () => {
++  it("exports IndexedDB/localStorage and imports them into another browser", async () => {
++    const browserA = await openContext();
++    const pageA = browserA.pages()[0] ?? (await browserA.newPage());
++    await pageA.goto(origin);
++    await pageA.evaluate(async () => {
++      localStorage.setItem("synthetic-auth", "session-a");
++      await new Promise((resolve, reject) => {
++        const request = indexedDB.open("synthetic-auth-db", 1);
++        request.onupgradeneeded = () => request.result.createObjectStore("tokens");
++        request.onsuccess = () => {
++          const tx = request.result.transaction("tokens", "readwrite");
++          tx.objectStore("tokens").put("token-a", "access");
++          tx.oncomplete = resolve;
++          tx.onerror = () => reject(tx.error);
++        };
++        request.onerror = () => reject(request.error);
++      });
++    });
++    sessions.set("a", { browser: browserA, user_data_dir: "fixture-a" });
++
++    const exported = await cmdExportStorageState({ handle: "a" });
++    expect(exported.version).toBe(STORAGE_STATE_VERSION);
++    expect(exported.storageState.cookies).toEqual([]);
++    expect(exported.storageState.origins).toHaveLength(1);
++    expect(exported.storageState.origins[0].localStorage).toContainEqual({
++      name: "synthetic-auth",
++      value: "session-a",
++    });
++    expect(exported.storageState.origins[0].indexedDB).toHaveLength(1);
++
++    const persisted = {
++      encryptedState: encryptSessionState(exported.storageState, `hex:${"33".repeat(32)}`),
++    };
++    const restoredState = decryptSessionState(persisted.encryptedState, `hex:${"33".repeat(32)}`);
++
++    const browserB = await openContext();
++    const pageB = browserB.pages()[0] ?? (await browserB.newPage());
++    await pageB.goto(origin);
++    await pageB.evaluate(() => localStorage.setItem("stale", "value"));
++    sessions.set("b", { browser: browserB, user_data_dir: "fixture-b" });
++    await expect(
++      cmdImportStorageState({
++        handle: "b",
++        version: exported.version,
++        storageState: restoredState,
++      }),
++    ).resolves.toMatchObject({
++      version: STORAGE_STATE_VERSION,
++      imported: true,
++    });
++    await expect(pageB.evaluate(() => localStorage.getItem("synthetic-auth"))).resolves.toBe(
++      "session-a",
++    );
++    await expect(pageB.evaluate(() => localStorage.getItem("stale"))).resolves.toBeNull();
++    await expect(
++      pageB.evaluate(
++        () =>
++          new Promise((resolve) => {
++            const request = indexedDB.open("synthetic-auth-db");
++            request.onsuccess = () => {
++              const get = request.result.transaction("tokens").objectStore("tokens").get("access");
++              get.onsuccess = () => resolve(get.result);
++            };
++          }),
++      ),
++    ).resolves.toBe("token-a");
++  });
++
++  it("rejects unsupported and malformed state without exposing state", async () => {
++    await expect(
++      cmdImportStorageState({ handle: "missing", version: 2, storageState: {} }),
++    ).rejects.toThrow("unsupported storage state version");
++    await expect(cmdImportStorageState({ handle: "missing", storageState: {} })).rejects.toThrow(
++      "storage state has unsupported format",
++    );
++  });
++});
+diff --git i/automation/package-lock.json w/automation/package-lock.json
+index 023c18c..5cdef99 100644
+--- i/automation/package-lock.json
++++ w/automation/package-lock.json
+@@ -8,7 +8,8 @@
+       "name": "hiremeops-automation-worker",
+       "version": "1.0.0",
+       "dependencies": {
+-        "patchright": "1.62.1"
++        "patchright": "1.62.1",
++        "pg": "8.16.3"
+       }
+     },
+     "node_modules/fsevents": {
+@@ -54,6 +55,152 @@
+       "engines": {
+         "node": ">=20"
+       }
++    },
++    "node_modules/pg": {
++      "version": "8.16.3",
++      "resolved": "https://registry.npmjs.org/pg/-/pg-8.16.3.tgz",
++      "integrity": "sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw==",
++      "license": "MIT",
++      "dependencies": {
++        "pg-connection-string": "^2.9.1",
++        "pg-pool": "^3.10.1",
++        "pg-protocol": "^1.10.3",
++        "pg-types": "2.2.0",
++        "pgpass": "1.0.5"
++      },
++      "engines": {
++        "node": ">= 16.0.0"
++      },
++      "optionalDependencies": {
++        "pg-cloudflare": "^1.2.7"
++      },
++      "peerDependencies": {
++        "pg-native": ">=3.0.1"
++      },
++      "peerDependenciesMeta": {
++        "pg-native": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/pg-cloudflare": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.4.0.tgz",
++      "integrity": "sha512-Vo7z/6rrQYxpNRylp4Tlob2elzbh+N/MOQbxFVWCxS7oEx6jF53GTJFxK2WWpKuBRkmiin4Mt+xofFDjx09R0A==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/pg-connection-string": {
++      "version": "2.14.0",
++      "resolved": "https://registry.npmjs.org/pg-connection-string/-/pg-connection-string-2.14.0.tgz",
++      "integrity": "sha512-XwWDGcLRGCXAR8F/AM5bG7Q+A3Wm2s6QeEjlOKZLlH3UYcguiqCWKyWXVag5TLTIjR7oOJUY8kcADaZgWPyLeg==",
++      "license": "MIT"
++    },
++    "node_modules/pg-int8": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/pg-int8/-/pg-int8-1.0.1.tgz",
++      "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=4.0.0"
++      }
++    },
++    "node_modules/pg-pool": {
++      "version": "3.14.0",
++      "resolved": "https://registry.npmjs.org/pg-pool/-/pg-pool-3.14.0.tgz",
++      "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==",
++      "license": "MIT",
++      "peerDependencies": {
++        "pg": ">=8.0"
++      }
++    },
++    "node_modules/pg-protocol": {
++      "version": "1.16.0",
++      "resolved": "https://registry.npmjs.org/pg-protocol/-/pg-protocol-1.16.0.tgz",
++      "integrity": "sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==",
++      "license": "MIT"
++    },
++    "node_modules/pg-types": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz",
++      "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==",
++      "license": "MIT",
++      "dependencies": {
++        "pg-int8": "1.0.1",
++        "postgres-array": "~2.0.0",
++        "postgres-bytea": "~1.0.0",
++        "postgres-date": "~1.0.4",
++        "postgres-interval": "^1.1.0"
++      },
++      "engines": {
++        "node": ">=4"
++      }
++    },
++    "node_modules/pgpass": {
++      "version": "1.0.5",
++      "resolved": "https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz",
++      "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==",
++      "license": "MIT",
++      "dependencies": {
++        "split2": "^4.1.0"
++      }
++    },
++    "node_modules/postgres-array": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/postgres-array/-/postgres-array-2.0.0.tgz",
++      "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=4"
++      }
++    },
++    "node_modules/postgres-bytea": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/postgres-bytea/-/postgres-bytea-1.0.1.tgz",
++      "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/postgres-date": {
++      "version": "1.0.7",
++      "resolved": "https://registry.npmjs.org/postgres-date/-/postgres-date-1.0.7.tgz",
++      "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/postgres-interval": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/postgres-interval/-/postgres-interval-1.2.0.tgz",
++      "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==",
++      "license": "MIT",
++      "dependencies": {
++        "xtend": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/split2": {
++      "version": "4.2.0",
++      "resolved": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz",
++      "integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==",
++      "license": "ISC",
++      "engines": {
++        "node": ">= 10.x"
++      }
++    },
++    "node_modules/xtend": {
++      "version": "4.0.2",
++      "resolved": "https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz",
++      "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.4"
++      }
+     }
+   }
+ }
+diff --git i/automation/package.json w/automation/package.json
+index b3ed517..22cc7fe 100644
+--- i/automation/package.json
++++ w/automation/package.json
+@@ -8,6 +8,7 @@
+     "install-browsers": "npx patchright install chromium"
+   },
+   "dependencies": {
+-    "patchright": "1.62.1"
++    "patchright": "1.62.1",
++    "pg": "8.16.3"
+   }
+ }
+diff --git i/automation/worker.js w/automation/worker.js
+index 81e1b55..e8dce98 100644
+--- i/automation/worker.js
++++ w/automation/worker.js
+@@ -20,6 +20,7 @@ import {
+   cmdInfojobsSearchJobs, cmdInfojobsApply,
+ } from "./core/worker/worker-platform.js";
+ import { cmdAutoConnect, cmdGmailSend } from "./core/worker/worker-network.js";
++import { cmdExportStorageState, cmdImportStorageState } from "./core/worker/worker-storage.js";
+ 
+ initPerf();
+ 
+@@ -92,9 +93,18 @@ const CAPTURE_CMDS = new Set([
+   "confirm_indeed_submit",
+   "reject_indeed_submit",
+ ]);
++const CAPTURE_ENABLED = !/^(1|true|yes)$/i.test(process.env.HIREMEOPS_DISABLE_CAPTURE ?? "");
+ 
+ async function dispatch(cmd) {
+-  if (!CAPTURE_CMDS.has(cmd.cmd) || cmd.handle == null) return route(cmd);
++  if (!shouldCapture(cmd)) return route(cmd);
++  return dispatchWithCapture(cmd);
++}
++
++function shouldCapture(cmd) {
++  return CAPTURE_ENABLED && CAPTURE_CMDS.has(cmd.cmd) && cmd.handle != null;
++}
++
++async function dispatchWithCapture(cmd) {
+   let page = null;
+   try {
+     page = await activePage(cmd.handle);
+@@ -152,6 +162,8 @@ const COMMAND_HANDLERS = {
+   check_login: cmdCheckLogin,
+   open_login_tabs: cmdOpenLoginTabs,
+   check_logins: cmdCheckLogins,
++  export_storage_state: cmdExportStorageState,
++  import_storage_state: cmdImportStorageState,
+   solve_captcha: cmdSolveCaptcha,
+   start_screencast: cmdStartScreencast,
+   stop_screencast: cmdStopScreencast,
+@@ -197,5 +209,4 @@ export async function cmdStopScreencast({ handle }) {
+   return {};
+ }
+ 
+-
+ process.stderr.write("[worker] HireMeOps patchright worker ready\n");
+diff --git i/docker/Dockerfile.cloud-worker w/docker/Dockerfile.cloud-worker
+new file mode 100644
+index 0000000..8555439
+--- /dev/null
++++ w/docker/Dockerfile.cloud-worker
+@@ -0,0 +1,32 @@
++# One-shot Northflank browser worker.
++# Contains only Node, the existing JSON-lines worker, Patchright and system
++# Chromium. No Tauri, frontend, AI agent, Xvfb or persistent profile volume.
++
++FROM node:22-bookworm-slim
++
++ENV DEBIAN_FRONTEND=noninteractive \
++    NODE_ENV=production \
++    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
++    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
++    PATCHRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
++    HIREMEOPS_CLOUD=1
++
++RUN apt-get update && apt-get install -y --no-install-recommends \
++      chromium \
++      ca-certificates \
++      dumb-init \
++      fonts-liberation \
++      fonts-noto-core \
++      fonts-noto-cjk \
++      fonts-noto-color-emoji \
++    && rm -rf /var/lib/apt/lists/*
++
++WORKDIR /app/automation
++COPY automation/package.json automation/package-lock.json ./
++RUN npm ci --omit=dev --no-audit --no-fund
++
++COPY automation/ ./
++RUN chown -R node:node /app
++
++USER node
++ENTRYPOINT ["dumb-init", "--", "node", "cloud-runner.mjs"]
+diff --git i/docker/Dockerfile.worker w/docker/Dockerfile.worker
+index f56b51e..61be274 100644
+--- i/docker/Dockerfile.worker
++++ w/docker/Dockerfile.worker
+@@ -16,7 +16,7 @@
+ 
+ FROM mcr.microsoft.com/playwright:v1.62.1-noble
+ # ^ Ubuntu 24.04; ships every Chromium shared-lib dep + Xvfb already. Pinned to
+-#   match automation/package.json patchright 1.61.1 — bump both together.
++#   match automation/package.json patchright 1.62.1 — bump both together.
+ 
+ ENV DEBIAN_FRONTEND=noninteractive
+ 
+diff --git i/docs/CLOUD_BROWSER.md w/docs/CLOUD_BROWSER.md
+new file mode 100644
+index 0000000..a857294
+--- /dev/null
++++ w/docs/CLOUD_BROWSER.md
+@@ -0,0 +1,182 @@
++# Cloud browser execution
++
++Cloud execution is an additional path. Local SQLite, the local profile jar and
++the current JSON-lines worker remain unchanged.
++
++## Flow
++
++1. Select a profile in Command Center and click **Open all logins**.
++2. Complete login, MFA and any challenge manually in the headed Chromium tabs.
++3. Click **Check sessions**. Results come from the existing platform probes.
++4. Click **Sync to cloud**. Rust asks the already-open BrowserContext for
++   `storageState({ indexedDB: true })`, encrypts it, and writes only the
++   ciphertext to PostgreSQL.
++5. Create a `search_runs` row and trigger the configured Northflank Manual Job.
++6. The job loads the run by `HIREMEOPS_RUN_ID`, restores the state into a
++   temporary Chromium profile, probes the target platform, runs the existing
++   worker command, stores results in `shared_jobs`, and saves refreshed state.
++7. Chromium, the worker and the temporary profile are closed and removed in
++   `finally` cleanup.
++
++No password, MFA code or browser profile directory is copied to cloud.
++
++## State and encryption formats
++
++- Storage state format: version `1`.
++- Contents: Patchright cookies, origins/localStorage and IndexedDB. The
++  current implementation does not add a generic sessionStorage layer.
++- Encryption format: version `1`, AES-256-GCM, raw PostgreSQL `BYTEA` bytes:
++  `[12-byte random nonce][ciphertext][16-byte authentication tag]`.
++- `HIREMEOPS_SESSION_ENCRYPTION_KEY` decodes to exactly 32 bytes. Accepted
++  encodings: `hex:<64 hex chars>`, `base64:<base64>`, 64-character hex, or
++  standard base64.
++- Rust (`ring`) and cloud runner (Node `crypto`) use the same format.
++
++The key is read only from the process environment. It is never in React,
++localStorage, Docker build args, Git, PostgreSQL or logs.
++
++## Environment
++
++Required by desktop sync / PostgreSQL:
++
++```text
++HIREMEOPS_DATABASE_URL
++HIREMEOPS_SESSION_ENCRYPTION_KEY
++```
++
++Required by the Tauri Northflank trigger:
++
++```text
++NORTHFLANK_API_TOKEN
++NORTHFLANK_PROJECT_ID
++NORTHFLANK_JOB_ID
++```
++
++Optional:
++
++```text
++NORTHFLANK_API_BASE_URL=https://api.northflank.com/v1
++HIREMEOPS_DB_MAX_CONNECTIONS=5
++HIREMEOPS_DB_MIN_CONNECTIONS=0
++HIREMEOPS_PERF_INTERVAL_MS=1000
++HIREMEOPS_MEMORY_REPORT_PATH=/tmp/hiremeops-memory.json
++```
++
++The Manual Job receives only:
++
++```text
++HIREMEOPS_RUN_ID=<search_runs.id>
++```
++
++Never put storage state or cookies in environment variables or command-line
++arguments. Use a TLS PostgreSQL URL (for example with `sslmode=require`) when
++the database is remote. Northflank Secret Groups should provide the database URL,
++encryption key and API token. The React process receives none of them.
++
++## PostgreSQL ownership
++
++Migration `0002_browser_sessions.sql` adds `browser_sessions` and the
++`shared_jobs.search_run_id` link. `browser_sessions` has one row per profile,
++opaque encrypted state, format versions, monotonic revision, explicit status,
++per-platform status and timestamps. It does not normalize cookies into SQL.
++
++Cloud lifecycle uses existing `search_runs` statuses:
++`started`, `completed`, `failed`, `cancelled`.
++
++Profile concurrency is one. Desktop and cloud workers use the same PostgreSQL
++advisory-lock key derived from `profile_id`; the lock connection stays open
++only for the advisory lock, not for the whole automation transaction.
++
++State writes use optimistic revision checks. A stale writer gets
++`session_revision_conflict` and does not overwrite a newer snapshot.
++
++## Commands
++
++Tauri IPC commands:
++
++- `browser_session_status(profileId)` — metadata only.
++- `sync_browser_session(profileId)` — local headed context to encrypted SQL.
++- `validate_browser_session(profileId)` — probe local jar and update metadata.
++- `revoke_browser_session(profileId)` — mark session `revoked` and clear
++  platform metadata; ciphertext remains opaque in the row.
++- `trigger_cloud_run({ profileId, intent, queryPlan })` — create existing
++  `search_runs` row and call Northflank. Response contains only run IDs.
++
++Example `queryPlan` stored in `search_runs`:
++
++```json
++{
++  "platform": "linkedin",
++  "command": "search_jobs",
++  "args": {
++    "keywords": "backend engineer",
++    "location": "São Paulo",
++    "page_index": 0
++  }
++}
++```
++
++The cloud runner allowlists operation commands and never accepts arbitrary
++JavaScript. It invokes the canonical `automation/worker.js`; scraper handlers
++are shared with local execution.
++
++## Northflank job
++
++Build the one-shot image from repository root:
++
++```bash
++docker build -f docker/Dockerfile.cloud-worker -t hiremeops-cloud-worker:latest .
++```
++
++Configure a Northflank Manual Job to run this image with:
++
++- `HIREMEOPS_DATABASE_URL` from Secret Group;
++- `HIREMEOPS_SESSION_ENCRYPTION_KEY` from Secret Group;
++- `HIREMEOPS_RUN_ID` as a per-run runtime environment override;
++- no persistent volume;
++- one worker and one browser profile per job.
++
++The image contains Node, Patchright, system Chromium, fonts and `dumb-init`.
++It excludes Tauri, frontend, AI/MCP dependencies and Xvfb. Chromium is
++headless in cloud and uses `--disable-dev-shm-usage` from the shared launch
++configuration. The cloud-only launch profile caps renderer fan-out at one and
++uses a 1024x768 window to protect the memory budget; local launch dimensions
++remain unchanged.
++
++The Tauri trigger uses Northflank's documented
++`POST /v1/projects/{projectId}/jobs/{jobId}/runs` endpoint and sends only
++`runtimeEnvironment.HIREMEOPS_RUN_ID`.
++
++## Failure behavior
++
++Missing session, invalid key, corrupted ciphertext, unsupported format,
++unknown probe state, login-required, challenge, lock contention and revision
++conflict fail explicitly. A failed target probe updates only session metadata;
++the encrypted snapshot is not replaced. No automatic MFA or challenge action
++exists.
++
++## Memory measurement
++
++The worker emits opt-in `[perf]` samples. The cloud runner writes a JSON report
++with `startup`, `browser-open`, `post-navigation`, `scraping-peak` and
++`shutdown` stages. Each sample records cgroup current/peak when available,
++Node RSS/PSS, summed Chromium PSS and Chromium process count. This measures
++the container, not only Node RSS.
++
++Target: `cgroupPeakMb <= 312` during real search workload. The repository
++contains instrumentation but a Northflank peak is not fabricated locally; run
++the Manual Job with a real synthetic or manually synchronized session and
++archive the generated memory report.
++
++## Manual validation
++
++After local tests, use the existing profile jar:
++
++```text
++Open all logins -> manual login/MFA/challenge -> Check sessions -> Sync to cloud
++-> trigger Manual Job -> inspect search_runs and shared_jobs
++```
++
++The first implementation has real probes for LinkedIn, Catho, InfoJobs,
++Indeed and Gupy. No additional sessionStorage treatment is enabled until a
++portal proves it needs one.
+diff --git i/package.json w/package.json
+index b70deb7..fe9ec70 100644
+--- i/package.json
++++ w/package.json
+@@ -13,7 +13,9 @@
+     "app:build": "tauri build -f real-browser",
+     "lint": "eslint .",
+     "typecheck": "tsc --noEmit",
+-    "test": "bun run test:unit && bun run test:mjs && bun run agent:smoke",
++    "test": "bun run test:unit && bun run test:mjs && bun run test:cloud && bun run agent:smoke",
++    "test:cloud": "node automation/cloud-runner.node-test.mjs",
++    "benchmark:cloud-memory": "node automation/cloud-memory.node-test.mjs",
+     "test:unit": "vitest run",
+     "test:mjs": "node scripts/benchmark/*.node-test.mjs",
+     "test:strict-tests": "node scripts/quality/strict-tests/*.node-test.mjs",
+@@ -27,6 +29,7 @@
+     "headless-test": "node automation/tests/live/headless-test.mjs",
+     "build:docker": "docker build -f docker/Dockerfile.worker -t hiremeops-worker:latest .",
+     "build:docker:slim": "docker build -f docker/Dockerfile.worker.slim -t hiremeops-worker:latest .",
++    "build:docker:cloud": "docker build -f docker/Dockerfile.cloud-worker -t hiremeops-cloud-worker:latest .",
+     "build:linux": "NO_STRIP=true tauri build -f real-browser",
+     "build:linux:portable": "bash scripts/build/build-linux.sh --tar",
+     "build:windows": "bash scripts/build/build-windows.sh",
+diff --git i/reports/cloud-memory-host-synthetic.json w/reports/cloud-memory-host-synthetic.json
+new file mode 100644
+index 0000000..682d974
+--- /dev/null
++++ w/reports/cloud-memory-host-synthetic.json
+@@ -0,0 +1,71 @@
++{
++  "workload": "synthetic-local-browser",
++  "stages": [
++    {
++      "stage": "startup",
++      "at": "2026-09-15T17:59:29.566Z",
++      "nodeRssMb": 60.7,
++      "nodePssMb": 39.9,
++      "chromiumPssMb": 0,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 25.7,
++      "cgroupPeakMb": 25.7,
++      "chromiumProcesses": 0
++    },
++    {
++      "stage": "browser-open",
++      "at": "2026-09-15T17:59:30.079Z",
++      "nodeRssMb": 61.2,
++      "nodePssMb": 125,
++      "chromiumPssMb": 314.5,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 258,
++      "cgroupPeakMb": 260.4,
++      "chromiumProcesses": 9
++    },
++    {
++      "stage": "scraping-1",
++      "at": "2026-09-15T17:59:30.164Z",
++      "nodeRssMb": 62.3,
++      "nodePssMb": 126.3,
++      "chromiumPssMb": 394.8,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 304.2,
++      "cgroupPeakMb": 304.2,
++      "chromiumProcesses": 11
++    },
++    {
++      "stage": "scraping-2",
++      "at": "2026-09-15T17:59:30.220Z",
++      "nodeRssMb": 62.5,
++      "nodePssMb": 126.3,
++      "chromiumPssMb": 429.3,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 326.6,
++      "cgroupPeakMb": 326.6,
++      "chromiumProcesses": 11
++    },
++    {
++      "stage": "scraping-3",
++      "at": "2026-09-15T17:59:30.273Z",
++      "nodeRssMb": 62.8,
++      "nodePssMb": 127.1,
++      "chromiumPssMb": 452,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 348.5,
++      "cgroupPeakMb": 350.7,
++      "chromiumProcesses": 11
++    },
++    {
++      "stage": "shutdown",
++      "at": "2026-09-15T17:59:30.348Z",
++      "nodeRssMb": 62.8,
++      "nodePssMb": 35.3,
++      "chromiumPssMb": 0,
++      "otherProcessPssMb": 0,
++      "cgroupCurrentMb": 27.2,
++      "cgroupPeakMb": 350.7,
++      "chromiumProcesses": 0
++    }
++  ]
++}
+diff --git i/scripts/quality/check-file-size.mjs w/scripts/quality/check-file-size.mjs
+index 2d81e75..c384d98 100644
+--- i/scripts/quality/check-file-size.mjs
++++ w/scripts/quality/check-file-size.mjs
+@@ -20,6 +20,7 @@ export async function sourceFiles(root) {
+     }
+ 
+     for (const entry of entries) {
++      if (entry.isDirectory() && ["node_modules", "target"].includes(entry.name)) continue;
+       const relativePath = path.join(relativeDir, entry.name);
+       if (entry.isDirectory()) {
+         await visit(relativePath);
+diff --git i/scripts/quality/quality-review.mjs w/scripts/quality/quality-review.mjs
+index 2f2e21f..aebbd11 100644
+--- i/scripts/quality/quality-review.mjs
++++ w/scripts/quality/quality-review.mjs
+@@ -44,6 +44,8 @@ async function runLizardWithLimits(limits) {
+     ...sourcePaths,
+     "-x",
+     "scripts/quality/strict-tests/*",
++    "-x",
++    "automation/node_modules/*",
+     "--CCN",
+     "10",
+     "--length",
+diff --git i/src-tauri/Cargo.lock w/src-tauri/Cargo.lock
+index 4238d61..6b89f21 100644
+--- i/src-tauri/Cargo.lock
++++ w/src-tauri/Cargo.lock
+@@ -1954,8 +1954,10 @@ name = "hiremeops"
+ version = "0.1.0"
+ dependencies = [
+  "anyhow",
++ "base64 0.22.1",
+  "chromiumoxide",
+  "futures",
++ "hex",
+  "keyring",
+  "lopdf 0.44.0",
+  "memory-stats",
+@@ -1963,6 +1965,7 @@ dependencies = [
+  "quick-xml",
+  "regex",
+  "reqwest 0.12.28",
++ "ring",
+  "serde",
+  "serde_json",
+  "sha2 0.11.0",
+diff --git i/src-tauri/Cargo.toml w/src-tauri/Cargo.toml
+index 0af3847..5bbde62 100644
+--- i/src-tauri/Cargo.toml
++++ w/src-tauri/Cargo.toml
+@@ -31,6 +31,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] } # RUST_LOG f
+ pdf-extract = "0.12.0" # read text from uploaded CV PDFs
+ lopdf = "0.44.0" # write/generate CV PDFs + metadata + page count
+ sha2 = "0.11.0" # content hashing (CV / AI-cache / credential fingerprints)
++base64 = "0.22"
++hex = "0.4"
++ring = "0.17"
+ tauri-plugin-dialog = "2.7.1" # native file-open dialogs
+ zip = "8.6.0" # DOCX is a zip container (CV parsing)
+ quick-xml = "0.41.0" # DOCX XML body parsing (CV parsing)
+diff --git i/src-tauri/migrations-postgres/0002_browser_sessions.sql w/src-tauri/migrations-postgres/0002_browser_sessions.sql
+new file mode 100644
+index 0000000..b7618e0
+--- /dev/null
++++ w/src-tauri/migrations-postgres/0002_browser_sessions.sql
+@@ -0,0 +1,20 @@
++ALTER TABLE shared_jobs ADD COLUMN search_run_id TEXT REFERENCES search_runs(id) ON DELETE SET NULL;
++
++CREATE INDEX shared_jobs_search_run ON shared_jobs (search_run_id)
++  WHERE search_run_id IS NOT NULL;
++
++CREATE TABLE browser_sessions (
++  id TEXT PRIMARY KEY,
++  profile_id TEXT NOT NULL UNIQUE,
++  encrypted_state BYTEA NOT NULL,
++  encryption_version INTEGER NOT NULL CHECK (encryption_version > 0),
++  state_format_version INTEGER NOT NULL CHECK (state_format_version > 0),
++  revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
++  status TEXT NOT NULL CHECK (status IN ('valid', 'expired', 'login_required', 'challenged', 'unknown', 'revoked')),
++  platform_status JSONB NOT NULL DEFAULT '{}'::jsonb,
++  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  last_validated_at TIMESTAMPTZ
++);
++
++CREATE INDEX browser_sessions_status ON browser_sessions (status, updated_at DESC);
+diff --git i/src-tauri/src/browser/playwright.rs w/src-tauri/src/browser/playwright.rs
+index 0bae4a3..43ad53b 100644
+--- i/src-tauri/src/browser/playwright.rs
++++ w/src-tauri/src/browser/playwright.rs
+@@ -57,6 +57,7 @@ pub struct PlaywrightDriver {
+     parked: Mutex<Option<ParkedInfo>>,
+     parked_indeed: Mutex<Option<String>>,
+     login_session: Mutex<Option<String>>,
++    login_profile_id: Mutex<Option<String>>,
+     current_session: Mutex<Option<String>>,
+ }
+ 
+diff --git i/src-tauri/src/browser/playwright_driver_base.rs w/src-tauri/src/browser/playwright_driver_base.rs
+index c3b900d..7165796 100644
+--- i/src-tauri/src/browser/playwright_driver_base.rs
++++ w/src-tauri/src/browser/playwright_driver_base.rs
+@@ -14,6 +14,7 @@ impl PlaywrightDriver {
+             parked: Mutex::new(None),
+             parked_indeed: Mutex::new(None),
+             login_session: Mutex::new(None),
++            login_profile_id: Mutex::new(None),
+             current_session: Mutex::new(None),
+         }
+     }
+@@ -79,9 +80,17 @@ impl PlaywrightDriver {
+         }
+         let handle = self.open(spec).await?;
+         *self.login_session.lock().await = Some(handle.clone());
++        *self.login_profile_id.lock().await = Some(spec.profile_id.clone());
+         Ok(handle)
+     }
+ 
++    pub async fn login_session_for(&self, profile_id: &str) -> Option<String> {
++        if self.login_profile_id.lock().await.as_deref() != Some(profile_id) {
++            return None;
++        }
++        self.login_session.lock().await.clone()
++    }
++
+     pub(super) async fn conn(&self) -> DomainResult<Arc<WorkerConn>> {
+         let mut slot = self.conn.lock().await;
+         if let Some(c) = slot.as_ref() {
+@@ -112,6 +121,10 @@ impl PlaywrightDriver {
+ 
+     pub async fn close_session(&self, handle: &str) {
+         let _ = self.rpc(json!({ "cmd": "close", "handle": handle })).await;
++        if self.login_session.lock().await.as_deref() == Some(handle) {
++            *self.login_session.lock().await = None;
++            *self.login_profile_id.lock().await = None;
++        }
+     }
+ 
+     pub async fn check_login(&self, user_data_dir: &str) -> DomainResult<bool> {
+@@ -140,13 +153,51 @@ impl PlaywrightDriver {
+     }
+ 
+     pub async fn check_logins(&self, user_data_dir: &str) -> DomainResult<Map<String, Value>> {
+-        let reply = self
+-            .rpc(json!({ "cmd": "check_logins", "user_data_dir": user_data_dir }))
+-            .await?;
++        let reply = self.check_logins_detailed(user_data_dir).await?;
+         Ok(reply
+             .get("status")
+             .and_then(Value::as_object)
+             .cloned()
+             .unwrap_or_default())
+     }
++
++    pub async fn check_logins_detailed(
++        &self,
++        user_data_dir: &str,
++    ) -> DomainResult<Map<String, Value>> {
++        self.rpc(json!({ "cmd": "check_logins", "user_data_dir": user_data_dir }))
++            .await
++    }
++
++    pub async fn export_storage_state(&self, handle: &str) -> DomainResult<(i32, Value)> {
++        let reply = self
++            .rpc(json!({ "cmd": "export_storage_state", "handle": handle }))
++            .await?;
++        let version = reply
++            .get("version")
++            .and_then(Value::as_i64)
++            .ok_or_else(|| {
++                DomainError::Other(anyhow::anyhow!("storage state reply missing version"))
++            })? as i32;
++        let state = reply.get("storageState").cloned().ok_or_else(|| {
++            DomainError::Other(anyhow::anyhow!("storage state reply missing state"))
++        })?;
++        Ok((version, state))
++    }
++
++    pub async fn import_storage_state(
++        &self,
++        handle: &str,
++        version: i32,
++        storage_state: Value,
++    ) -> DomainResult<()> {
++        self.rpc(json!({
++            "cmd": "import_storage_state",
++            "handle": handle,
++            "version": version,
++            "storageState": storage_state,
++        }))
++        .await?;
++        Ok(())
++    }
+ }
+diff --git i/src-tauri/src/browser/playwright_worker.rs w/src-tauri/src/browser/playwright_worker.rs
+index fcd7ed5..329dc29 100644
+--- i/src-tauri/src/browser/playwright_worker.rs
++++ w/src-tauri/src/browser/playwright_worker.rs
+@@ -224,14 +224,14 @@ async fn read_worker_lines(
+         let value: Value = match serde_json::from_str(&line) {
+             Ok(value) => value,
+             Err(error) => {
+-                tracing::warn!("patchright worker: unparseable reply: {error} — {line}");
++                tracing::warn!("patchright worker: unparseable reply: {error}");
+                 continue;
+             }
+         };
+         if route_event(&value, &frame_tx, &progress_tx) {
+             continue;
+         }
+-        route_reply(value, &line, &pending);
++        route_reply(value, &pending);
+     }
+     pending.lock().unwrap().clear();
+     tracing::info!("patchright worker stdout closed");
+@@ -278,13 +278,13 @@ fn route_progress(value: &Value, progress_tx: &ProgressSlot) {
+     }
+ }
+ 
+-fn route_reply(value: Value, line: &str, pending: &PendingMap) {
++fn route_reply(value: Value, pending: &PendingMap) {
+     match serde_json::from_value::<WorkerReply>(value) {
+         Ok(reply) => {
+             if let Some(tx) = pending.lock().unwrap().remove(&reply.id) {
+                 let _ = tx.send(reply);
+             }
+         }
+-        Err(error) => tracing::warn!("patchright worker: unparseable reply: {error} — {line}"),
++        Err(error) => tracing::warn!("patchright worker: unparseable reply: {error}"),
+     }
+ }
+diff --git i/src-tauri/src/commands/browser_sessions.rs w/src-tauri/src/commands/browser_sessions.rs
+new file mode 100644
+index 0000000..26c1a88
+--- /dev/null
++++ w/src-tauri/src/commands/browser_sessions.rs
+@@ -0,0 +1,437 @@
++//! Cloud browser-session commands. Plain storage state stays inside Rust long
++//! enough to encrypt it; the frontend receives metadata only.
++
++use serde_json::{json, Value};
++
++#[cfg(any(test, feature = "real-browser"))]
++use serde_json::Map;
++
++use crate::storage::postgres::{self, BrowserSessionMetadata};
++
++#[cfg(feature = "real-browser")]
++use crate::storage::session_crypto;
++
++#[cfg(any(test, feature = "real-browser"))]
++const STORAGE_STATE_VERSION: i32 = 1;
++
++fn shared_db(state: &crate::AppState) -> Result<&sqlx::PgPool, String> {
++    state
++        .shared_db
++        .as_ref()
++        .ok_or_else(|| "shared PostgreSQL is not configured".to_owned())
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++fn platform_status(reply: &Map<String, Value>) -> Value {
++    reply
++        .get("platform_status")
++        .cloned()
++        .unwrap_or_else(|| json!({}))
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++fn summarize_status(status: &Value) -> &'static str {
++    let Some(values) = status.as_object() else {
++        return "unknown";
++    };
++    if values.is_empty() {
++        return "unknown";
++    }
++    if values
++        .values()
++        .any(|value| value.as_str() == Some("challenged"))
++    {
++        return "challenged";
++    }
++    if values.values().any(|value| value.as_str() == Some("valid")) {
++        return "valid";
++    }
++    if values
++        .values()
++        .any(|value| value.as_str() == Some("login_required"))
++    {
++        return "login_required";
++    }
++    "unknown"
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++async fn release_lock(
++    lock: postgres::ProfileSessionLock,
++    result: Result<BrowserSessionMetadata, String>,
++) -> Result<BrowserSessionMetadata, String> {
++    let release = lock.release().await.map_err(|error| error.to_string());
++    match (result, release) {
++        (Ok(value), Ok(())) => Ok(value),
++        (Err(error), _) => Err(error),
++        (Ok(_), Err(error)) => Err(error),
++    }
++}
++
++#[tauri::command]
++pub async fn browser_session_status(
++    state: tauri::State<'_, crate::AppState>,
++    profile_id: String,
++) -> Result<Option<BrowserSessionMetadata>, String> {
++    postgres::get_browser_session_metadata(shared_db(&state)?, &profile_id)
++        .await
++        .map_err(|error| error.to_string())
++}
++
++#[tauri::command]
++pub async fn sync_browser_session(
++    state: tauri::State<'_, crate::AppState>,
++    profile_id: String,
++) -> Result<BrowserSessionMetadata, String> {
++    #[cfg(feature = "real-browser")]
++    {
++        use crate::storage::paths::automation_profile_dir;
++
++        let pool = shared_db(&state)?;
++        let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
++            .await
++            .map_err(|error| error.to_string())?
++        else {
++            return Err("browser session is busy".to_owned());
++        };
++        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
++            .to_string_lossy()
++            .into_owned();
++        let result = sync_locked(&state, pool, &profile_id, &user_data_dir).await;
++        release_lock(lock, result).await
++    }
++    #[cfg(not(feature = "real-browser"))]
++    {
++        let _ = (state, profile_id);
++        Err("real-browser feature not enabled".to_owned())
++    }
++}
++
++#[cfg(feature = "real-browser")]
++async fn sync_locked(
++    state: &crate::AppState,
++    pool: &sqlx::PgPool,
++    profile_id: &str,
++    user_data_dir: &str,
++) -> Result<BrowserSessionMetadata, String> {
++    let handle = login_handle(state, profile_id).await?;
++    let (status, platforms) = validated_platforms(state, user_data_dir).await?;
++    let (state_version, storage_state) = exported_state(state, &handle).await?;
++    let encrypted =
++        session_crypto::encrypt_json(&storage_state).map_err(|error| error.to_string())?;
++    let expected_revision = current_revision(pool, profile_id).await?;
++    postgres::upsert_browser_session(
++        pool,
++        postgres::BrowserSessionWrite {
++            profile_id,
++            encrypted_state: &encrypted,
++            encryption_version: session_crypto::ENCRYPTION_VERSION,
++            state_format_version: state_version,
++            status,
++            platform_status: &platforms,
++            expected_revision,
++        },
++    )
++    .await
++    .map_err(|error| error.to_string())?
++    .ok_or_else(|| "browser session revision conflict".to_owned())
++}
++
++#[tauri::command]
++pub async fn validate_browser_session(
++    state: tauri::State<'_, crate::AppState>,
++    profile_id: String,
++) -> Result<BrowserSessionMetadata, String> {
++    #[cfg(feature = "real-browser")]
++    {
++        use crate::storage::paths::automation_profile_dir;
++        let pool = shared_db(&state)?;
++        let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
++            .await
++            .map_err(|error| error.to_string())?
++        else {
++            return Err("browser session is busy".to_owned());
++        };
++        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
++            .to_string_lossy()
++            .into_owned();
++        let result = validate_locked(&state, pool, &profile_id, &user_data_dir).await;
++        release_lock(lock, result).await
++    }
++    #[cfg(not(feature = "real-browser"))]
++    {
++        let _ = (state, profile_id);
++        Err("real-browser feature not enabled".to_owned())
++    }
++}
++
++#[cfg(feature = "real-browser")]
++async fn validate_locked(
++    state: &crate::AppState,
++    pool: &sqlx::PgPool,
++    profile_id: &str,
++    user_data_dir: &str,
++) -> Result<BrowserSessionMetadata, String> {
++    let checked = state
++        .playwright
++        .check_logins_detailed(user_data_dir)
++        .await
++        .map_err(|error| error.to_string())?;
++    let platforms = platform_status(&checked);
++    let status = summarize_status(&platforms);
++    let current = postgres::get_browser_session_metadata(pool, profile_id)
++        .await
++        .map_err(|error| error.to_string())?
++        .ok_or_else(|| "cloud browser session is not synchronized".to_owned())?;
++    postgres::update_browser_session_status(pool, profile_id, status, &platforms, current.revision)
++        .await
++        .map_err(|error| error.to_string())?
++        .ok_or_else(|| "browser session revision conflict".to_owned())
++}
++
++#[cfg(feature = "real-browser")]
++async fn login_handle(state: &crate::AppState, profile_id: &str) -> Result<String, String> {
++    state
++        .playwright
++        .login_session_for(profile_id)
++        .await
++        .ok_or_else(|| "open all logins before syncing browser session".to_owned())
++}
++
++#[cfg(feature = "real-browser")]
++async fn validated_platforms(
++    state: &crate::AppState,
++    user_data_dir: &str,
++) -> Result<(&'static str, Value), String> {
++    let checked = state
++        .playwright
++        .check_logins_detailed(user_data_dir)
++        .await
++        .map_err(|error| error.to_string())?;
++    let platforms = platform_status(&checked);
++    let status = summarize_status(&platforms);
++    if status != "valid" {
++        return Err(format!("browser session validation status: {status}"));
++    }
++    Ok((status, platforms))
++}
++
++#[cfg(feature = "real-browser")]
++async fn exported_state(state: &crate::AppState, handle: &str) -> Result<(i32, Value), String> {
++    let (state_version, storage_state) = state
++        .playwright
++        .export_storage_state(handle)
++        .await
++        .map_err(|error| error.to_string())?;
++    if state_version != STORAGE_STATE_VERSION {
++        return Err(format!(
++            "unsupported storage state version: {state_version}"
++        ));
++    }
++    Ok((state_version, storage_state))
++}
++
++#[cfg(feature = "real-browser")]
++async fn current_revision(pool: &sqlx::PgPool, profile_id: &str) -> Result<Option<i64>, String> {
++    postgres::get_browser_session_metadata(pool, profile_id)
++        .await
++        .map(|metadata| metadata.map(|value| value.revision))
++        .map_err(|error| error.to_string())
++}
++
++#[tauri::command]
++pub async fn revoke_browser_session(
++    state: tauri::State<'_, crate::AppState>,
++    profile_id: String,
++) -> Result<Option<BrowserSessionMetadata>, String> {
++    let pool = shared_db(&state)?;
++    let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
++        .await
++        .map_err(|error| error.to_string())?
++    else {
++        return Err("browser session is busy".to_owned());
++    };
++    let result = postgres::revoke_browser_session(pool, &profile_id)
++        .await
++        .map_err(|error| error.to_string());
++    let release = lock.release().await.map_err(|error| error.to_string());
++    match (result, release) {
++        (Ok(value), Ok(())) => Ok(value),
++        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
++    }
++}
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CloudRunInput {
++    pub profile_id: String,
++    pub intent: String,
++    pub query_plan: Value,
++}
++
++#[derive(Debug, serde::Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CloudRunReceipt {
++    pub search_run_id: String,
++    pub northflank_run_id: String,
++    pub northflank_run_name: String,
++}
++
++#[tauri::command]
++pub async fn trigger_cloud_run(
++    state: tauri::State<'_, crate::AppState>,
++    input: CloudRunInput,
++) -> Result<CloudRunReceipt, String> {
++    let pool = shared_db(&state)?;
++    ensure_cloud_session(pool, &input.profile_id).await?;
++    let config = NorthflankConfig::from_env()?;
++    let search_run_id = create_search_run(pool, &input).await?;
++    let (northflank_run_id, northflank_run_name) =
++        trigger_and_record_failure(pool, &config, &search_run_id).await?;
++    Ok(CloudRunReceipt {
++        search_run_id,
++        northflank_run_id,
++        northflank_run_name,
++    })
++}
++
++async fn ensure_cloud_session(pool: &sqlx::PgPool, profile_id: &str) -> Result<(), String> {
++    let session = postgres::get_browser_session_metadata(pool, profile_id)
++        .await
++        .map_err(|error| error.to_string())?
++        .ok_or_else(|| "cloud browser session is not synchronized".to_owned())?;
++    if session.status != "valid" {
++        return Err(format!(
++            "cloud browser session is not valid: {}",
++            session.status
++        ));
++    }
++    Ok(())
++}
++
++struct NorthflankConfig {
++    token: String,
++    project_id: String,
++    job_id: String,
++    base_url: String,
++}
++
++impl NorthflankConfig {
++    fn from_env() -> Result<Self, String> {
++        let base_url = std::env::var("NORTHFLANK_API_BASE_URL")
++            .unwrap_or_else(|_| "https://api.northflank.com/v1".to_owned())
++            .trim_end_matches('/')
++            .to_owned();
++        if !base_url.starts_with("https://") {
++            return Err("NORTHFLANK_API_BASE_URL must use HTTPS".to_owned());
++        }
++        Ok(Self {
++            token: required_env("NORTHFLANK_API_TOKEN")?,
++            project_id: required_env("NORTHFLANK_PROJECT_ID")?,
++            job_id: required_env("NORTHFLANK_JOB_ID")?,
++            base_url,
++        })
++    }
++}
++
++async fn create_search_run(pool: &sqlx::PgPool, input: &CloudRunInput) -> Result<String, String> {
++    let search_run_id = uuid::Uuid::new_v4().to_string();
++    sqlx::query(
++        "INSERT INTO search_runs (id, profile_id, intent, query_plan, status)
++         VALUES ($1, $2, $3, $4, 'started')",
++    )
++    .bind(&search_run_id)
++    .bind(&input.profile_id)
++    .bind(&input.intent)
++    .bind(sqlx::types::Json(input.query_plan.clone()))
++    .execute(pool)
++    .await
++    .map_err(|error| format!("create search run: {error}"))?;
++    Ok(search_run_id)
++}
++
++async fn trigger_and_record_failure(
++    pool: &sqlx::PgPool,
++    config: &NorthflankConfig,
++    search_run_id: &str,
++) -> Result<(String, String), String> {
++    match trigger_northflank(config, search_run_id).await {
++        Ok(result) => Ok(result),
++        Err(error) => {
++            mark_run_failed(pool, search_run_id, &error).await;
++            Err(error)
++        }
++    }
++}
++
++async fn trigger_northflank(
++    config: &NorthflankConfig,
++    search_run_id: &str,
++) -> Result<(String, String), String> {
++    let response = reqwest::Client::new()
++        .post(format!(
++            "{}/projects/{}/jobs/{}/runs",
++            config.base_url, config.project_id, config.job_id
++        ))
++        .bearer_auth(&config.token)
++        .json(&json!({ "runtimeEnvironment": { "HIREMEOPS_RUN_ID": search_run_id } }))
++        .send()
++        .await
++        .map_err(|_| "Northflank request failed".to_owned())?;
++    if !response.status().is_success() {
++        return Err("Northflank job trigger failed".to_owned());
++    }
++    let payload: Value = response
++        .json()
++        .await
++        .map_err(|_| "Northflank response parse failed".to_owned())?;
++    let Some(data) = payload.get("data").and_then(Value::as_object) else {
++        return Err("Northflank response missing run data".to_owned());
++    };
++    let Some(northflank_run_id) = data.get("id").and_then(Value::as_str) else {
++        return Err("Northflank response missing run id".to_owned());
++    };
++    let Some(northflank_run_name) = data.get("runName").and_then(Value::as_str) else {
++        return Err("Northflank response missing run name".to_owned());
++    };
++    Ok((northflank_run_id.to_owned(), northflank_run_name.to_owned()))
++}
++
++fn required_env(name: &str) -> Result<String, String> {
++    std::env::var(name)
++        .ok()
++        .filter(|value| !value.trim().is_empty())
++        .ok_or_else(|| format!("{name} is required"))
++}
++
++async fn mark_run_failed(pool: &sqlx::PgPool, run_id: &str, error: &str) {
++    let _ = sqlx::query(
++        "UPDATE search_runs SET status = 'failed', finished_at = now(), error = $2 WHERE id = $1",
++    )
++    .bind(run_id)
++    .bind(error)
++    .execute(pool)
++    .await;
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn status_summary_prioritizes_challenge_and_validity() {
++        assert_eq!(
++            summarize_status(&json!({ "site": "challenged" })),
++            "challenged"
++        );
++        assert_eq!(
++            summarize_status(&json!({ "site": "valid", "other": "login_required" })),
++            "valid"
++        );
++        assert_eq!(
++            summarize_status(&json!({ "site": "login_required" })),
++            "login_required"
++        );
++        assert_eq!(summarize_status(&json!({})), "unknown");
++    }
++}
+diff --git i/src-tauri/src/commands/mod.rs w/src-tauri/src/commands/mod.rs
+index 499097a..febd8a1 100644
+--- i/src-tauri/src/commands/mod.rs
++++ w/src-tauri/src/commands/mod.rs
+@@ -36,6 +36,7 @@ pub mod applications;
+ pub mod auth;
+ pub mod automation;
+ pub mod browser_provider;
++pub mod browser_sessions;
+ pub mod browser_view;
+ pub mod cv;
+ pub mod docker;
+diff --git i/src-tauri/src/commands/profile_variants.rs w/src-tauri/src/commands/profile_variants.rs
+index e57c052..9df389d 100644
+--- i/src-tauri/src/commands/profile_variants.rs
++++ w/src-tauri/src/commands/profile_variants.rs
+@@ -714,7 +714,7 @@ pub async fn check_all_logins(
+ 
+         let status = state
+             .playwright
+-            .check_logins(&dir)
++            .check_logins_detailed(&dir)
+             .await
+             .map_err(|e| e.to_string())?;
+         Ok(serde_json::Value::Object(status))
+diff --git i/src-tauri/src/lib.rs w/src-tauri/src/lib.rs
+index c711e4f..d2e6d49 100644
+--- i/src-tauri/src/lib.rs
++++ w/src-tauri/src/lib.rs
+@@ -264,6 +264,11 @@ macro_rules! app_invoke_handler {
+             commands::browser_provider::browser_provider_logout,
+             commands::browser_provider::browser_provider_status,
+             commands::browser_provider::browser_provider_models,
++            commands::browser_sessions::browser_session_status,
++            commands::browser_sessions::sync_browser_session,
++            commands::browser_sessions::validate_browser_session,
++            commands::browser_sessions::revoke_browser_session,
++            commands::browser_sessions::trigger_cloud_run,
+         ]
+     };
+ }
+diff --git i/src-tauri/src/storage/mod.rs w/src-tauri/src/storage/mod.rs
+index 8e8bb14..f169b91 100644
+--- i/src-tauri/src/storage/mod.rs
++++ w/src-tauri/src/storage/mod.rs
+@@ -7,4 +7,6 @@
+ pub mod db;
+ pub mod paths;
+ pub mod postgres;
++pub mod postgres_browser_sessions;
++pub mod session_crypto;
+ pub mod settings;
+diff --git i/src-tauri/src/storage/postgres.rs w/src-tauri/src/storage/postgres.rs
+index 0621573..e7d3c33 100644
+--- i/src-tauri/src/storage/postgres.rs
++++ w/src-tauri/src/storage/postgres.rs
+@@ -10,6 +10,17 @@ use std::{env, time::Duration};
+ use anyhow::{Context, Result};
+ use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
+ 
++#[cfg(test)]
++use uuid::Uuid;
++
++pub use super::postgres_browser_sessions::{
++    get_browser_session_metadata, revoke_browser_session, try_lock_profile, BrowserSessionMetadata,
++};
++#[cfg(any(test, feature = "real-browser"))]
++pub use super::postgres_browser_sessions::{
++    update_browser_session_status, upsert_browser_session, BrowserSessionWrite, ProfileSessionLock,
++};
++
+ const DEFAULT_MAX_CONNECTIONS: u32 = 5;
+ const DEFAULT_MIN_CONNECTIONS: u32 = 0;
+ const DEFAULT_ACQUIRE_TIMEOUT_SECS: u64 = 5;
+@@ -209,6 +220,9 @@ mod tests {
+         let pool = connect_url(&url)
+             .await
+             .expect("PostgreSQL migrations should run");
++        assert_cloud_schema(&pool).await;
++        exercise_browser_session_repository(&pool).await;
++
+         sqlx::query("DELETE FROM shared_jobs WHERE id LIKE 'test-postgres-%'")
+             .execute(&pool)
+             .await
+@@ -268,4 +282,90 @@ mod tests {
+             .await
+             .unwrap();
+     }
++
++    async fn assert_cloud_schema(pool: &PgPool) {
++        let session_columns: Vec<String> = sqlx::query_scalar(
++            "SELECT column_name::text FROM information_schema.columns
++             WHERE table_schema = 'public' AND table_name = 'browser_sessions'",
++        )
++        .fetch_all(pool)
++        .await
++        .unwrap();
++        for column in [
++            "encrypted_state",
++            "encryption_version",
++            "state_format_version",
++            "revision",
++            "status",
++            "platform_status",
++        ] {
++            assert!(session_columns.iter().any(|value| value == column));
++        }
++        let shared_job_columns: Vec<String> = sqlx::query_scalar(
++            "SELECT column_name::text FROM information_schema.columns
++             WHERE table_schema = 'public' AND table_name = 'shared_jobs'",
++        )
++        .fetch_all(pool)
++        .await
++        .unwrap();
++        assert!(shared_job_columns
++            .iter()
++            .any(|value| value == "search_run_id"));
++    }
++
++    async fn exercise_browser_session_repository(pool: &PgPool) {
++        let fixture_profile = format!("test-postgres-session-{}", Uuid::new_v4());
++        let first = upsert_browser_session(
++            pool,
++            BrowserSessionWrite {
++                profile_id: &fixture_profile,
++                encrypted_state: &[0x01, 0x02, 0x03],
++                encryption_version: 1,
++                state_format_version: 1,
++                status: "valid",
++                platform_status: &serde_json::json!({ "fixture": "valid" }),
++                expected_revision: None,
++            },
++        )
++        .await
++        .unwrap()
++        .expect("session insert should return metadata");
++        assert_eq!(first.revision, 1);
++        let updated = update_browser_session_status(
++            pool,
++            &fixture_profile,
++            "challenged",
++            &serde_json::json!({ "fixture": "challenged" }),
++            first.revision,
++        )
++        .await
++        .unwrap()
++        .expect("session status update should return metadata");
++        assert_eq!(updated.status, "challenged");
++        assert!(upsert_browser_session(
++            pool,
++            BrowserSessionWrite {
++                profile_id: &fixture_profile,
++                encrypted_state: &[0x04],
++                encryption_version: 1,
++                state_format_version: 1,
++                status: "valid",
++                platform_status: &serde_json::json!({}),
++                expected_revision: Some(first.revision),
++            },
++        )
++        .await
++        .unwrap()
++        .is_none());
++        let revoked = revoke_browser_session(pool, &fixture_profile)
++            .await
++            .unwrap()
++            .expect("session revoke should return metadata");
++        assert_eq!(revoked.status, "revoked");
++        sqlx::query("DELETE FROM browser_sessions WHERE profile_id = $1")
++            .bind(&fixture_profile)
++            .execute(pool)
++            .await
++            .unwrap();
++    }
+ }
+diff --git i/src-tauri/src/storage/postgres_browser_sessions.rs w/src-tauri/src/storage/postgres_browser_sessions.rs
+new file mode 100644
+index 0000000..bbd56e9
+--- /dev/null
++++ w/src-tauri/src/storage/postgres_browser_sessions.rs
+@@ -0,0 +1,224 @@
++//! PostgreSQL repository for encrypted browser snapshots and profile locks.
++
++use anyhow::{bail, Context, Result};
++use serde_json::Value;
++use sqlx::{postgres::PgConnection, Connection, FromRow, PgPool};
++#[cfg(any(test, feature = "real-browser"))]
++use uuid::Uuid;
++
++#[derive(Debug, Clone, serde::Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct BrowserSessionMetadata {
++    pub id: String,
++    pub profile_id: String,
++    pub encryption_version: i32,
++    pub state_format_version: i32,
++    pub revision: i64,
++    pub status: String,
++    pub platform_status: Value,
++    pub created_at: String,
++    pub updated_at: String,
++    pub last_validated_at: Option<String>,
++}
++
++#[derive(Debug, FromRow)]
++struct BrowserSessionRow {
++    id: String,
++    profile_id: String,
++    encryption_version: i32,
++    state_format_version: i32,
++    revision: i64,
++    status: String,
++    platform_status: sqlx::types::Json<Value>,
++    created_at: String,
++    updated_at: String,
++    last_validated_at: Option<String>,
++}
++
++impl From<BrowserSessionRow> for BrowserSessionMetadata {
++    fn from(row: BrowserSessionRow) -> Self {
++        Self {
++            id: row.id,
++            profile_id: row.profile_id,
++            encryption_version: row.encryption_version,
++            state_format_version: row.state_format_version,
++            revision: row.revision,
++            status: row.status,
++            platform_status: row.platform_status.0,
++            created_at: row.created_at,
++            updated_at: row.updated_at,
++            last_validated_at: row.last_validated_at,
++        }
++    }
++}
++
++const SESSION_METADATA_COLUMNS: &str = "
++    id, profile_id, encryption_version, state_format_version, revision, status,
++    platform_status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS created_at,
++    to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS updated_at,
++    CASE WHEN last_validated_at IS NULL THEN NULL ELSE to_char(last_validated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END AS last_validated_at";
++
++pub async fn get_browser_session_metadata(
++    pool: &PgPool,
++    profile_id: &str,
++) -> Result<Option<BrowserSessionMetadata>> {
++    let query =
++        format!("SELECT {SESSION_METADATA_COLUMNS} FROM browser_sessions WHERE profile_id = $1");
++    let row = sqlx::query_as::<_, BrowserSessionRow>(sqlx::AssertSqlSafe(query))
++        .bind(profile_id)
++        .fetch_optional(pool)
++        .await
++        .context("read browser session metadata")?;
++    Ok(row.map(Into::into))
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++pub struct BrowserSessionWrite<'a> {
++    pub profile_id: &'a str,
++    pub encrypted_state: &'a [u8],
++    pub encryption_version: i32,
++    pub state_format_version: i32,
++    pub status: &'a str,
++    pub platform_status: &'a Value,
++    pub expected_revision: Option<i64>,
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++pub async fn upsert_browser_session(
++    pool: &PgPool,
++    write: BrowserSessionWrite<'_>,
++) -> Result<Option<BrowserSessionMetadata>> {
++    if !matches!(
++        write.status,
++        "valid" | "expired" | "login_required" | "challenged" | "unknown" | "revoked"
++    ) {
++        bail!("invalid browser session status")
++    }
++    let query = format!(
++        "INSERT INTO browser_sessions
++          (id, profile_id, encrypted_state, encryption_version, state_format_version, revision,
++           status, platform_status, created_at, updated_at, last_validated_at)
++         VALUES ($1, $2, $3, $4, $5, 1, $6, $7, now(), now(), now())
++         ON CONFLICT (profile_id) DO UPDATE SET
++           encrypted_state = EXCLUDED.encrypted_state,
++           encryption_version = EXCLUDED.encryption_version,
++           state_format_version = EXCLUDED.state_format_version,
++           revision = browser_sessions.revision + 1,
++           status = EXCLUDED.status,
++           platform_status = EXCLUDED.platform_status,
++           updated_at = now(),
++           last_validated_at = now()
++         WHERE ($8::bigint IS NULL OR browser_sessions.revision = $8)
++         RETURNING {SESSION_METADATA_COLUMNS}",
++    );
++    let row = sqlx::query_as::<_, BrowserSessionRow>(sqlx::AssertSqlSafe(query))
++        .bind(Uuid::new_v4().to_string())
++        .bind(write.profile_id)
++        .bind(write.encrypted_state)
++        .bind(write.encryption_version)
++        .bind(write.state_format_version)
++        .bind(write.status)
++        .bind(sqlx::types::Json(write.platform_status.clone()))
++        .bind(write.expected_revision)
++        .fetch_optional(pool)
++        .await
++        .context("save browser session")?;
++    Ok(row.map(Into::into))
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++pub async fn update_browser_session_status(
++    pool: &PgPool,
++    profile_id: &str,
++    status: &str,
++    platform_status: &Value,
++    expected_revision: i64,
++) -> Result<Option<BrowserSessionMetadata>> {
++    let query = format!(
++        "UPDATE browser_sessions
++         SET status = $2, platform_status = $3, revision = revision + 1,
++             updated_at = now(), last_validated_at = now()
++         WHERE profile_id = $1 AND revision = $4
++         RETURNING {SESSION_METADATA_COLUMNS}"
++    );
++    let row = sqlx::query_as::<_, BrowserSessionRow>(sqlx::AssertSqlSafe(query))
++        .bind(profile_id)
++        .bind(status)
++        .bind(sqlx::types::Json(platform_status.clone()))
++        .bind(expected_revision)
++        .fetch_optional(pool)
++        .await
++        .context("update browser session status")?;
++    Ok(row.map(Into::into))
++}
++
++pub async fn revoke_browser_session(
++    pool: &PgPool,
++    profile_id: &str,
++) -> Result<Option<BrowserSessionMetadata>> {
++    let query = format!(
++        "UPDATE browser_sessions
++         SET status = 'revoked', platform_status = '{{}}'::jsonb,
++             revision = CASE WHEN status = 'revoked' THEN revision ELSE revision + 1 END,
++             updated_at = now()
++         WHERE profile_id = $1
++         RETURNING {SESSION_METADATA_COLUMNS}"
++    );
++    let row = sqlx::query_as::<_, BrowserSessionRow>(sqlx::AssertSqlSafe(query))
++        .bind(profile_id)
++        .fetch_optional(pool)
++        .await
++        .context("revoke browser session")?;
++    Ok(row.map(Into::into))
++}
++
++pub struct ProfileSessionLock {
++    connection: Option<PgConnection>,
++    profile_id: String,
++}
++
++pub async fn try_lock_profile(
++    pool: &PgPool,
++    profile_id: &str,
++) -> Result<Option<ProfileSessionLock>> {
++    let mut connection = pool.acquire().await?.detach();
++    let acquired: bool =
++        match sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtextextended($1, 0))")
++            .bind(profile_id)
++            .fetch_one(&mut connection)
++            .await
++        {
++            Ok(value) => value,
++            Err(error) => {
++                let _ = connection.close().await;
++                return Err(error).context("acquire browser session lock");
++            }
++        };
++    if !acquired {
++        let _ = connection.close().await;
++        return Ok(None);
++    }
++    Ok(Some(ProfileSessionLock {
++        connection: Some(connection),
++        profile_id: profile_id.to_owned(),
++    }))
++}
++
++impl ProfileSessionLock {
++    pub async fn release(mut self) -> Result<()> {
++        let Some(mut connection) = self.connection.take() else {
++            return Ok(());
++        };
++        let unlocked: bool =
++            sqlx::query_scalar("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
++                .bind(&self.profile_id)
++                .fetch_one(&mut connection)
++                .await
++                .unwrap_or(false);
++        let _ = connection.close().await;
++        if !unlocked {
++            bail!("release browser session lock failed")
++        }
++        Ok(())
++    }
++}
+diff --git i/src-tauri/src/storage/session_crypto.rs w/src-tauri/src/storage/session_crypto.rs
+new file mode 100644
+index 0000000..50c7e77
+--- /dev/null
++++ w/src-tauri/src/storage/session_crypto.rs
+@@ -0,0 +1,154 @@
++//! AEAD envelope for browser storage-state snapshots.
++//!
++//! Format v1: 12-byte AES-256-GCM nonce followed by ciphertext and its 16-byte tag.
++//! The envelope version lives beside the blob in PostgreSQL so future rotations can
++//! select a different decoder without trying to infer formats from secret bytes.
++
++#[cfg(any(test, feature = "real-browser"))]
++use std::env;
++
++#[cfg(test)]
++use anyhow::bail;
++#[cfg(any(test, feature = "real-browser"))]
++use anyhow::{Context, Result};
++#[cfg(any(test, feature = "real-browser"))]
++use base64::{engine::general_purpose, Engine as _};
++#[cfg(test)]
++use ring::aead;
++#[cfg(any(test, feature = "real-browser"))]
++use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
++#[cfg(any(test, feature = "real-browser"))]
++use ring::rand::{SecureRandom, SystemRandom};
++#[cfg(any(test, feature = "real-browser"))]
++use serde_json::Value;
++
++#[cfg(any(test, feature = "real-browser"))]
++pub const ENCRYPTION_VERSION: i32 = 1;
++#[cfg(any(test, feature = "real-browser"))]
++const NONCE_LEN: usize = 12;
++
++#[cfg(any(test, feature = "real-browser"))]
++pub fn encrypt_json(state: &Value) -> Result<Vec<u8>> {
++    let key = key_from_env()?;
++    encrypt_json_with_key(state, &key)
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++fn encrypt_json_with_key(state: &Value, key: &[u8; 32]) -> Result<Vec<u8>> {
++    let mut plaintext = serde_json::to_vec(state).context("serialize storage state")?;
++    let mut nonce = [0u8; NONCE_LEN];
++    SystemRandom::new()
++        .fill(&mut nonce)
++        .map_err(|_| anyhow::anyhow!("generate storage-state nonce"))?;
++    let sealing_key = LessSafeKey::new(
++        UnboundKey::new(&AES_256_GCM, key)
++            .map_err(|_| anyhow::anyhow!("invalid storage-state encryption key"))?,
++    );
++    sealing_key
++        .seal_in_place_append_tag(
++            Nonce::assume_unique_for_key(nonce),
++            Aad::empty(),
++            &mut plaintext,
++        )
++        .map_err(|_| anyhow::anyhow!("encrypt storage state"))?;
++    let mut envelope = nonce.to_vec();
++    envelope.extend_from_slice(&plaintext);
++    Ok(envelope)
++}
++
++#[cfg(test)]
++fn decrypt_json_with_key(ciphertext: &[u8], key: &[u8; 32]) -> Result<Value> {
++    if ciphertext.len() <= NONCE_LEN + aead::AES_256_GCM.tag_len() {
++        bail!("encrypted storage state is truncated")
++    }
++    let nonce: [u8; NONCE_LEN] = ciphertext[..NONCE_LEN]
++        .try_into()
++        .map_err(|_| anyhow::anyhow!("invalid storage-state nonce"))?;
++    let mut plaintext = ciphertext[NONCE_LEN..].to_vec();
++    let opening_key = LessSafeKey::new(
++        UnboundKey::new(&AES_256_GCM, key)
++            .map_err(|_| anyhow::anyhow!("invalid storage-state encryption key"))?,
++    );
++    let plaintext = opening_key
++        .open_in_place(
++            Nonce::assume_unique_for_key(nonce),
++            Aad::empty(),
++            &mut plaintext,
++        )
++        .map_err(|_| anyhow::anyhow!("decrypt storage state"))?;
++    serde_json::from_slice(plaintext).context("parse decrypted storage state")
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++fn key_from_env() -> Result<[u8; 32]> {
++    let encoded = env::var("HIREMEOPS_SESSION_ENCRYPTION_KEY")
++        .ok()
++        .filter(|value| !value.trim().is_empty())
++        .context("HIREMEOPS_SESSION_ENCRYPTION_KEY is required")?;
++    decode_key(&encoded)
++}
++
++#[cfg(any(test, feature = "real-browser"))]
++fn decode_key(encoded: &str) -> Result<[u8; 32]> {
++    let value = encoded.trim();
++    let bytes = if let Some(hex_value) = value.strip_prefix("hex:") {
++        hex::decode(hex_value).context("decode storage-state key")?
++    } else if let Some(base64_value) = value.strip_prefix("base64:") {
++        general_purpose::STANDARD
++            .decode(base64_value)
++            .context("decode storage-state key")?
++    } else if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
++        hex::decode(value).context("decode storage-state key")?
++    } else {
++        general_purpose::STANDARD
++            .decode(value)
++            .context("decode storage-state key")?
++    };
++    bytes
++        .try_into()
++        .map_err(|_| anyhow::anyhow!("storage-state key must decode to 32 bytes"))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const KEY: [u8; 32] = [7; 32];
++
++    #[test]
++    fn encryption_roundtrip() {
++        let state = serde_json::json!({
++            "cookies": [{ "name": "synthetic", "value": "fixture" }],
++            "origins": [{ "origin": "https://fixture.invalid", "localStorage": [] }]
++        });
++        let encrypted = encrypt_json_with_key(&state, &KEY).unwrap();
++        assert_ne!(encrypted, serde_json::to_vec(&state).unwrap());
++        assert_eq!(decrypt_json_with_key(&encrypted, &KEY).unwrap(), state);
++    }
++
++    #[test]
++    fn corrupted_ciphertext_is_rejected() {
++        let encrypted = encrypt_json_with_key(&serde_json::json!({ "ok": true }), &KEY).unwrap();
++        let mut corrupted = encrypted.clone();
++        corrupted[NONCE_LEN + 1] ^= 1;
++        assert!(decrypt_json_with_key(&corrupted, &KEY).is_err());
++    }
++
++    #[test]
++    fn wrong_key_is_rejected() {
++        let encrypted = encrypt_json_with_key(&serde_json::json!({ "ok": true }), &KEY).unwrap();
++        assert!(decrypt_json_with_key(&encrypted, &[8; 32]).is_err());
++    }
++
++    #[test]
++    fn key_decoder_accepts_documented_encodings() {
++        assert_eq!(
++            decode_key(&format!("hex:{}", "07".repeat(32))).unwrap(),
++            KEY
++        );
++        assert_eq!(
++            decode_key(&format!("base64:{}", general_purpose::STANDARD.encode(KEY))).unwrap(),
++            KEY
++        );
++    }
++}
+diff --git i/src/pages/command-center/CloudSessionPanel.css w/src/pages/command-center/CloudSessionPanel.css
+new file mode 100644
+index 0000000..d75f389
+--- /dev/null
++++ w/src/pages/command-center/CloudSessionPanel.css
+@@ -0,0 +1,83 @@
++.cc-session-panel {
++  display: flex;
++  flex-direction: column;
++  gap: var(--sp-2);
++  padding: var(--sp-3);
++  border: 1px solid var(--color-border);
++  border-radius: var(--radius-md);
++  background: var(--color-surface-sunken);
++}
++
++.cc-session-panel__head {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: var(--sp-2);
++}
++
++.cc-session-panel__eyebrow {
++  display: block;
++  color: var(--color-accent-text);
++  font-size: var(--text-2xs);
++  letter-spacing: var(--ls-wide);
++  text-transform: uppercase;
++}
++
++.cc-session-panel h3 {
++  margin: 2px 0 0;
++  font-family: var(--font-title);
++  font-size: var(--text-sm);
++  font-weight: 500;
++}
++
++.cc-session-platforms {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 1px var(--sp-3);
++}
++
++.cc-session-platform {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--sp-2);
++  padding: 4px 0;
++  font-size: var(--text-xs);
++}
++
++.cc-session-platform strong,
++.cc-session-status {
++  font-size: var(--text-2xs);
++  font-weight: 500;
++  white-space: nowrap;
++}
++
++.cc-session-status--valid {
++  color: var(--color-success, #4ade80);
++}
++
++.cc-session-status--login_required,
++.cc-session-status--expired {
++  color: var(--color-warning, #fbbf24);
++}
++
++.cc-session-status--challenged,
++.cc-session-status--revoked {
++  color: var(--color-danger);
++}
++
++.cc-session-status--unknown {
++  color: var(--color-text-muted);
++}
++
++.cc-session-panel__actions {
++  display: flex;
++  flex-wrap: wrap;
++  gap: var(--sp-2);
++}
++
++@media (max-width: 560px) {
++  .cc-session-platforms {
++    grid-template-columns: 1fr;
++  }
++}
+diff --git i/src/pages/command-center/CloudSessionPanel.tsx w/src/pages/command-center/CloudSessionPanel.tsx
+new file mode 100644
+index 0000000..23befa1
+--- /dev/null
++++ w/src/pages/command-center/CloudSessionPanel.tsx
+@@ -0,0 +1,214 @@
++import { useCallback, useEffect, useState } from "react";
++import { Button } from "../../components/ui";
++import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
++import type { BrowserSessionMetadata, BrowserSessionStatus } from "../../types/domain";
++
++const PLATFORMS = [
++  ["linkedin", "LinkedIn"],
++  ["indeed", "Indeed"],
++  ["gupy", "Gupy"],
++  ["catho", "Catho"],
++  ["infojobs", "InfoJobs"],
++] as const;
++
++type LoginCheck = {
++  status?: Record<string, boolean>;
++  platform_status?: Record<string, BrowserSessionStatus>;
++};
++
++function sessionStatusLabel(status: BrowserSessionStatus | undefined): string {
++  if (status === "valid") return "Connected";
++  if (status === "login_required") return "Login required";
++  if (status === "challenged") return "Challenge";
++  if (status === "expired") return "Expired";
++  if (status === "revoked") return "Revoked";
++  return "Unknown";
++}
++
++function statusClass(status: BrowserSessionStatus | undefined): string {
++  return `cc-session-status cc-session-status--${status ?? "unknown"}`;
++}
++
++function syncedLabel(value: string): string {
++  const time = new Date(value).getTime();
++  return Number.isFinite(time) ? `Synced ${new Date(time).toLocaleString()}` : "Synced";
++}
++
++function localPlatformStatus(checked: LoginCheck): Record<string, BrowserSessionStatus> {
++  return (checked.platform_status ??
++    Object.fromEntries(
++      Object.entries(checked.status ?? {}).map(([platform, valid]) => [
++        platform,
++        valid ? "valid" : "login_required",
++      ]),
++    )) as Record<string, BrowserSessionStatus>;
++}
++
++async function runSessionAction(
++  setBusy: (busy: boolean) => void,
++  setError: (error: string | null) => void,
++  action: () => Promise<void>,
++) {
++  setBusy(true);
++  setError(null);
++  try {
++    await action();
++  } catch (reason) {
++    setError(errMessage(reason));
++  } finally {
++    setBusy(false);
++  }
++}
++
++function useCloudSession(profileId: string | null) {
++  const [metadata, setMetadata] = useState<BrowserSessionMetadata | null>(null);
++  const [localStatus, setLocalStatus] = useState<Record<string, BrowserSessionStatus>>({});
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    if (!profileId) {
++      setMetadata(null);
++      setLocalStatus({});
++      return;
++    }
++    const value = await safeInvoke<BrowserSessionMetadata | null>("browser_session_status", {
++      profileId,
++    });
++    setMetadata(value);
++    setLocalStatus(value?.platformStatus ?? {});
++  }, [profileId]);
++
++  useEffect(() => {
++    void load();
++  }, [load]);
++
++  const check = useCallback(async () => {
++    if (!profileId) return;
++    await runSessionAction(setBusy, setError, async () => {
++      const checked = await invokeStrict<LoginCheck>("check_all_logins", { profileId });
++      setLocalStatus(localPlatformStatus(checked));
++    });
++  }, [profileId]);
++
++  const sync = useCallback(async () => {
++    if (!profileId) return;
++    await runSessionAction(setBusy, setError, async () => {
++      const value = await invokeStrict<BrowserSessionMetadata>("sync_browser_session", {
++        profileId,
++      });
++      setMetadata(value);
++      setLocalStatus(value.platformStatus);
++    });
++  }, [profileId]);
++
++  const revoke = useCallback(async () => {
++    if (!profileId || !metadata) return;
++    await runSessionAction(setBusy, setError, async () => {
++      const value = await invokeStrict<BrowserSessionMetadata | null>("revoke_browser_session", {
++        profileId,
++      });
++      setMetadata(value);
++      setLocalStatus(value?.platformStatus ?? {});
++    });
++  }, [metadata, profileId]);
++
++  return { metadata, localStatus, busy, error, check, sync, revoke };
++}
++
++export function CloudSessionPanel({ profileId }: { profileId: string | null }) {
++  const { metadata, localStatus, busy, error, check, sync, revoke } = useCloudSession(profileId);
++
++  const status = localStatus;
++  return (
++    <section className="cc-session-panel" aria-labelledby="cloud-session-title">
++      <SessionHeader metadata={metadata} />
++      <SessionPlatforms status={status} />
++      <SessionActions
++        profileId={profileId}
++        metadata={metadata}
++        busy={busy}
++        check={check}
++        sync={sync}
++        revoke={revoke}
++      />
++      <SessionFooter metadata={metadata} error={error} />
++    </section>
++  );
++}
++
++function SessionHeader({ metadata }: { metadata: BrowserSessionMetadata | null }) {
++  return (
++    <div className="cc-session-panel__head">
++      <div>
++        <span className="cc-session-panel__eyebrow">Session bridge</span>
++        <h3 id="cloud-session-title">Cloud session</h3>
++      </div>
++      <span className={statusClass(metadata?.status)}>
++        {metadata ? sessionStatusLabel(metadata.status) : "Not synchronized"}
++      </span>
++    </div>
++  );
++}
++
++function SessionPlatforms({ status }: { status: Record<string, BrowserSessionStatus> }) {
++  return (
++    <div className="cc-session-platforms">
++      {PLATFORMS.map(([key, label]) => (
++        <div className="cc-session-platform" key={key}>
++          <span>{label}</span>
++          <strong className={statusClass(status[key])}>{sessionStatusLabel(status[key])}</strong>
++        </div>
++      ))}
++    </div>
++  );
++}
++
++type SessionActionsProps = {
++  profileId: string | null;
++  metadata: BrowserSessionMetadata | null;
++  busy: boolean;
++  check: () => Promise<void>;
++  sync: () => Promise<void>;
++  revoke: () => Promise<void>;
++};
++
++function SessionActions({ profileId, metadata, busy, check, sync, revoke }: SessionActionsProps) {
++  return (
++    <div className="cc-session-panel__actions">
++      <Button variant="ghost" size="sm" onClick={() => void check()} disabled={busy || !profileId}>
++        {busy ? "Working…" : "Check sessions"}
++      </Button>
++      <Button variant="primary" size="sm" onClick={() => void sync()} disabled={busy || !profileId}>
++        Sync to cloud
++      </Button>
++      {metadata && (
++        <Button variant="danger" size="sm" onClick={() => void revoke()} disabled={busy}>
++          Revoke
++        </Button>
++      )}
++    </div>
++  );
++}
++
++function SessionFooter({
++  metadata,
++  error,
++}: {
++  metadata: BrowserSessionMetadata | null;
++  error: string | null;
++}) {
++  return (
++    <>
++      <p className="cc-zone__muted" aria-live="polite">
++        {metadata ? syncedLabel(metadata.updatedAt) : "Local login state is not synchronized."}
++        {metadata ? ` · revision ${metadata.revision}` : ""}
++      </p>
++      {error && (
++        <p className="cc-danger" role="alert">
++          {error}
++        </p>
++      )}
++    </>
++  );
++}
+diff --git i/src/pages/command-center/CommandCenter.css w/src/pages/command-center/CommandCenter.css
+index 3b3a22f..af086b4 100644
+--- i/src/pages/command-center/CommandCenter.css
++++ w/src/pages/command-center/CommandCenter.css
+@@ -2,3 +2,4 @@
+ @import "./CommandCenter-foundation.css";
+ @import "./CommandCenter-interactions.css";
+ @import "./CommandCenter-focus.css";
++@import "./CloudSessionPanel.css";
+diff --git i/src/pages/command-center/CommandCenterVariant.tsx w/src/pages/command-center/CommandCenterVariant.tsx
+index 08bab84..c0866e5 100644
+--- i/src/pages/command-center/CommandCenterVariant.tsx
++++ w/src/pages/command-center/CommandCenterVariant.tsx
+@@ -9,6 +9,7 @@ import {
+ } from "@hugeicons/core-free-icons";
+ import { Button, Dropdown, Icon, Switch } from "../../components/ui";
+ import { VisitorsChart } from "../../components/ui/VisitorsChart";
++import { CloudSessionPanel } from "./CloudSessionPanel";
+ import { PlatformHub } from "./PlatformHub";
+ import type { CvDocument, JobPostDto, Profile, ProfileVariantDto } from "../../types/domain";
+ 
+@@ -346,6 +347,8 @@ function CommandCenterVariantView({
+               {opening ? "Opening…" : "Open all logins"}
+             </Button>
+ 
++            {variant.showReference ? <CloudSessionPanel profileId={activeProfileId} /> : null}
++
+             <Switch
+               checked={autoConnect}
+               onChange={onAutoConnectChange}
+diff --git i/src/types/domain.ts w/src/types/domain.ts
+index 89fb8a7..71e7dde 100644
+--- i/src/types/domain.ts
++++ w/src/types/domain.ts
+@@ -18,6 +18,22 @@ export interface DockerStatus {
+   summary: string;
+ }
+ 
++export type BrowserSessionStatus =
++  "valid" | "expired" | "login_required" | "challenged" | "unknown" | "revoked";
++
++export interface BrowserSessionMetadata {
++  id: string;
++  profileId: string;
++  encryptionVersion: number;
++  stateFormatVersion: number;
++  revision: number;
++  status: BrowserSessionStatus;
++  platformStatus: Record<string, BrowserSessionStatus>;
++  createdAt: string;
++  updatedAt: string;
++  lastValidatedAt: string | null;
++}
++
+ export interface CvDocument {
+   id: string;
+   profileId: string;

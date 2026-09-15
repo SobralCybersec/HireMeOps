@@ -1,0 +1,10 @@
+{
+  "branch": "develop",
+  "entrypoint": "automation/cloud-runner.mjs",
+  "contract": "automation/cloud-runner-contract.mjs",
+  "migration": "src-tauri/migrations-postgres/0002_browser_sessions.sql",
+  "memory_report": "reports/cloud-memory-host-synthetic.json",
+  "rollback": "reports/cloud-architecture-rollback.sh",
+  "verification": "reports/cloud-architecture-verification.txt",
+  "diff": "reports/cloud-architecture.patch"
+}

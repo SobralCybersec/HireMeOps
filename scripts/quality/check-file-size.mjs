@@ -20,6 +20,7 @@ export async function sourceFiles(root) {
     }
 
     for (const entry of entries) {
+      if (entry.isDirectory() && ["node_modules", "target"].includes(entry.name)) continue;
       const relativePath = path.join(relativeDir, entry.name);
       if (entry.isDirectory()) {
         await visit(relativePath);

@@ -44,6 +44,8 @@ async function runLizardWithLimits(limits) {
     ...sourcePaths,
     "-x",
     "scripts/quality/strict-tests/*",
+    "-x",
+    "automation/node_modules/*",
     "--CCN",
     "10",
     "--length",

@@ -51,13 +51,16 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
   // forced here: on a headless box it needs specific hardware/Vulkan and did not
   // move the needle on the IP-reputation-gated sites (Indeed/Upwork) in testing —
   // that path lives in the headed + Xvfb "hidden" mode where a real GPU exists.
-  const uaArgs = headless
-    ? [`--user-agent=${HEADLESS_UA}`, "--window-size=1920,1080"]
+  const uaArgs = headless ? [`--user-agent=${HEADLESS_UA}`, "--window-size=1920,1080"] : [];
+  // Cloud uses one page/profile per job; cap renderer fan-out and use a smaller
+  // desktop viewport only there. Local headed/headless behavior stays unchanged.
+  const cloudArgs = process.env.HIREMEOPS_CLOUD
+    ? ["--renderer-process-limit=1", "--window-size=1024,768"]
     : [];
   return {
     headless,
     viewport: null,
-    args: [...BASE_STEALTH_ARGS, ...uaArgs, ...extraArgs],
+    args: [...BASE_STEALTH_ARGS, ...uaArgs, ...cloudArgs, ...extraArgs],
     ignoreDefaultArgs: ["--enable-automation"],
     channel: executablePath ? undefined : "chrome",
     executablePath,
