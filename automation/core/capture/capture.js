@@ -8,22 +8,29 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 
-export const CAPTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..", "captures");
+export const CAPTURE_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+  "captures",
+);
 const MAX_CONSOLE = 60;
 const MAX_BUNDLES = 40;
 
 async function pruneCaptures(keep = MAX_BUNDLES) {
   try {
     const files = await fs.readdir(CAPTURE_DIR);
-    const bases = [...new Set(files.map((f) => f.replace(/\.(html|json|png|mhtml|pdf)$/i, "")))].sort();
+    const bases = [
+      ...new Set(files.map((f) => f.replace(/\.(html|json|png|mhtml|pdf)$/i, ""))),
+    ].sort();
     const stale = bases.slice(0, Math.max(0, bases.length - keep));
     await Promise.all(
       stale.flatMap((b) =>
-        files.filter((f) => f.startsWith(`${b}.`)).map((f) => fs.rm(path.join(CAPTURE_DIR, f)).catch(() => {})),
+        files
+          .filter((f) => f.startsWith(`${b}.`))
+          .map((f) => fs.rm(path.join(CAPTURE_DIR, f)).catch(() => {})),
       ),
     );
-  } catch {
-  }
+  } catch {}
 }
 
 export function attachDiagnostics(page) {
@@ -36,17 +43,23 @@ export function attachDiagnostics(page) {
   };
   page.on("console", (msg) => {
     const type = msg.type();
-    if (type === "error" || type === "warning") push({ kind: "console", type, text: msg.text().slice(0, 2000) });
+    if (type === "error" || type === "warning")
+      push({ kind: "console", type, text: msg.text().slice(0, 2000) });
   });
-  page.on("pageerror", (err) => push({ kind: "pageerror", text: String(err?.message ?? err).slice(0, 2000) }));
+  page.on("pageerror", (err) =>
+    push({ kind: "pageerror", text: String(err?.message ?? err).slice(0, 2000) }),
+  );
   page.on("requestfailed", (req) =>
-    push({ kind: "requestfailed", text: `${req.method()} ${req.url()} — ${req.failure()?.errorText ?? ""}`.slice(0, 400) }),
+    push({
+      kind: "requestfailed",
+      text: `${req.method()} ${req.url()} — ${req.failure()?.errorText ?? ""}`.slice(0, 400),
+    }),
   );
   return page;
 }
 
-const NET_MAX_BODY = 64 * 1024;
-const NET_RING = 120;
+export const NET_MAX_BODY = 16 * 1024;
+export const NET_RING = 40;
 
 function readNetworkMeta(response) {
   try {
@@ -84,9 +97,16 @@ function networkEntry(meta) {
 
 function captureNetworkBody(meta, push) {
   const entry = networkEntry(meta);
-  const len = Number(meta.headers["content-length"] || 0);
-  if (len > NET_MAX_BODY) {
-    push({ ...entry, body: `…[${len} bytes, skipped]` });
+  const rawLength = meta.headers["content-length"];
+  const length = rawLength == null ? null : Number(rawLength);
+  if (length == null || !Number.isFinite(length) || length <= 0 || length > NET_MAX_BODY) {
+    push({
+      ...entry,
+      body:
+        length && Number.isFinite(length)
+          ? `…[${length} bytes, skipped]`
+          : "…[body omitted: unknown size]",
+    });
     return;
   }
   meta.response
@@ -131,7 +151,10 @@ async function ariaSnapshot(page) {
   }
 }
 
-const slug = (s) => String(s || "capture").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 60);
+const slug = (s) =>
+  String(s || "capture")
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .slice(0, 60);
 
 async function visibleErrors(page) {
   return page
@@ -179,7 +202,9 @@ export async function captureDom(page, label = "capture", extra = {}) {
 
     await reflectFormState(page);
 
-    const html = await page.content().catch((e) => `<!-- page.content() failed: ${e?.message ?? e} -->`);
+    const html = await page
+      .content()
+      .catch((e) => `<!-- page.content() failed: ${e?.message ?? e} -->`);
     await fs.writeFile(htmlPath, html, "utf8");
 
     const shot = await page
@@ -268,7 +293,9 @@ export async function captureResult(page, label, result) {
       ? list.map((r) => ({ kind: r?.kind, status: r?.status, label: r?.label, reason: r?.reason }))
       : undefined,
     count: isArr ? result.length : undefined,
-    hadErrors: list.some((r) => r && (r.status === "error" || r.status === "manual")) || result?.status === "error",
+    hadErrors:
+      list.some((r) => r && (r.status === "error" || r.status === "manual")) ||
+      result?.status === "error",
   });
   if (result && typeof result === "object" && !isArr) return { ...result, capture: cap };
   return result;

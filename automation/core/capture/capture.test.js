@@ -15,7 +15,15 @@ function fakeContext() {
 }
 
 function fakeResponse(options = {}) {
-  const { url = "https://x/api", method = "GET", status = 200, type = "fetch", ct = "application/json", body = "{}", contentLength } = options;
+  const {
+    url = "https://x/api",
+    method = "GET",
+    status = 200,
+    type = "fetch",
+    ct = "application/json",
+    body = "{}",
+    contentLength,
+  } = options;
   const headers = { "content-type": ct };
   if (contentLength != null) headers["content-length"] = String(contentLength);
   return {
@@ -33,10 +41,16 @@ describe("attachNetworkCapture", () => {
   it("captures a JSON 200 with its body", async () => {
     const ctx = fakeContext();
     attachNetworkCapture(ctx);
-    ctx.emitResponse(fakeResponse({ url: "https://s/search", body: '{"jobs":3}' }));
+    ctx.emitResponse(
+      fakeResponse({ url: "https://s/search", body: '{"jobs":3}', contentLength: 11 }),
+    );
     await flush();
     expect(ctx.__net).toHaveLength(1);
-    expect(ctx.__net[0]).toMatchObject({ url: "https://s/search", status: 200, body: '{"jobs":3}' });
+    expect(ctx.__net[0]).toMatchObject({
+      url: "https://s/search",
+      status: 200,
+      body: '{"jobs":3}',
+    });
   });
 
   it("skips 3xx (body unavailable), 204 and 304", async () => {
@@ -73,10 +87,25 @@ describe("attachNetworkCapture", () => {
     expect(ctx.__net[0].body).toMatch(/skipped/);
   });
 
-  it("truncates an oversized body it did read", async () => {
+  it("omits bodies with unknown content length without reading them", async () => {
     const ctx = fakeContext();
     attachNetworkCapture(ctx);
-    ctx.emitResponse(fakeResponse({ body: "x".repeat(80_000) }));
+    let reads = 0;
+    const response = fakeResponse({ body: "x".repeat(80_000) });
+    response.text = async () => {
+      reads += 1;
+      return "x".repeat(80_000);
+    };
+    ctx.emitResponse(response);
+    await flush();
+    expect(ctx.__net[0].body).toMatch(/body omitted: unknown size/);
+    expect(reads).toBe(0);
+  });
+
+  it("truncates a body within declared size policy when body is larger", async () => {
+    const ctx = fakeContext();
+    attachNetworkCapture(ctx);
+    ctx.emitResponse(fakeResponse({ contentLength: 15_000, body: "x".repeat(80_000) }));
     await flush();
     expect(ctx.__net[0].body).toMatch(/…\[truncated\]$/);
     expect(ctx.__net[0].body.length).toBeLessThan(80_000);
@@ -86,9 +115,11 @@ describe("attachNetworkCapture", () => {
     const ctx = fakeContext();
     attachNetworkCapture(ctx);
     attachNetworkCapture(ctx);
-    for (let i = 0; i < 130; i++) ctx.emitResponse(fakeResponse({ body: `{"i":${i}}` }));
+    for (let i = 0; i < 130; i++) {
+      ctx.emitResponse(fakeResponse({ body: `{"i":${i}}`, contentLength: 10 }));
+    }
     await flush();
-    expect(ctx.__net.length).toBeLessThanOrEqual(120);
+    expect(ctx.__net.length).toBeLessThanOrEqual(40);
     expect(ctx.__net.at(-1).body).toBe('{"i":129}');
   });
 });

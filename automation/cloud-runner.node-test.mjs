@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
+import { dispatchCloudOperation } from "./cloud/cloud-dispatch.mjs";
+import { createCgroupMemoryGuard } from "./cloud/cloud-memory-guard.mjs";
+import { sessions } from "./core/worker/worker-context.js";
 import {
   CloudRunnerError,
   buildOperationRequest,
   decryptSessionState,
   encryptSessionState,
+  mergePlatformStatus,
   persistRefreshedState,
   platformStatuses,
   runCloudJob,
   shouldRefreshInvalidStatus,
   summarizePlatformStatus,
+  withCloudDeadline,
 } from "./cloud-runner.mjs";
 import { memorySnapshot } from "./cloud-memory.mjs";
 
@@ -53,8 +59,20 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(shouldRefreshInvalidStatus("session_status_unknown"), false);
     assert.equal(shouldRefreshInvalidStatus("login_required"), false);
     assert.equal(shouldRefreshInvalidStatus("challenged"), false);
-    assert.equal(shouldRefreshInvalidStatus("worker_command_timeout"), true);
+    assert.equal(shouldRefreshInvalidStatus("worker_command_timeout"), false);
+    assert.equal(shouldRefreshInvalidStatus("worker_exited"), false);
     assert.equal(shouldRefreshInvalidStatus("session_revision_conflict"), false);
+  });
+
+  it("merges target status without deleting other platforms", () => {
+    assert.deepEqual(
+      mergePlatformStatus(
+        { gupy: "valid", catho: "valid", indeed: "valid", linkedin: "valid" },
+        "linkedin",
+        "login_required",
+      ),
+      { gupy: "valid", catho: "valid", indeed: "valid", linkedin: "login_required" },
+    );
   });
 
   it("excludes InfoJobs login status from cloud session decisions", () => {
@@ -72,7 +90,7 @@ describe("cloud runner crypto boundary", () => {
   });
 });
 
-describe("cloud runner lifecycle boundary", () => {
+describe("cloud runner dispatch boundary", () => {
   it("builds only allowlisted worker operations", () => {
     assert.deepEqual(
       buildOperationRequest({ platform: "linkedin", args: { keywords: "Rust" } }, "h"),
@@ -88,6 +106,74 @@ describe("cloud runner lifecycle boundary", () => {
     );
   });
 
+  it("dispatches LinkedIn without loading worker.js", async () => {
+    const page = {
+      goto: async () => {},
+      url: () => "https://www.linkedin.com/jobs/search/",
+      locator: () => ({ first: () => ({ click: async () => {} }) }),
+      waitForSelector: async () => {},
+      waitForTimeout: async () => {},
+      evaluate: async () => (page.evaluateCalls++ === 0 ? false : []),
+      evaluateCalls: 0,
+    };
+    sessions.set("cloud-dispatch-fixture", {
+      browser: { cookies: async () => [] },
+      page,
+    });
+    try {
+      await assert.doesNotReject(
+        dispatchCloudOperation({ cmd: "search_jobs", handle: "cloud-dispatch-fixture" }),
+      );
+    } finally {
+      sessions.delete("cloud-dispatch-fixture");
+    }
+  });
+});
+
+describe("cloud runner lifecycle boundary", () => {
+  it("rejects deadline and invokes browser cleanup callback", async () => {
+    let closed = false;
+    await assert.rejects(
+      withCloudDeadline(() => new Promise(() => {}), {
+        timeoutMs: 1,
+        onTimeout: async () => {
+          closed = true;
+        },
+      }),
+      (error) => error instanceof CloudRunnerError && error.code === "cloud_operation_timeout",
+    );
+    assert.equal(closed, true);
+  });
+
+  it("trips memory guard only above configured cgroup ratio", async () => {
+    let current = 89;
+    let tripped = 0;
+    const guard = createCgroupMemoryGuard({
+      ratio: 0.9,
+      intervalMs: 60_000,
+      readMemory: () => ({ current, max: 100 }),
+      onLimit: async () => {
+        tripped += 1;
+      },
+    });
+    await guard.check();
+    assert.equal(tripped, 0);
+    current = 91;
+    await guard.check();
+    await guard.check();
+    guard.stop();
+    assert.equal(tripped, 1);
+  });
+
+  it("keeps cloud runner single-process and free of persistent profile calls", async () => {
+    const source = await readFile(new URL("./cloud-runner.mjs", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /spawn\(/);
+    assert.doesNotMatch(source, /worker\.js/);
+    assert.doesNotMatch(source, /launchPersistentContext/);
+  });
+});
+
+describe("cloud runner persistence boundary", () => {
   it("fails explicitly when a cloud run has no session", async () => {
     const previous = {
       database: process.env.HIREMEOPS_DATABASE_URL,

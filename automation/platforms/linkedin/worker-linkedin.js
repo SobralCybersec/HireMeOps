@@ -1,4 +1,5 @@
 import { session } from "../../core/worker/worker-context.js";
+import { classifyPlatformUrl } from "../../core/auth/auth-classification.js";
 
 export async function cmdSearchJobs(config) {
   const { handle, keywords = "", location = "", page_index = 0, filters = {} } = config;
@@ -14,11 +15,13 @@ export async function cmdSearchJobs(config) {
   if (jobs.length === 0) return { jobs, has_next_page: false };
 
   const hasNextPage = await page
-    .locator([
-      'button[aria-label="View next page"]',
-      ".jobs-search-pagination__button--next",
-      'button[aria-label^="Page "]:not([aria-current])',
-    ].join(", "))
+    .locator(
+      [
+        'button[aria-label="View next page"]',
+        ".jobs-search-pagination__button--next",
+        'button[aria-label^="Page "]:not([aria-current])',
+      ].join(", "),
+    )
     .first()
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
@@ -35,27 +38,44 @@ function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
 }
 
 async function openLinkedInSearch(page, url) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
   const currentUrl = page.url();
-  if (currentUrl.includes("/login") || currentUrl.includes("/authwall")) {
+  const authStatus = classifyPlatformUrl("linkedin", currentUrl);
+  if (authStatus === "login_required") {
     throw new Error("LinkedIn session expired — use the Login LinkedIn button to re-authenticate");
   }
-  await page.locator([
-    "button.msg-overlay-bubble-header__control--close",
-    "button.artdeco-toast-item__dismiss",
-  ].join(",")).first().click({ timeout: 2_000 }).catch(() => {});
+  if (authStatus === "challenged") {
+    throw new Error(
+      "LinkedIn requires a verification challenge — authenticate locally, then retry",
+    );
+  }
+  await page
+    .locator(
+      [
+        "button.msg-overlay-bubble-header__control--close",
+        "button.artdeco-toast-item__dismiss",
+      ].join(","),
+    )
+    .first()
+    .click({ timeout: 2_000 })
+    .catch(() => {});
   await Promise.race([
     page.waitForSelector("li[data-occludable-job-id]", { timeout: 15_000 }).catch(() => {}),
-    page.waitForSelector(".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner", {
-      timeout: 15_000,
-    }).catch(() => {}),
+    page
+      .waitForSelector(".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner", {
+        timeout: 15_000,
+      })
+      .catch(() => {}),
   ]);
   return page.evaluate(() => {
     const banner = document.querySelector(
       ".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner",
     );
     const text = document.body?.innerText ?? "";
-    return !!banner || /Nenhuma vaga corresponde|No matching jobs|No results found|Aucune offre/i.test(text);
+    return (
+      !!banner ||
+      /Nenhuma vaga corresponde|No matching jobs|No results found|Aucune offre/i.test(text)
+    );
   });
 }
 
@@ -63,36 +83,111 @@ async function readLinkedInCards(page) {
   return page.evaluate(() => {
     const text = (node) => (node?.textContent ?? "").trim();
     const cards = Array.from(document.querySelectorAll("li[data-occludable-job-id]"));
-    return cards.map((card) => {
-      const jobId = card.getAttribute("data-occludable-job-id") ?? null;
-      const titleEl = card.querySelector(
-        ".job-card-list__title--link, .job-card-container__link, .job-card-list__title, " +
-          ".artdeco-entity-lockup__title a, a[href*='/jobs/view/'], .artdeco-entity-lockup__title",
-      );
-      const title = [
-        text(titleEl?.querySelector('span[aria-hidden="true"]')),
-        titleEl?.getAttribute("aria-label")?.trim(),
-        text(titleEl),
-      ].find(Boolean) ?? null;
-      const subtitle = text(card.querySelector(".artdeco-entity-lockup__subtitle"));
-      const separator = subtitle.indexOf(" · ");
-      const rawLocation = separator === -1 ? "" : subtitle.slice(separator + 3).trim();
-      const paren = rawLocation.lastIndexOf("(");
-      const location = (paren === -1 ? rawLocation : rawLocation.slice(0, paren)).trim();
-      const company = (separator === -1 ? subtitle : subtitle.slice(0, separator)).trim() ||
-        text(card.querySelector(".job-card-container__primary-description, .job-card-container__company-name")) || null;
-      const resolvedLocation = location || text(card.querySelector(".job-card-container__metadata-item")) || null;
-      const link = card.querySelector('a[href*="/jobs/view/"]');
-      const applyUrl = link?.href ?? (jobId ? `https://www.linkedin.com/jobs/view/${jobId}/` : null);
-      const isEasyApply = [
-        '[aria-label*="Easy Apply"]',
-        'a[href*="openSDUIApplyFlow=true"]',
-        ".job-card-container__apply-method",
-      ].some((selector) => card.querySelector(selector));
-      if (!jobId && !title) return null;
-      return { job_id: jobId, title, company, location: resolvedLocation, apply_url: applyUrl, is_easy_apply: isEasyApply };
-    }).filter(Boolean);
+    return cards
+      .map((card) => {
+        const jobId = card.getAttribute("data-occludable-job-id") ?? null;
+        const titleEl = card.querySelector(
+          ".job-card-list__title--link, .job-card-container__link, .job-card-list__title, " +
+            ".artdeco-entity-lockup__title a, a[href*='/jobs/view/'], .artdeco-entity-lockup__title",
+        );
+        const title =
+          [
+            text(titleEl?.querySelector('span[aria-hidden="true"]')),
+            titleEl?.getAttribute("aria-label")?.trim(),
+            text(titleEl),
+          ].find(Boolean) ?? null;
+        const subtitle = text(card.querySelector(".artdeco-entity-lockup__subtitle"));
+        const separator = subtitle.indexOf(" · ");
+        const rawLocation = separator === -1 ? "" : subtitle.slice(separator + 3).trim();
+        const paren = rawLocation.lastIndexOf("(");
+        const location = (paren === -1 ? rawLocation : rawLocation.slice(0, paren)).trim();
+        const company =
+          (separator === -1 ? subtitle : subtitle.slice(0, separator)).trim() ||
+          text(
+            card.querySelector(
+              ".job-card-container__primary-description, .job-card-container__company-name",
+            ),
+          ) ||
+          null;
+        const resolvedLocation =
+          location || text(card.querySelector(".job-card-container__metadata-item")) || null;
+        const link = card.querySelector('a[href*="/jobs/view/"]');
+        const applyUrl =
+          link?.href ?? (jobId ? `https://www.linkedin.com/jobs/view/${jobId}/` : null);
+        const isEasyApply = [
+          '[aria-label*="Easy Apply"]',
+          'a[href*="openSDUIApplyFlow=true"]',
+          ".job-card-container__apply-method",
+        ].some((selector) => card.querySelector(selector));
+        if (!jobId && !title) return null;
+        return {
+          job_id: jobId,
+          title,
+          company,
+          location: resolvedLocation,
+          apply_url: applyUrl,
+          is_easy_apply: isEasyApply,
+        };
+      })
+      .filter(Boolean);
   });
+}
+
+const LINKEDIN_DETAIL_DECO = "com.linkedin.voyager.deco.jobs.web.shared.WebLightJobPosting-23";
+
+function parseLinkedInDetail(json) {
+  return {
+    title: (json?.title ?? "").trim() || null,
+    description: (json?.description?.text ?? "").trim() || null,
+    location: (json?.formattedLocation ?? "").trim() || null,
+  };
+}
+
+export async function fetchLinkedInJobDetail(page, csrf, jobId) {
+  const attempts = [
+    `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}?decorationId=${LINKEDIN_DETAIL_DECO}`,
+    `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}`,
+  ];
+  let best = null;
+  for (const url of attempts) {
+    const parsed = await fetchLinkedInDetailAttempt(page, csrf, url);
+    if (!parsed) continue;
+    best = mergeLinkedInDetail(best, parsed);
+    if (best.description) break;
+  }
+  return best;
+}
+
+async function fetchLinkedInDetailAttempt(page, csrf, url) {
+  let response = null;
+  try {
+    response = await page.request.get(url, {
+      headers: {
+        "csrf-token": csrf,
+        "x-restli-protocol-version": "2.0.0",
+        accept: "application/json",
+      },
+      timeout: 10_000,
+    });
+    if (!response.ok()) return null;
+    return parseLinkedInDetail(await response.json());
+  } catch {
+    return null;
+  } finally {
+    if (response) await response.dispose().catch(() => {});
+  }
+}
+
+function mergeLinkedInDetail(current, parsed) {
+  return {
+    title: detailValue(current, parsed, "title"),
+    description: detailValue(parsed, current, "description"),
+    location: detailValue(parsed, current, "location"),
+  };
+}
+
+function detailValue(primary, fallback, field) {
+  return primary?.[field] ?? fallback?.[field] ?? null;
 }
 
 async function enrichLinkedInJobs(page, browser, jobs) {
@@ -100,55 +195,19 @@ async function enrichLinkedInJobs(page, browser, jobs) {
     (await browser.cookies("https://www.linkedin.com")).find((c) => c.name === "JSESSIONID")
       ?.value ?? ""
   ).replace(/"/g, "");
-  const DECO = "com.linkedin.voyager.deco.jobs.web.shared.WebLightJobPosting-23";
-
-  const parseDetail = (json) => ({
-    title: (json?.title ?? "").trim() || null,
-    description: (json?.description?.text ?? "").trim() || null,
-    location: (json?.formattedLocation ?? "").trim() || null,
-  });
-
-  async function fetchJobDetail(jobId) {
-    const attempts = [
-      `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}?decorationId=${DECO}`,
-      `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}`,
-    ];
-    let best = null;
-    for (const u of attempts) {
-      try {
-        const res = await page.request.get(u, {
-          headers: {
-            "csrf-token": csrf,
-            "x-restli-protocol-version": "2.0.0",
-            accept: "application/json",
-          },
-          timeout: 10_000,
-        });
-        if (!res.ok()) continue;
-        const parsed = parseDetail(await res.json());
-        best = {
-          title: best?.title ?? parsed.title,
-          description: parsed.description ?? best?.description ?? null,
-          location: parsed.location ?? best?.location ?? null,
-        };
-        if (best.description) break;
-      } catch {}
-    }
-    return best;
-  }
-
   let cursor = 0;
   const runPool = async () => {
     while (cursor < jobs.length) {
       const job = jobs[cursor++];
-      const detail = job.job_id ? await fetchJobDetail(job.job_id) : null;
+      const detail = job.job_id ? await fetchLinkedInJobDetail(page, csrf, job.job_id) : null;
       job.description = detail?.description ?? null;
       if (!job.title && detail?.title) job.title = detail.title;
       if (detail?.location) job.location = detail.location;
       await page.waitForTimeout(150 + Math.floor(Math.random() * 250));
     }
   };
-  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, () => runPool()));
+  const concurrency = process.env.HIREMEOPS_CLOUD === "1" ? 1 : 3;
+  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, () => runPool()));
 }
 
 export async function cmdSearchLinkedInPosts({ handle, keywords = "", page_index = 0 }) {

@@ -36,6 +36,22 @@ export const BASE_STEALTH_ARGS = [
 const HEADLESS_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
+export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
+  return {
+    headless: true,
+    args: [
+      ...BASE_STEALTH_ARGS,
+      `--user-agent=${HEADLESS_UA}`,
+      "--window-size=1024,768",
+      "--renderer-process-limit=1",
+      ...extraArgs,
+    ],
+    ignoreDefaultArgs: ["--enable-automation"],
+    channel: executablePath ? undefined : "chrome",
+    executablePath,
+  };
+}
+
 /**
  * Base options for `chromium.launchPersistentContext`. Callers spread this and
  * add their own extras (extensions, hidden-display GPU flags, env).

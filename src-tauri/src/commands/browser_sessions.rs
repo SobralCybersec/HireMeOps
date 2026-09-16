@@ -289,7 +289,8 @@ pub async fn trigger_cloud_run(
     input: CloudRunInput,
 ) -> Result<CloudRunReceipt, String> {
     let pool = shared_db(&state)?;
-    ensure_cloud_session(pool, &input.profile_id).await?;
+    let platform = input.query_plan.get("platform").and_then(Value::as_str);
+    ensure_cloud_session(pool, &input.profile_id, platform).await?;
     let config = NorthflankConfig::from_env()?;
     let search_run_id = create_search_run(pool, &input).await?;
     let (northflank_run_id, northflank_run_name) =
@@ -301,15 +302,39 @@ pub async fn trigger_cloud_run(
     })
 }
 
-async fn ensure_cloud_session(pool: &sqlx::PgPool, profile_id: &str) -> Result<(), String> {
+fn target_session_status<'a>(
+    global_status: &'a str,
+    platform_status: &'a Value,
+    platform: Option<&str>,
+) -> &'a str {
+    let Some(platform) = (match platform {
+        Some("linkedin_posts") => Some("linkedin"),
+        Some("linkedin" | "catho" | "indeed" | "gupy") => platform,
+        _ => None,
+    }) else {
+        return global_status;
+    };
+    platform_status
+        .get(platform)
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+}
+
+async fn ensure_cloud_session(
+    pool: &sqlx::PgPool,
+    profile_id: &str,
+    platform: Option<&str>,
+) -> Result<(), String> {
     let session = postgres::get_browser_session_metadata(pool, profile_id)
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "cloud browser session is not synchronized".to_owned())?;
-    if session.status != "valid" {
+    let status = target_session_status(&session.status, &session.platform_status, platform);
+    if status != "valid" {
         return Err(format!(
-            "cloud browser session is not valid: {}",
-            session.status
+            "cloud browser session is not valid for {}: {}",
+            platform.unwrap_or("requested platform"),
+            status
         ));
     }
     Ok(())
@@ -452,5 +477,33 @@ mod tests {
         let filtered = platform_status(reply.as_object().unwrap());
         assert_eq!(filtered, json!({ "linkedin": "valid" }));
         assert_eq!(summarize_status(&filtered), "valid");
+    }
+
+    #[test]
+    fn cloud_trigger_checks_requested_platform_status() {
+        let statuses = json!({
+            "linkedin": "valid",
+            "gupy": "login_required"
+        });
+        assert_eq!(
+            target_session_status("valid", &statuses, Some("linkedin")),
+            "valid"
+        );
+        assert_eq!(
+            target_session_status("valid", &statuses, Some("gupy")),
+            "login_required"
+        );
+        assert_eq!(
+            target_session_status("valid", &statuses, Some("indeed")),
+            "unknown"
+        );
+        assert_eq!(
+            target_session_status("valid", &statuses, Some("linkedin_posts")),
+            "valid"
+        );
+        assert_eq!(
+            target_session_status("valid", &statuses, Some("google")),
+            "valid"
+        );
     }
 }

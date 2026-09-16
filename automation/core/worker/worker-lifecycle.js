@@ -8,7 +8,7 @@ import path from "path";
 import { descendantPids, logSpan } from "./perf.js";
 import { sessions, indeedPopups, session } from "./worker-context.js";
 import { handleResumeStep, fillStep } from "../../platforms/linkedin/worker-profile.js";
-import { attachDiagnostics, attachNetworkCapture } from "../capture/capture.js";
+import { CAPTURE_ENABLED } from "../capture/capture-config.js";
 import { passCaptchaOnPage, captchaSolvingEnabled } from "../captcha/captcha.js";
 import { humanClick, thinkTime } from "../human/human.js";
 
@@ -210,9 +210,7 @@ export async function cmdOpen({ user_data_dir = "", extensions = [], headless = 
 
   await reportHiddenRenderer(page, launch.launchEnv, hidden);
 
-  attachDiagnostics(page);
-  browser.on("page", attachDiagnostics);
-  attachNetworkCapture(browser);
+  await attachRuntimeDiagnostics(browser, page);
 
   sessions.set(handle, { browser, page, user_data_dir });
 
@@ -221,6 +219,14 @@ export async function cmdOpen({ user_data_dir = "", extensions = [], headless = 
     recycleSweep().catch(() => {});
   }
   return { handle };
+}
+
+async function attachRuntimeDiagnostics(browser, page) {
+  if (!CAPTURE_ENABLED) return;
+  const { attachDiagnostics, attachNetworkCapture } = await import("../capture/capture.js");
+  attachDiagnostics(page);
+  browser.on("page", attachDiagnostics);
+  attachNetworkCapture(browser);
 }
 
 async function createLaunchConfig({ headless, hidden, extensions }) {

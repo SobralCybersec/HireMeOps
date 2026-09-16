@@ -2,6 +2,7 @@ import readline from "readline";
 import { initPerf, perfEnabled, nowMs, logSpan } from "./core/worker/perf.js";
 import { sessions, activePage, closeAll, writeLine } from "./core/worker/worker-context.js";
 import { attachDiagnostics, captureResult, captureDom } from "./core/capture/capture.js";
+import { CAPTURE_ENABLED } from "./core/capture/capture-config.js";
 import {
   cmdOpen, cmdNavigate, cmdProbe, cmdSolveCaptcha, cmdFillEasyApply, cmdAnswerEasyApply,
   cmdConfirmSubmit, cmdRejectSubmit, cmdScreenshot, cmdDomSnapshot, cmdExtractHr,
@@ -93,8 +94,6 @@ const CAPTURE_CMDS = new Set([
   "confirm_indeed_submit",
   "reject_indeed_submit",
 ]);
-const CAPTURE_ENABLED = !/^(1|true|yes)$/i.test(process.env.HIREMEOPS_DISABLE_CAPTURE ?? "");
-
 async function dispatch(cmd) {
   if (!shouldCapture(cmd)) return route(cmd);
   return dispatchWithCapture(cmd);

@@ -27,6 +27,11 @@ coverage
 # Automation runtime junk that must not leak into an image
 automation/captures
 automation/.cache
+automation/tests
+automation/dev
+automation/**/*.test.js
+automation/**/*.node-test.mjs
+automation/cloud-viewport-benchmark.mjs
 
 # Packaging / release artifacts
 *.deb

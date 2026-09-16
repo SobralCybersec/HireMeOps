@@ -13,10 +13,11 @@ the current JSON-lines worker remain unchanged.
    ciphertext to PostgreSQL.
 5. Create a `search_runs` row and trigger the configured Northflank Manual Job.
 6. The job loads the run by `HIREMEOPS_RUN_ID`, restores the state into a
-   temporary Chromium profile, probes the target platform, runs the existing
-   worker command, stores results in `shared_jobs`, and saves refreshed state.
-7. Chromium, the worker and the temporary profile are closed and removed in
-   `finally` cleanup.
+   non-persistent BrowserContext, runs the target operation through the
+   allowlisted direct dispatcher, stores results in `shared_jobs`, and saves
+   refreshed state.
+7. Chromium and the BrowserContext are closed in `finally` cleanup. No cloud
+   profile directory is created.
 
 No password, MFA code or browser profile directory is copied to cloud.
 
@@ -58,8 +59,11 @@ Optional:
 NORTHFLANK_API_BASE_URL=https://api.northflank.com/v1
 HIREMEOPS_DB_MAX_CONNECTIONS=5
 HIREMEOPS_DB_MIN_CONNECTIONS=0
-HIREMEOPS_PERF_INTERVAL_MS=1000
 HIREMEOPS_MEMORY_REPORT_PATH=/tmp/hiremeops-memory.json
+HIREMEOPS_MEMORY_SOFT_LIMIT_RATIO=0.90
+HIREMEOPS_CLOUD_OPERATION_TIMEOUT_MS=480000
+HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES=1
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-headless-shell
 ```
 
 The Manual Job receives only:
@@ -72,6 +76,19 @@ Never put storage state or cookies in environment variables or command-line
 arguments. Use a TLS PostgreSQL URL (for example with `sslmode=require`) when
 the database is remote. Northflank Secret Groups should provide the database URL,
 encryption key and API token. The React process receives none of them.
+
+For local development, create ignored `.env` at repository root with the
+variables above, then load it into the shell. The project does not auto-load
+dotenv files:
+
+```bash
+set -a; . ./.env; set +a
+bun run app
+```
+
+The same file can be passed to a local cloud container with
+`docker run --env-file .env ...`. Keep real values out of command history and
+never add `.env` to Git.
 
 ## PostgreSQL ownership
 
@@ -117,8 +134,9 @@ Example `queryPlan` stored in `search_runs`:
 ```
 
 The cloud runner allowlists operation commands and never accepts arbitrary
-JavaScript. It invokes the canonical `automation/worker.js`; scraper handlers
-are shared with local execution.
+JavaScript. It dispatches directly in one Node process; scraper handlers remain
+shared with local execution. The desktop `automation/worker.js` JSON-lines IPC
+worker remains canonical for Tauri/local automation.
 
 ## Northflank job
 
@@ -136,7 +154,11 @@ Configure a Northflank Manual Job to run this image with:
 - no persistent volume;
 - one worker and one browser profile per job.
 
-The image contains Node, Patchright, system Chromium, fonts and `dumb-init`.
+The image entrypoint already sets `HIREMEOPS_CLOUD=1` and
+`node --max-old-space-size=96`; do not add a second worker command.
+
+The image contains Node, Patchright, `chromium-headless-shell`, fonts and
+`dumb-init`.
 It excludes Tauri, frontend, AI/MCP dependencies and Xvfb. Chromium is
 headless in cloud and uses `--disable-dev-shm-usage` from the shared launch
 configuration. The cloud-only launch profile caps renderer fan-out at one and
@@ -157,16 +179,18 @@ exists.
 
 ## Memory measurement
 
-The worker emits opt-in `[perf]` samples. The cloud runner writes a JSON report
-with `startup`, `browser-open`, `post-navigation`, `scraping-peak` and
-`shutdown` stages. Each sample records cgroup current/peak when available,
-Node RSS/PSS, summed Chromium PSS and Chromium process count. This measures
+The local worker emits opt-in `[perf]` samples. The cloud runner writes a JSON
+report with `startup`, `browser-open`, `operation-start`, `post-navigation`,
+`scraping-peak`, `state-exported`, `pre-close` and `shutdown` stages. Each
+sample records cgroup current/peak/max, `memory.stat`, `memory.events`, Node
+RSS/PSS, Chromium PSS by process type and Chromium process count. This measures
 the container, not only Node RSS.
 
-Target: `cgroupPeakMb <= 312` during real search workload. The repository
-contains instrumentation but a Northflank peak is not fabricated locally; run
-the Manual Job with a real synthetic or manually synchronized session and
-archive the generated memory report.
+Acceptance target: `cgroupPeakMb <= 430` during real search workload, with
+512 MB hard limit and 0.2 vCPU. The ~312 MB stretch goal remains future work.
+The repository contains instrumentation but a Northflank peak is not
+fabricated locally; run the Manual Job with a real synthetic or manually
+synchronized session and archive the generated memory report.
 
 ## Manual validation
 

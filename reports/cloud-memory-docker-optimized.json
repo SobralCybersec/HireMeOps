@@ -1,0 +1,319 @@
+{
+  "workload": "synthetic-cloud-browser",
+  "image": "hiremeops-cloud-worker:optimized",
+  "limitMb": 512,
+  "cpu": 0.2,
+  "shmMb": 64,
+  "stages": [
+    {
+      "stage": "startup",
+      "at": "2026-09-16T12:35:50.451Z",
+      "nodeRssMb": 126.2,
+      "nodePssMb": 126,
+      "chromiumPssMb": 0,
+      "chromiumPssByTypeMb": {},
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 80.5,
+      "cgroupPeakMb": 80.5,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 80.5,
+        "peakMb": 80.5,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 76.4,
+          "fileMb": 0,
+          "shmemMb": 0,
+          "kernelMb": 2.3,
+          "kernelStackMb": 0.1,
+          "pagetablesMb": 1.7,
+          "slabMb": 0.4,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 0
+    },
+    {
+      "stage": "browser-open",
+      "at": "2026-09-16T12:35:50.577Z",
+      "nodeRssMb": 127.7,
+      "nodePssMb": 175.5,
+      "chromiumPssMb": 132.3,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.8,
+        "network-service": 27.3,
+        "renderer": 52.2,
+        "gpu-process": 28
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 147.1,
+      "cgroupPeakMb": 147.1,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 147.1,
+        "peakMb": 147.1,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 134.5,
+          "fileMb": 1.9,
+          "shmemMb": 0,
+          "kernelMb": 8.7,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.7,
+          "slabMb": 2.8,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "operation-start",
+      "at": "2026-09-16T12:35:50.627Z",
+      "nodeRssMb": 128.8,
+      "nodePssMb": 178,
+      "chromiumPssMb": 146.5,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.7,
+        "network-service": 28.6,
+        "renderer": 64.6,
+        "gpu-process": 28.7
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 155.7,
+      "cgroupPeakMb": 157.4,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 155.7,
+        "peakMb": 157.4,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 140.5,
+          "fileMb": 4.2,
+          "shmemMb": 0,
+          "kernelMb": 8.9,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.8,
+          "slabMb": 2.9,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "post-navigation",
+      "at": "2026-09-16T12:35:50.634Z",
+      "nodeRssMb": 128.8,
+      "nodePssMb": 178,
+      "chromiumPssMb": 146.5,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.7,
+        "network-service": 28.6,
+        "renderer": 64.6,
+        "gpu-process": 28.7
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 155.7,
+      "cgroupPeakMb": 157.4,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 155.7,
+        "peakMb": 157.4,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 140.5,
+          "fileMb": 4.2,
+          "shmemMb": 0,
+          "kernelMb": 8.9,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.8,
+          "slabMb": 2.9,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "scraping-peak",
+      "at": "2026-09-16T12:35:50.700Z",
+      "nodeRssMb": 129.9,
+      "nodePssMb": 179.2,
+      "chromiumPssMb": 155.3,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.7,
+        "network-service": 28.6,
+        "renderer": 71.7,
+        "gpu-process": 30.4
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 165.4,
+      "cgroupPeakMb": 167.7,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 165.4,
+        "peakMb": 167.7,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 145.3,
+          "fileMb": 9.2,
+          "shmemMb": 0,
+          "kernelMb": 9.1,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.9,
+          "slabMb": 2.9,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "state-exported",
+      "at": "2026-09-16T12:35:50.715Z",
+      "nodeRssMb": 129.4,
+      "nodePssMb": 179.1,
+      "chromiumPssMb": 155.6,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.7,
+        "network-service": 28.6,
+        "renderer": 71.9,
+        "gpu-process": 30.4
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 164.8,
+      "cgroupPeakMb": 167.7,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 164.8,
+        "peakMb": 167.7,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 144.9,
+          "fileMb": 9.2,
+          "shmemMb": 0,
+          "kernelMb": 9.1,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.8,
+          "slabMb": 2.9,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "pre-close",
+      "at": "2026-09-16T12:35:50.724Z",
+      "nodeRssMb": 129.4,
+      "nodePssMb": 179.1,
+      "chromiumPssMb": 155.6,
+      "chromiumPssByTypeMb": {
+        "zygote": 24.7,
+        "network-service": 28.6,
+        "renderer": 71.9,
+        "gpu-process": 30.4
+      },
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 164.8,
+      "cgroupPeakMb": 167.7,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 164.8,
+        "peakMb": 167.7,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 144.9,
+          "fileMb": 9.2,
+          "shmemMb": 0,
+          "kernelMb": 9.1,
+          "kernelStackMb": 1.2,
+          "pagetablesMb": 4.8,
+          "slabMb": 2.9,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 5
+    },
+    {
+      "stage": "shutdown",
+      "at": "2026-09-16T12:35:50.997Z",
+      "nodeRssMb": 129.7,
+      "nodePssMb": 129.9,
+      "chromiumPssMb": 0,
+      "chromiumPssByTypeMb": {},
+      "otherProcessPssMb": 0,
+      "cgroupCurrentMb": 86.1,
+      "cgroupPeakMb": 167.7,
+      "cgroupMaxMb": 512,
+      "cgroup": {
+        "currentMb": 86.1,
+        "peakMb": 167.7,
+        "maxMb": 512,
+        "stat": {
+          "anonMb": 79.6,
+          "fileMb": 1.9,
+          "shmemMb": 0,
+          "kernelMb": 3.1,
+          "kernelStackMb": 0.2,
+          "pagetablesMb": 1.8,
+          "slabMb": 1,
+          "sockMb": 0
+        },
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oomKill": 0
+        }
+      },
+      "chromiumProcesses": 0
+    }
+  ]
+}

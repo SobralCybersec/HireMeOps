@@ -1,6 +1,21 @@
 import { chromium } from "patchright";
 import { sessions, indeedPopups } from "./worker-context.js";
 import { reclaimProfileDir, resolveChromiumExec } from "./worker-lifecycle.js";
+import { attachDiagnostics } from "../capture/capture.js";
+import { CAPTURE_ENABLED } from "../capture/capture-config.js";
+import {
+  LOGIN_PROBES,
+  classifyLogin,
+  sanitizeProbeError,
+  sanitizeProbeUrl,
+  selectLoginProbeSites,
+} from "../auth/auth-classification.js";
+
+export {
+  classifyLogin,
+  sanitizeProbeError,
+  selectLoginProbeSites,
+} from "../auth/auth-classification.js";
 
 export async function cmdCheckLogin({ user_data_dir }) {
   const existing = [...sessions.values()].find((s) => s.user_data_dir === user_data_dir);
@@ -60,37 +75,6 @@ const LOGIN_URLS = {
   gpt: "https://chatgpt.com/auth/login",
 };
 
-const LOGIN_PROBES = {
-  linkedin: {
-    url: "https://www.linkedin.com/feed/",
-    out: /\/login|\/authwall|\/checkpoint|\/uas\/login/,
-  },
-  catho: {
-    url: "https://www.catho.com.br/area-candidato/",
-    out: /\/login|\/signin|\/entrar|account\.catho/,
-  },
-  infojobs: {
-    url: "https://www.infojobs.com.br/candidate/cv/insert2.aspx",
-    out: /\/login|\/entrar|\/candidate\/login/,
-  },
-  indeed: { url: "https://myjobs.indeed.com/", out: /\/auth|\/account\/login|secure\.indeed\.com/ },
-  gupy: {
-    url: "https://login.gupy.io/candidates/curriculum",
-    out: /\/candidates\/(sign-?in|login)/,
-  },
-};
-
-export function selectLoginProbeSites(sites) {
-  if (!Array.isArray(sites) || sites.length === 0) return Object.keys(LOGIN_PROBES);
-  return sites.filter((site) => LOGIN_PROBES[site]);
-}
-
-export function classifyLogin(url, out) {
-  if (/checkpoint|challenge|captcha|mfa|verify|verification/i.test(url)) return "challenged";
-  if (out.test(url)) return "login_required";
-  return "valid";
-}
-
 export async function cmdOpenLoginTabs({ handle, sites }) {
   const sess = sessions.get(handle);
   if (!sess) throw new Error(`open_login_tabs: unknown handle ${handle}`);
@@ -101,7 +85,7 @@ export async function cmdOpenLoginTabs({ handle, sites }) {
   const opened = [];
   for (let i = 0; i < wanted.length; i++) {
     const p = i === 0 ? page : await browser.newPage();
-    attachDiagnostics(p);
+    if (CAPTURE_ENABLED) attachDiagnostics(p);
     await p
       .goto(LOGIN_URLS[wanted[i]], { waitUntil: "domcontentloaded", timeout: 45_000 })
       .catch(() => {});
@@ -176,22 +160,6 @@ function recordProbeFailure(result, site, error, tab) {
     message: sanitizeProbeError(error),
     url: sanitizeProbeUrl(tab.url()),
   };
-}
-
-function sanitizeProbeUrl(value) {
-  try {
-    const parsed = new URL(value);
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return "[unavailable]";
-  }
-}
-
-export function sanitizeProbeError(error) {
-  return String(error?.message ?? error)
-    .replace(/\s+/g, " ")
-    .replace(/(authorization|cookie|set-cookie|token|password|secret|key)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .slice(0, 300);
 }
 
 export async function cmdClose({ handle }) {
