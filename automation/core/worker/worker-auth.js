@@ -155,19 +155,35 @@ async function probeLogin(browser, site, sharedPage, result) {
   const { url, out } = LOGIN_PROBES[site];
   const tab = sharedPage ?? (await browser.newPage());
   try {
-    await tab.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
-    result.platform_status[site] = classifyLogin(tab.url(), out);
+    await tab.goto(url, { waitUntil: "commit", timeout: 30_000 });
+    const currentUrl = tab.url();
+    result.platform_status[site] = classifyLogin(currentUrl, out);
     result.status[site] = result.platform_status[site] === "valid";
+    await tab.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => {});
   } catch (error) {
-    result.status[site] = false;
-    result.platform_status[site] = "unknown";
-    result.platform_errors ??= {};
-    result.platform_errors[site] = {
-      name: error?.name ?? "Error",
-      message: sanitizeProbeError(error),
-    };
+    recordProbeFailure(result, site, error, tab);
   } finally {
     if (!sharedPage) await tab.close().catch(() => {});
+  }
+}
+
+function recordProbeFailure(result, site, error, tab) {
+  result.status[site] = false;
+  result.platform_status[site] = "unknown";
+  result.platform_errors ??= {};
+  result.platform_errors[site] = {
+    name: error?.name ?? "Error",
+    message: sanitizeProbeError(error),
+    url: sanitizeProbeUrl(tab.url()),
+  };
+}
+
+function sanitizeProbeUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "[unavailable]";
   }
 }
 

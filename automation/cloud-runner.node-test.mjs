@@ -8,6 +8,7 @@ import {
   persistRefreshedState,
   platformStatuses,
   runCloudJob,
+  shouldRefreshInvalidStatus,
   summarizePlatformStatus,
 } from "./cloud-runner.mjs";
 import { memorySnapshot } from "./cloud-memory.mjs";
@@ -46,6 +47,14 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(summarizePlatformStatus({ linkedin: "login_required" }), "login_required");
     assert.equal(summarizePlatformStatus({ linkedin: "challenged", catho: "valid" }), "challenged");
     assert.equal(summarizePlatformStatus({}), "unknown");
+  });
+
+  it("does not repeat probes after an auth status was recorded", () => {
+    assert.equal(shouldRefreshInvalidStatus("session_status_unknown"), false);
+    assert.equal(shouldRefreshInvalidStatus("login_required"), false);
+    assert.equal(shouldRefreshInvalidStatus("challenged"), false);
+    assert.equal(shouldRefreshInvalidStatus("worker_command_timeout"), true);
+    assert.equal(shouldRefreshInvalidStatus("session_revision_conflict"), false);
   });
 
   it("excludes InfoJobs login status from cloud session decisions", () => {

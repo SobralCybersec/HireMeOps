@@ -415,6 +415,16 @@ function cloudErrorCode(error) {
   return error instanceof CloudRunnerError ? error.code : "cloud_run_failed";
 }
 
+const RECORDED_AUTH_FAILURES = new Set([
+  "session_status_unknown",
+  "login_required",
+  "challenged",
+]);
+
+export function shouldRefreshInvalidStatus(code) {
+  return code !== "session_revision_conflict" && !RECORDED_AUTH_FAILURES.has(code);
+}
+
 async function refreshInvalidStatus(context) {
   if (!context.row || !context.worker || !context.handle) return;
   const statuses = await probeLogins(context, context.row.query_plan?.platform);
@@ -425,7 +435,7 @@ async function refreshInvalidStatus(context) {
 
 async function failCloudRun(context, error) {
   const code = cloudErrorCode(error);
-  if (code !== "session_revision_conflict") await refreshInvalidStatus(context).catch(() => {});
+  if (shouldRefreshInvalidStatus(code)) await refreshInvalidStatus(context).catch(() => {});
   await updateRun(context.pool, context.runId, "failed", code).catch(() => {});
   throw error instanceof CloudRunnerError ? error : new CloudRunnerError(code);
 }
