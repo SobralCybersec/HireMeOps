@@ -4,21 +4,53 @@ import { sessions, activePage, closeAll, writeLine } from "./core/worker/worker-
 import { attachDiagnostics, captureResult, captureDom } from "./core/capture/capture.js";
 import { CAPTURE_ENABLED } from "./core/capture/capture-config.js";
 import {
-  cmdOpen, cmdNavigate, cmdProbe, cmdSolveCaptcha, cmdFillEasyApply, cmdAnswerEasyApply,
-  cmdConfirmSubmit, cmdRejectSubmit, cmdScreenshot, cmdDomSnapshot, cmdExtractHr,
+  cmdOpen,
+  cmdNavigate,
+  cmdProbe,
+  cmdSolveCaptcha,
+  cmdFillEasyApply,
+  cmdAnswerEasyApply,
+  cmdConfirmSubmit,
+  cmdRejectSubmit,
+  cmdScreenshot,
+  cmdDomSnapshot,
+  cmdExtractHr,
 } from "./core/worker/worker-lifecycle.js";
-import { cmdSearchJobs, cmdSearchLinkedInPosts, cmdSearchGoogle } from "./platforms/linkedin/worker-linkedin.js";
-import { cmdCheckLogin, cmdOpenLoginTabs, cmdCheckLogins, cmdClose } from "./core/worker/worker-auth.js";
 import {
-  cmdSearchIndeedJobs, cmdFillIndeedApply, cmdAnswerIndeedFreeText, cmdConfirmIndeedSubmit,
-  cmdRejectIndeedSubmit, cmdShutdown,
+  cmdSearchJobs,
+  cmdSearchLinkedInPosts,
+  cmdSearchGoogle,
+} from "./platforms/linkedin/worker-linkedin.js";
+import {
+  cmdCheckLogin,
+  cmdOpenLoginTabs,
+  cmdCheckLogins,
+  cmdClose,
+} from "./core/worker/worker-auth.js";
+import {
+  cmdSearchIndeedJobs,
+  cmdFillIndeedApply,
+  cmdAnswerIndeedFreeText,
+  cmdConfirmIndeedSubmit,
+  cmdRejectIndeedSubmit,
+  cmdShutdown,
 } from "./platforms/indeed/worker-indeed.js";
 import { cmdPushProfile } from "./platforms/linkedin/worker-profile.js";
 import {
-  cmdCathoPushProfile, cmdGupyPushProfile, cmdSearchGupyJobs, cmdGupyStartLogin,
-  cmdInfojobsPushProfile, cmdCapture, cmdCathoSearchJobs, cmdCathoApply, cmdUpworkSearchJobs,
-  cmdFreelas99SearchJobs, cmdProgramathorSearchJobs, cmdGeekhunterSearchJobs,
-  cmdInfojobsSearchJobs, cmdInfojobsApply,
+  cmdCathoPushProfile,
+  cmdGupyPushProfile,
+  cmdSearchGupyJobs,
+  cmdGupyStartLogin,
+  cmdInfojobsPushProfile,
+  cmdCapture,
+  cmdCathoSearchJobs,
+  cmdCathoApply,
+  cmdUpworkSearchJobs,
+  cmdFreelas99SearchJobs,
+  cmdProgramathorSearchJobs,
+  cmdGeekhunterSearchJobs,
+  cmdInfojobsSearchJobs,
+  cmdInfojobsApply,
 } from "./core/worker/worker-platform.js";
 import { cmdAutoConnect, cmdGmailSend } from "./core/worker/worker-network.js";
 import { cmdExportStorageState, cmdImportStorageState } from "./core/worker/worker-storage.js";

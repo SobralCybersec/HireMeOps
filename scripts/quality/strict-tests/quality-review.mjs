@@ -1,11 +1,7 @@
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path, { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  checkFileSizes,
-  formatFileSizeReport,
-  sourceFiles,
-} from "./check-file-size.mjs";
+import { checkFileSizes, formatFileSizeReport, sourceFiles } from "./check-file-size.mjs";
 import {
   DEFAULT_IGNORES,
   DEFAULT_MIN_LINES,
@@ -36,13 +32,15 @@ export const DEFAULT_QUALITY_PATHS = ["src"];
 
 function positiveInteger(value, name) {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    throw new Error(`${name} must be a positive integer`);
   return parsed;
 }
 
 function percentage(value, name) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) throw new Error(`${name} must be between 0 and 100`);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100)
+    throw new Error(`${name} must be between 0 and 100`);
   return parsed;
 }
 
@@ -97,6 +95,43 @@ async function writeReport(reportRoot, name, content) {
   await writeFile(resolve(reportRoot, name), `${String(content).trim()}\n`);
 }
 
+export function normalizeBenchmarkReport(report) {
+  if (Array.isArray(report?.benchmarks)) return report.benchmarks;
+  return (report?.throughputCases ?? []).map((item) => ({
+    name: item.name,
+    iterations: item.current?.timing?.samples ?? 0,
+    elapsed_ms: item.current?.timing?.p50Ms ?? 0,
+    ops_per_second: item.throughput?.current ?? 0,
+  }));
+}
+
+async function loadBenchmarkEvidence(repoRoot, reportRoot) {
+  const candidates = [
+    resolve(reportRoot, "benchmarks.json"),
+    resolve(repoRoot, "reports/todo-performance/benchmark-results.json"),
+  ];
+  for (const file of candidates) {
+    try {
+      const report = JSON.parse(await readFile(file, "utf8"));
+      const benchmarks = normalizeBenchmarkReport(report);
+      if (benchmarks.length === 0) continue;
+      await writeReport(
+        reportRoot,
+        "benchmarks.json",
+        JSON.stringify(
+          { generatedAt: report.generatedAt ?? new Date().toISOString(), benchmarks },
+          null,
+          2,
+        ),
+      );
+      return { available: true, scenarios: benchmarks.length };
+    } catch {
+      // Try next supported benchmark report location.
+    }
+  }
+  return { available: false, scenarios: 0 };
+}
+
 async function resolveLizardPython(repoRoot) {
   const configured = process.env.LIZARD_PYTHON;
   if (configured) return configured;
@@ -130,7 +165,9 @@ async function runLizardWithLimits(repoRoot, filesList, limits) {
   const direct = markLizardFindings(await runCommand("lizard", args, { cwd: repoRoot }));
   if (!direct.missing) return { ...direct, available: true };
   const fallback = markLizardFindings(
-    await runCommand(await resolveLizardPython(repoRoot), ["-m", "lizard", ...args], { cwd: repoRoot }),
+    await runCommand(await resolveLizardPython(repoRoot), ["-m", "lizard", ...args], {
+      cwd: repoRoot,
+    }),
   );
   if (/No module named lizard/i.test(fallback.stderr) || fallback.missing) {
     return { ...fallback, available: false, missing: true };
@@ -144,26 +181,30 @@ function markLizardFindings(result) {
 }
 
 async function runLizard(repoRoot, reportRoot, files, strict) {
-  const lizardFiles = files.filter(({ file }) => LIZARD_EXTENSIONS.has(path.extname(file).toLowerCase()));
+  const lizardFiles = files.filter(({ file }) =>
+    LIZARD_EXTENSIONS.has(path.extname(file).toLowerCase()),
+  );
   const listPath = resolve(reportRoot, "lizard-files.txt");
   await writeFile(listPath, `${lizardFiles.map(({ file }) => file).join("\n")}\n`);
   const review = await runLizardWithLimits(repoRoot, listPath, POLICY.complexity.review);
-  if (!review.available) return { available: false, review, gate: review, input_files: lizardFiles.length, skipped_files: files.length - lizardFiles.length };
-  const gate = strict ? review : await runLizardWithLimits(repoRoot, listPath, POLICY.complexity.hard);
-  return { available: gate.available, review, gate, input_files: lizardFiles.length, skipped_files: files.length - lizardFiles.length };
-}
-
-async function listFiles(root) {
-  const files = [];
-  async function visit(directory) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) await visit(absolute);
-      else if (entry.isFile()) files.push(path.relative(root, absolute).split(path.sep).join("/"));
-    }
-  }
-  await visit(root);
-  return files.sort();
+  if (!review.available)
+    return {
+      available: false,
+      review,
+      gate: review,
+      input_files: lizardFiles.length,
+      skipped_files: files.length - lizardFiles.length,
+    };
+  const gate = strict
+    ? review
+    : await runLizardWithLimits(repoRoot, listPath, POLICY.complexity.hard);
+  return {
+    available: gate.available,
+    review,
+    gate,
+    input_files: lizardFiles.length,
+    skipped_files: files.length - lizardFiles.length,
+  };
 }
 
 const QUALITY_TOOLS = [
@@ -171,18 +212,20 @@ const QUALITY_TOOLS = [
     key: "eslint",
     report: "eslint.txt",
     command: "bun",
-    args: ["exec", "eslint", "src", "scripts", "--max-warnings", "0"],
+    args: ["x", "eslint", "src", "scripts", "--max-warnings", "0"],
   },
   {
     key: "typescript",
     report: "typescript.txt",
     command: "bun",
-    args: ["exec", "tsc", "--noEmit"],
+    args: ["x", "tsc", "--noEmit"],
   },
 ];
 
 function commandMissing(result) {
-  return result.missing || /(?:command .* not found|no such command|not found)/i.test(result.stderr);
+  return (
+    result.missing || /(?:command .* not found|no such command|not found)/i.test(result.stderr)
+  );
 }
 
 async function runQualityTools(repoRoot, reportRoot) {
@@ -195,7 +238,11 @@ async function runQualityTools(repoRoot, reportRoot) {
       available: !missing,
       exit_code: missing ? null : result.code,
     };
-    await writeReport(reportRoot, spec.report, result.stdout || result.stderr || (missing ? "tool unavailable" : "no findings"));
+    await writeReport(
+      reportRoot,
+      spec.report,
+      result.stdout || result.stderr || (missing ? "tool unavailable" : "no findings"),
+    );
   }
   return tools;
 }
@@ -220,14 +267,28 @@ async function runTrivy(repoRoot, reportRoot) {
     ],
     { cwd: repoRoot },
   );
-  if (result.missing) return { available: false, exitCode: null, error: "trivy executable not found" };
+  if (result.missing)
+    return { available: false, exitCode: null, error: "trivy executable not found" };
   let metrics = null;
   try {
     metrics = summarizeTrivyReport(JSON.parse(await readFile(reportPath, "utf8")));
   } catch (error) {
-    return { available: true, exitCode: result.code, error: error.message, stdout: result.stdout, stderr: result.stderr };
+    return {
+      available: true,
+      exitCode: result.code,
+      error: error.message,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
   }
-  return { available: true, exitCode: result.code, reportPath, metrics, stdout: result.stdout, stderr: result.stderr };
+  return {
+    available: true,
+    exitCode: result.code,
+    reportPath,
+    metrics,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -238,8 +299,12 @@ export async function main(argv = process.argv.slice(2)) {
 
   const fileSize = await checkFileSizes({ repoRoot, roots: options.paths });
   const srcRoot = resolve(repoRoot, "src");
-  const discoveredSrcFiles = await listFiles(srcRoot);
-  const checkedSrcFiles = new Set(fileSize.files.map(({ file }) => file.replaceAll("\\", "/").replace(/^src\//, "")));
+  const discoveredSrcFiles = (await sourceFiles("src", { repoRoot })).map((file) =>
+    path.relative(srcRoot, file).split(path.sep).join("/"),
+  );
+  const checkedSrcFiles = new Set(
+    fileSize.files.map(({ file }) => file.replaceAll("\\", "/").replace(/^src\//, "")),
+  );
   const excludedSrcFiles = discoveredSrcFiles.filter((file) => !checkedSrcFiles.has(file));
   await writeReport(reportRoot, "file-size.txt", formatFileSizeReport(fileSize));
 
@@ -254,7 +319,9 @@ export async function main(argv = process.argv.slice(2)) {
         reporters: ["json", "sarif"],
         minLines: QUALITY_MIN_LINES,
         minTokens: QUALITY_MIN_TOKENS,
-        threshold: options.strict ? POLICY.duplication.reviewPercent : POLICY.duplication.hardPercent,
+        threshold: options.strict
+          ? POLICY.duplication.reviewPercent
+          : POLICY.duplication.hardPercent,
         mode: options.strict ? "strict" : "mild",
         ignores: DEFAULT_IGNORES,
         blame: false,
@@ -265,17 +332,33 @@ export async function main(argv = process.argv.slice(2)) {
       jscpd = { available: true, exitCode: 1, metrics: null, error: error.message };
     }
   }
-  await writeReport(reportRoot, "jscpd.txt", jscpd.metrics ? JSON.stringify(jscpd.metrics, null, 2) : jscpd.error ?? "unavailable");
+  await writeReport(
+    reportRoot,
+    "jscpd.txt",
+    jscpd.metrics ? JSON.stringify(jscpd.metrics, null, 2) : (jscpd.error ?? "unavailable"),
+  );
 
   const lizard = options.skipLizard
     ? { available: false, review: { code: null }, gate: { code: null }, disabled: true }
     : await runLizard(repoRoot, reportRoot, fileSize.files, options.strict);
-  await writeReport(reportRoot, "lizard-review.txt", lizard.review?.stdout || lizard.review?.stderr || (lizard.available ? "lizard: no findings" : "lizard unavailable"));
-  await writeReport(reportRoot, "lizard-gate.txt", lizard.gate?.stdout || lizard.gate?.stderr || (lizard.available ? "lizard: no findings" : "lizard unavailable"));
+  await writeReport(
+    reportRoot,
+    "lizard-review.txt",
+    lizard.review?.stdout ||
+      lizard.review?.stderr ||
+      (lizard.available ? "lizard: no findings" : "lizard unavailable"),
+  );
+  await writeReport(
+    reportRoot,
+    "lizard-gate.txt",
+    lizard.gate?.stdout ||
+      lizard.gate?.stderr ||
+      (lizard.available ? "lizard: no findings" : "lizard unavailable"),
+  );
 
   const tools = options.skipTools ? {} : await runQualityTools(repoRoot, reportRoot);
 
-  const coverage = await collectCoverage(repoRoot, options.coverageFiles);
+  const coverage = await collectCoverage(repoRoot, options.coverageFiles, options.paths);
   const tests = await collectTestResults(repoRoot, options.testFiles);
   const churn = await collectGitChurn(repoRoot, { days: options.churnDays });
   const hotspots = rankHotspots(fileSize.files, churn.files ?? [], {
@@ -292,13 +375,7 @@ export async function main(argv = process.argv.slice(2)) {
     : { available: false, exitCode: null, error: "not requested" };
   await writeReport(reportRoot, "security.json", JSON.stringify(security, null, 2));
 
-  let benchmarks = { available: false, scenarios: 0 };
-  try {
-    const report = JSON.parse(await readFile(resolve(reportRoot, "benchmarks.json"), "utf8"));
-    benchmarks = { available: Array.isArray(report.benchmarks), scenarios: report.benchmarks?.length ?? 0 };
-  } catch {
-    // quality:benchmark is run by the package script before this review.
-  }
+  const benchmarks = await loadBenchmarkEvidence(repoRoot, reportRoot);
 
   const summary = {
     generated_at: new Date().toISOString(),
@@ -329,6 +406,7 @@ export async function main(argv = process.argv.slice(2)) {
       available: coverage.available,
       reports: coverage.aggregate.reports,
       lines_percent: coverage.aggregate.lines.percent,
+      statements_percent: coverage.aggregate.statements.percent,
       branches_percent: coverage.aggregate.branches.percent,
       functions_percent: coverage.aggregate.functions.percent,
     },
@@ -368,12 +446,21 @@ export async function main(argv = process.argv.slice(2)) {
       complexity_review: POLICY.complexity.review,
       complexity_hard: POLICY.complexity.hard,
       coverage_lines_min: options.coverageMin,
+      coverage_statements_min: options.coverageMin,
+      coverage_functions_min: options.coverageMin,
+      coverage_branches_min: options.coverageMin,
       churn_days: options.churnDays,
     },
   };
   summary.gate = evaluateQualityGate(summary, options);
   await writeReport(reportRoot, "summary.json", JSON.stringify(summary, null, 2));
-  const report = await writeQualityReport({ repoRoot, reportRoot, summary, fileSize, testResults: tests });
+  const report = await writeQualityReport({
+    repoRoot,
+    reportRoot,
+    summary,
+    fileSize,
+    testResults: tests,
+  });
   console.log(report);
   return summary.gate.status === "fail" ? 1 : 0;
 }

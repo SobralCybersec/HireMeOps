@@ -81,6 +81,8 @@ jobs:
       - run: bun run lint
       - run: bun run format:check
       - run: bun run test
+      - name: Quality evidence (coverage + benchmark)
+        run: bun run quality:evidence
 
   postgres-integration:
     name: PostgreSQL 18 + pgvector integration

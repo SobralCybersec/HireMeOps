@@ -9,9 +9,11 @@ use serde_json::Map;
 use crate::storage::postgres::{self, BrowserSessionMetadata};
 
 #[cfg(feature = "real-browser")]
+use crate::storage::postgres_browser_sessions::ProfileSessionLock;
+#[cfg(feature = "real-browser")]
 use crate::storage::session_crypto;
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 const STORAGE_STATE_VERSION: i32 = 1;
 
 fn shared_db(state: &crate::AppState) -> Result<&sqlx::PgPool, String> {
@@ -61,9 +63,9 @@ fn summarize_status(status: &Value) -> &'static str {
     "unknown"
 }
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 async fn release_lock(
-    lock: postgres::ProfileSessionLock,
+    lock: ProfileSessionLock,
     result: Result<BrowserSessionMetadata, String>,
 ) -> Result<BrowserSessionMetadata, String> {
     let release = lock.release().await.map_err(|error| error.to_string());

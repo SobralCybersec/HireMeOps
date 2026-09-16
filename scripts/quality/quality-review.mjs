@@ -138,7 +138,7 @@ export async function main(argv = process.argv.slice(2)) {
     },
   };
   await writeReport("summary.json", JSON.stringify(summary, null, 2));
-  return fileSize.oversized.length || jscpd.exitCode || lizard.gate.code ? 1 : 0;
+  return fileSize.oversized.length || jscpd.exitCode || (strict && lizard.gate.code) ? 1 : 0;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

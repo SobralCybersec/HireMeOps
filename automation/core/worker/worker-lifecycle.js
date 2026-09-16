@@ -84,7 +84,6 @@ async function recycleSweep() {
   }
 }
 
-
 const LI_EASY_APPLY_SEL = [
   'button[aria-label*="Easy Apply" i]',
   'button[aria-label*="Candidatura simplificada" i]',
@@ -116,7 +115,6 @@ const LI_NEXT_SEL = [
 const LI_MODAL_SEL =
   'dialog[data-testid="dialog"], [data-test-modal-id="easy-apply-modal"], ' +
   '.jobs-easy-apply-content, div[role="dialog"]';
-
 
 export function resolveChromiumExec() {
   const FALLBACK_PATHS = [
@@ -193,7 +191,12 @@ async function ensureHiddenDisplay() {
   return xvfbDisplay;
 }
 
-export async function cmdOpen({ user_data_dir = "", extensions = [], headless = true, hidden = false }) {
+export async function cmdOpen({
+  user_data_dir = "",
+  extensions = [],
+  headless = true,
+  hidden = false,
+}) {
   const handle = randomUUID();
 
   await reclaimProfileDir(user_data_dir);
@@ -202,7 +205,11 @@ export async function cmdOpen({ user_data_dir = "", extensions = [], headless = 
   const resolvedExec = resolveChromiumExec();
 
   const browser = await chromium.launchPersistentContext(user_data_dir, {
-    ...baseLaunchOptions({ headless: launch.runHeadless, executablePath: resolvedExec, extraArgs: launch.extraArgs }),
+    ...baseLaunchOptions({
+      headless: launch.runHeadless,
+      executablePath: resolvedExec,
+      extraArgs: launch.extraArgs,
+    }),
     ...(launch.launchEnv ? { env: launch.launchEnv } : {}),
   });
 
@@ -231,7 +238,13 @@ async function attachRuntimeDiagnostics(browser, page) {
 
 async function createLaunchConfig({ headless, hidden, extensions }) {
   const extraArgs = hidden
-    ? ["--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-webgl", "--ignore-gpu-blocklist", "--enable-gpu"]
+    ? [
+        "--use-angle=vulkan",
+        "--enable-features=Vulkan",
+        "--enable-unsafe-webgl",
+        "--ignore-gpu-blocklist",
+        "--enable-gpu",
+      ]
     : [];
   const launchEnv = hidden ? await hiddenLaunchEnv(extraArgs) : undefined;
   addExtensionArgs(extraArgs, extensions);
@@ -250,7 +263,10 @@ async function hiddenLaunchEnv(extraArgs) {
 function addExtensionArgs(extraArgs, extensions) {
   const validExtensions = extensions.filter((extensionPath) => {
     const valid = existsSync(path.join(extensionPath, "manifest.json"));
-    if (!valid) process.stderr.write(`worker: skipping invalid extension path (no manifest.json): ${extensionPath}\n`);
+    if (!valid)
+      process.stderr.write(
+        `worker: skipping invalid extension path (no manifest.json): ${extensionPath}\n`,
+      );
     return valid;
   });
   if (validExtensions.length === 0) return;
@@ -267,7 +283,9 @@ async function reportHiddenRenderer(page, launchEnv, hidden) {
       return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "unknown";
     });
     const software = /swiftshader|llvmpipe|software/i.test(renderer);
-    process.stderr.write(`worker: hidden GPU renderer = ${renderer}${software ? " [SOFTWARE — Akamai may block; GPU didn't attach under Xvfb]\n" : " [hardware ok]\n"}`);
+    process.stderr.write(
+      `worker: hidden GPU renderer = ${renderer}${software ? " [SOFTWARE — Akamai may block; GPU didn't attach under Xvfb]\n" : " [hardware ok]\n"}`,
+    );
   } catch {}
 }
 
@@ -353,7 +371,8 @@ export async function cmdFillEasyApply({ handle, answers = [], cover_letter, cv_
     if (!resumeDone) resumeDone = await handleResumeStep(page, cv_path);
     const stepResult = await fillEasyApplyStep(page, answers, cover_letter);
     for (const question of stepResult.unanswered) {
-      if (question.label && !unansweredByLabel.has(question.label)) unansweredByLabel.set(question.label, question);
+      if (question.label && !unansweredByLabel.has(question.label))
+        unansweredByLabel.set(question.label, question);
     }
     if (!stepResult.hasNext) break;
 
@@ -369,7 +388,7 @@ export async function cmdFillEasyApply({ handle, answers = [], cover_letter, cv_
 async function openEasyApply(page) {
   try {
     const btn = page.locator(LI_EASY_APPLY_SEL).filter({ visible: true }).first();
-    if (!await btn.isVisible({ timeout: 3_000 }).catch(() => false)) return;
+    if (!(await btn.isVisible({ timeout: 3_000 }).catch(() => false))) return;
     await humanClick(page, btn);
     await page.waitForSelector(
       '.jobs-easy-apply-content, [data-test-modal-id="easy-apply-modal"]',
@@ -386,18 +405,20 @@ async function fillEasyApplyStep(page, answers, coverLetter) {
   return {
     unanswered,
     nextBtn,
-    hasNext: await nextBtn.isVisible({ timeout: 1_500 }).catch(() => false)
+    hasNext: await nextBtn.isVisible({ timeout: 1_500 }).catch(() => false),
   };
 }
 
 function hasEasyApplyError(page) {
   return page
-    .locator([
-      ".artdeco-inline-feedback--error",
-      "[data-test-form-element-error-messages]",
-      ".fb-dash-form-element__error-field",
-      ".fb-dash-form-element__error-text",
-    ].join(","))
+    .locator(
+      [
+        ".artdeco-inline-feedback--error",
+        "[data-test-form-element-error-messages]",
+        ".fb-dash-form-element__error-field",
+        ".fb-dash-form-element__error-text",
+      ].join(","),
+    )
     .first()
     .isVisible({ timeout: 500 })
     .catch(() => false);

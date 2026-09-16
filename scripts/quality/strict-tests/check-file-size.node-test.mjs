@@ -46,7 +46,7 @@ test("source discovery spans ecosystems, special filenames, and shebang scripts"
   const root = await fixture(t);
   const files = {
     "src/main.py": "print('ok')\n",
-    "src/messages.json": "{\"hello\": \"world\"}\n",
+    "src/messages.json": '{"hello": "world"}\n',
     "src/lib.rs": "fn main() {}\n",
     "src/bridge.mjs": "export const ready = true;\n",
     "src/App.java": "class App {}\n",
@@ -90,7 +90,10 @@ test("the 800-line gate ignores generated dependency lockfiles", async (t) => {
   const result = await checkFileSizes({ repoRoot: root, roots: ["."] });
 
   assert.equal(HARD_LIMIT, 800);
-  assert.equal(result.files.some(({ file }) => file === "package-lock.json"), false);
+  assert.equal(
+    result.files.some(({ file }) => file === "package-lock.json"),
+    false,
+  );
   assert.equal(result.oversized.length, 0);
 });
 
@@ -110,11 +113,10 @@ test("checkFileSizes is cwd-independent, de-duplicates overlapping roots, and cl
     reviewLimit: 5,
     hardLimit: 10,
   });
-  assert.deepEqual(result.files.map(({ file }) => file), [
-    "src/nested/hard.cpp",
-    "src/review.ts",
-    "src/small.go",
-  ]);
+  assert.deepEqual(
+    result.files.map(({ file }) => file),
+    ["src/nested/hard.cpp", "src/review.ts", "src/small.go"],
+  );
   assert.deepEqual(result.review, [{ file: "src/review.ts", lines: 8 }]);
   assert.deepEqual(result.oversized, [{ file: "src/nested/hard.cpp", lines: 12 }]);
 
@@ -137,8 +139,5 @@ test("extraExtensions makes uncommon languages configurable without code changes
 
 test("invalid limits fail fast", async () => {
   await assert.rejects(() => checkFileSizes({ reviewLimit: 0 }), /reviewLimit/);
-  await assert.rejects(
-    () => checkFileSizes({ reviewLimit: 10, hardLimit: 9 }),
-    /hardLimit/,
-  );
+  await assert.rejects(() => checkFileSizes({ reviewLimit: 10, hardLimit: 9 }), /hardLimit/);
 });

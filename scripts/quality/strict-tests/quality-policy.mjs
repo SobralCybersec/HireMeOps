@@ -8,7 +8,13 @@ export const POLICY = {
     review: { ccn: 25, nloc: 300, length: 600, arguments: 8, nesting: 3 },
     hard: { ccn: 30, nloc: 350, length: 700, arguments: 10 },
   },
-  coverage: { linePercentMin: 80 },
+  coverage: {
+    linePercentMin: 90,
+    linesPercentMin: 90,
+    statementsPercentMin: 90,
+    functionsPercentMin: 90,
+    branchesPercentMin: 90,
+  },
   churn: { days: 90, hotspotLimit: 20 },
 };
 
@@ -35,8 +41,17 @@ export function evaluateQualityGate(summary, options) {
     if (options.strict) failures.push("complexity review gate failed");
     else warnings.push("complexity review has findings");
   }
-  if (summary.coverage.available && summary.coverage.lines_percent != null && summary.coverage.lines_percent < options.coverageMin) {
-    failures.push(`line coverage ${summary.coverage.lines_percent}% < ${options.coverageMin}%`);
+  if (summary.coverage.available && options.requireEvidence) {
+    const metrics = [
+      ["line", summary.coverage.lines_percent],
+      ["statement", summary.coverage.statements_percent],
+      ["function", summary.coverage.functions_percent],
+      ["branch", summary.coverage.branches_percent],
+    ];
+    for (const [name, value] of metrics) {
+      if (value == null || value < options.coverageMin)
+        failures.push(`${name} coverage ${value ?? "missing"}% < ${options.coverageMin}%`);
+    }
   }
   if (summary.tests.available && (summary.tests.failures > 0 || summary.tests.errors > 0)) {
     failures.push(`${summary.tests.failures + summary.tests.errors} failing/error test(s)`);

@@ -1,9 +1,5 @@
-import type { JobFilters, Profile } from "../types/domain";
+import type { Profile } from "../types/domain";
 import type { AppSettings } from "../types/settings";
-import type { AppEvent, AppEventType } from "../types/events";
-import { useEventStore } from "../stores/system/useEventStore";
-import { useAutomationStore } from "../stores/automation/useAutomationStore";
-import { useJobFiltersStore } from "../stores/jobs/useJobFiltersStore";
 import { MOCK_LIBRARY, MOCK_HISTORY } from "../pages/cv/mockData";
 
 /**
@@ -56,18 +52,6 @@ const MOCK_SETTINGS: AppSettings = {
   automationHeadless: true,
   automationHeadlessOverrides: {},
   aiAutoInit: true,
-};
-
-const MOCK_JOB_FILTERS: JobFilters = {
-  targetRoles: ["Frontend Engineer", "Full-Stack Engineer", "UI Engineer"],
-  seniority: ["Senior", "Staff"],
-  locations: ["Berlin", "Amsterdam", "Remote (EU)"],
-  remoteModes: ["Remote", "Hybrid"],
-  minSalary: 85000,
-  requiredSkills: ["TypeScript", "React", "Rust"],
-  preferredSkills: ["Tauri", "GraphQL", "WebAssembly"],
-  excludedKeywords: ["unpaid", "internship", "clearance required"],
-  blockedCompanies: ["Acme Staffing", "QuickHire Recruiting"],
 };
 
 // Search / dork templates. The page keeps these in local state until the store
@@ -161,52 +145,4 @@ export function getMockResponse<T>(command: string, args?: Record<string, unknow
     default:
       return undefined;
   }
-}
-
-function evt(
-  type: AppEventType,
-  payload: unknown,
-  minutesAgo: number,
-  extra?: Partial<AppEvent>,
-): AppEvent {
-  return {
-    id: crypto.randomUUID(),
-    type,
-    payload,
-    createdAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
-    ...extra,
-  };
-}
-
-// Oldest last so that the store's newest-first buffer reads naturally.
-const MOCK_EVENTS: AppEvent[] = [
-  evt("automation.started", { message: "Automation run started" }, 12, { taskId: "task-9f3a" }),
-  evt("job.search.started", { platform: "LinkedIn", query: "Frontend Engineer" }, 11),
-  evt("job.search.item_found", { title: "Senior Frontend Engineer", company: "Vercel" }, 10),
-  evt("job.match.done", { title: "Senior Frontend Engineer", score: 0.91 }, 9),
-  evt("cv.analysis.done", { fileName: "resume-frontend.pdf", score: 0.87 }, 8),
-  evt("application.started", { company: "Vercel" }, 6, { taskId: "task-9f3a" }),
-  evt("application.needs_review", { company: "Linear", reason: "Custom question" }, 4),
-  evt("automation.paused_for_captcha", { platform: "Workday" }, 3),
-  evt("automation.resumed", { message: "Resumed after captcha" }, 2),
-  evt("application.completed", { company: "Vercel" }, 1, { taskId: "task-9f3a" }),
-];
-
-let seeded = false;
-
-/** Seeds the event buffer and automation state so live-data pages look real. */
-export function seedDevState(): void {
-  if (!isMockEnabled() || seeded) return;
-  seeded = true;
-
-  const addEvent = useEventStore.getState().addEvent;
-  for (const e of MOCK_EVENTS) addEvent(e);
-
-  useAutomationStore.setState({
-    state: "Searching",
-    currentTaskId: "task-9f3a",
-  });
-
-  // Populate the Job Preferences form so its filter fields render non-empty.
-  useJobFiltersStore.setState({ filters: MOCK_JOB_FILTERS });
 }

@@ -21,6 +21,8 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     groups:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
@@ -40,6 +42,8 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     groups:
       npm-minor-patch:
         update-types: ["minor", "patch"]
@@ -56,6 +60,8 @@ updates:
     commit-message:
       prefix: "chore(ci)"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       actions-all:
         patterns: ["*"]
@@ -72,6 +78,8 @@ updates:
     commit-message:
       prefix: "chore(docker)"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       docker-all:
         patterns: ["*"]

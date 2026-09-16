@@ -1,0 +1,4 @@
+[allowlist]
+description = "Historical local live-reload token from frontend development commit"
+commits = ["cfda4b06a51343db960e318a23f16a309bd01a1c"]
+paths = ["^index\\.html$"]

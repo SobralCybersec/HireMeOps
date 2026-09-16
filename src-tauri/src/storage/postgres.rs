@@ -18,7 +18,7 @@ pub use super::postgres_browser_sessions::{
 };
 #[cfg(any(test, feature = "real-browser"))]
 pub use super::postgres_browser_sessions::{
-    update_browser_session_status, upsert_browser_session, BrowserSessionWrite, ProfileSessionLock,
+    update_browser_session_status, upsert_browser_session, BrowserSessionWrite,
 };
 
 const DEFAULT_MAX_CONNECTIONS: u32 = 5;

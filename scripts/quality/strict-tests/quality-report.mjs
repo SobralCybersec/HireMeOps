@@ -263,8 +263,9 @@ export function formatQualityReport({ summary, jscpd, lizard, fileSize, tests, c
   const coverageMinimum = summary.policy?.coverage_lines_min ?? 80;
   lines.push(section("COVERAGE — LCOV", ["Metric", "Result", "Status"], [
     ["Lines", coverage?.lines_percent == null ? "not reported" : `${coverage.lines_percent.toFixed(2)}%`, statusForCoverage(coverage?.lines_percent, coverageMinimum)],
-    ["Branches", coverage?.branches_percent == null ? "not reported" : `${coverage.branches_percent.toFixed(2)}%`, statusForCoverage(coverage?.branches_percent, 0, false)],
-    ["Functions", coverage?.functions_percent == null ? "not reported" : `${coverage.functions_percent.toFixed(2)}%`, statusForCoverage(coverage?.functions_percent, 0, false)],
+    ["Statements", coverage?.statements_percent == null ? "not reported" : `${coverage.statements_percent.toFixed(2)}%`, statusForCoverage(coverage?.statements_percent, coverageMinimum)],
+    ["Branches", coverage?.branches_percent == null ? "not reported" : `${coverage.branches_percent.toFixed(2)}%`, statusForCoverage(coverage?.branches_percent, coverageMinimum)],
+    ["Functions", coverage?.functions_percent == null ? "not reported" : `${coverage.functions_percent.toFixed(2)}%`, statusForCoverage(coverage?.functions_percent, coverageMinimum)],
   ]));
   lines.push("");
 

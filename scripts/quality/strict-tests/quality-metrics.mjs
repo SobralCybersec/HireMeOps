@@ -4,7 +4,7 @@ import path from "node:path";
 import { summarizeTrivyReport } from "./quality-security.mjs";
 export { summarizeTrivyReport } from "./quality-security.mjs";
 
-const COVERAGE_FILE_RE = /^(?:lcov\.info|coverage\.xml|jacoco(?:TestReport)?\.xml)$/i;
+const COVERAGE_FILE_RE = /^(?:lcov\.info|coverage\.xml|coverage-summary\.json|jacoco(?:TestReport)?\.xml)$/i;
 const TEST_FILE_RE = /(?:^|[-_.])(?:junit|test-results?|surefire|failsafe)(?:[-_.]|$).*\.xml$/i;
 const DISCOVERY_IGNORES = new Set([
   ".git",
@@ -106,7 +106,8 @@ export function parseCoberturaXml(text) {
 
 export function parseJacocoXml(text) {
   const counters = new Map();
-  const regex = /<counter\s+type=["']([A-Z]+)["']\s+missed=["'](\d+)["']\s+covered=["'](\d+)["']\s*\/>/g;
+  const regex =
+    /<counter\s+type=["']([A-Z]+)["']\s+missed=["'](\d+)["']\s+covered=["'](\d+)["']\s*\/>/g;
   for (const match of text.matchAll(regex)) {
     counters.set(match[1], { missed: Number(match[2]), covered: Number(match[3]) });
   }
@@ -120,19 +121,85 @@ export function parseJacocoXml(text) {
   return {
     format: "jacoco",
     lines: metric("LINE"),
+    statements: metric("LINE"),
     branches: metric("BRANCH"),
     functions: metric("METHOD"),
   };
 }
 
-export function parseCoverageReport(file, text) {
+function v8Metric(value) {
+  if (!value || !Number.isFinite(Number(value.total))) {
+    return { found: null, covered: null, percent: null };
+  }
+  const found = Number(value.total);
+  const covered = Number(value.covered ?? 0);
+  return { found, covered, percent: round(percent(covered, found)) };
+}
+
+export function parseV8JsonSummary(text, { repoRoot, scopePaths = [] } = {}) {
+  const report = JSON.parse(text);
+  const entries = Object.entries(report).filter(([file]) => {
+    if (file === "total" || scopePaths.length === 0) return file !== "total";
+    const absoluteFile = path.resolve(repoRoot, file).split(path.sep).join("/");
+    return scopePaths.some((scope) => {
+      const absoluteScope = path.resolve(repoRoot, scope).split(path.sep).join("/");
+      return absoluteFile === absoluteScope || absoluteFile.startsWith(`${absoluteScope}/`);
+    });
+  });
+  const summary = entries.length
+    ? entries.reduce((total, [, value]) => mergeV8Summary(total, value), {})
+    : report.total;
+  if (!summary) throw new Error("V8 coverage summary total not found");
+  return {
+    format: "v8-json-summary",
+    lines: v8Metric(summary.lines),
+    statements: v8Metric(summary.statements),
+    branches: v8Metric(summary.branches),
+    functions: v8Metric(summary.functions),
+  };
+}
+
+function mergeV8Summary(total, value) {
+  const next = { ...total };
+  for (const key of ["lines", "statements", "branches", "functions"]) {
+    const current = next[key] ?? { total: 0, covered: 0 };
+    next[key] = {
+      total: Number(current.total ?? 0) + Number(value[key]?.total ?? 0),
+      covered: Number(current.covered ?? 0) + Number(value[key]?.covered ?? 0),
+    };
+  }
+  return next;
+}
+
+export function parseCoverageReport(file, text, options = {}) {
   const basename = path.basename(file).toLowerCase();
+  if (basename === "coverage-summary.json") return parseV8JsonSummary(text, options);
   if (basename === "lcov.info" || /^(?:TN:|SF:|DA:)/m.test(text)) return parseLcov(text);
   if (/<coverage\b/i.test(text)) return parseCoberturaXml(text);
   if (/<report\b/i.test(text) && /<counter\s+type=["'](?:LINE|BRANCH|METHOD)["']/i.test(text)) {
     return parseJacocoXml(text);
   }
   throw new Error(`Unsupported coverage report format: ${file}`);
+}
+
+function lcovRecordInScope(record, repoRoot, scopePaths) {
+  if (scopePaths.length === 0) return true;
+  const sourceFile = record.match(/^SF:(.*)$/m)?.[1];
+  if (!sourceFile) return false;
+  const absoluteSource = path.resolve(repoRoot, sourceFile).split(path.sep).join("/");
+  return scopePaths.some((scope) => {
+    const absoluteScope = path.resolve(repoRoot, scope).split(path.sep).join("/");
+    return absoluteSource === absoluteScope || absoluteSource.startsWith(`${absoluteScope}/`);
+  });
+}
+
+export function filterLcovToPaths(text, repoRoot, scopePaths = []) {
+  if (scopePaths.length === 0) return text;
+  const records = text
+    .split("end_of_record")
+    .filter((record) => record.trim() && lcovRecordInScope(record, repoRoot, scopePaths));
+  if (records.length === 0) throw new Error("coverage report contains no files in requested scope");
+  return `${records.join("end_of_record")}end_of_record\n`;
 }
 
 export function aggregateCoverage(reports) {
@@ -162,6 +229,7 @@ export function aggregateCoverage(reports) {
   return {
     reports: reports.length,
     lines: total("lines"),
+    statements: total("statements"),
     branches: total("branches"),
     functions: total("functions"),
   };
@@ -229,7 +297,7 @@ export async function discoverMetricFiles(repoRoot, { maxDepth = 6 } = {}) {
   return { coverage: coverage.sort(), tests: tests.sort() };
 }
 
-export async function collectCoverage(repoRoot, explicitFiles = []) {
+export async function collectCoverage(repoRoot, explicitFiles = [], scopePaths = []) {
   const discovered = explicitFiles.length
     ? explicitFiles.map((file) => path.resolve(repoRoot, file))
     : (await discoverMetricFiles(repoRoot)).coverage;
@@ -237,10 +305,18 @@ export async function collectCoverage(repoRoot, explicitFiles = []) {
   const errors = [];
   for (const file of [...new Set(discovered)]) {
     try {
-      const parsed = parseCoverageReport(file, await readFile(file, "utf8"));
+      const text = await readFile(file, "utf8");
+      const scopedText =
+        path.basename(file).toLowerCase() === "lcov.info"
+          ? filterLcovToPaths(text, repoRoot, scopePaths)
+          : text;
+      const parsed = parseCoverageReport(file, scopedText, { repoRoot, scopePaths });
       reports.push({ file: path.relative(repoRoot, file).split(path.sep).join("/"), ...parsed });
     } catch (error) {
-      errors.push({ file: path.relative(repoRoot, file).split(path.sep).join("/"), error: error.message });
+      errors.push({
+        file: path.relative(repoRoot, file).split(path.sep).join("/"),
+        error: error.message,
+      });
     }
   }
   return { available: reports.length > 0, aggregate: aggregateCoverage(reports), reports, errors };
@@ -259,10 +335,18 @@ export async function collectTestResults(repoRoot, explicitFiles = []) {
         ...parseJUnitXml(await readFile(file, "utf8")),
       });
     } catch (error) {
-      errors.push({ file: path.relative(repoRoot, file).split(path.sep).join("/"), error: error.message });
+      errors.push({
+        file: path.relative(repoRoot, file).split(path.sep).join("/"),
+        error: error.message,
+      });
     }
   }
-  return { available: reports.length > 0, aggregate: aggregateTestResults(reports), reports, errors };
+  return {
+    available: reports.length > 0,
+    aggregate: aggregateTestResults(reports),
+    reports,
+    errors,
+  };
 }
 
 export function runCommand(command, args, { cwd = process.cwd(), env = process.env } = {}) {
@@ -271,7 +355,12 @@ export function runCommand(command, args, { cwd = process.cwd(), env = process.e
     try {
       child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
-      resolveRun({ code: 127, missing: error.code === "ENOENT", stdout: "", stderr: error.message });
+      resolveRun({
+        code: 127,
+        missing: error.code === "ENOENT",
+        stdout: "",
+        stderr: error.message,
+      });
       return;
     }
     let stdout = "";
@@ -305,11 +394,12 @@ export function parseGitNumstat(text) {
     const match = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line);
     if (!match) continue;
     const rawFile = match[3];
-    const file = rawFile.includes("{") && rawFile.includes(" => ")
-      ? rawFile.replace(/\{[^{}]* => ([^{}]*)\}/g, "$1")
-      : rawFile.includes(" => ")
-        ? rawFile.split(" => ").at(-1).trim()
-        : rawFile;
+    const file =
+      rawFile.includes("{") && rawFile.includes(" => ")
+        ? rawFile.replace(/\{[^{}]* => ([^{}]*)\}/g, "$1")
+        : rawFile.includes(" => ")
+          ? rawFile.split(" => ").at(-1).trim()
+          : rawFile;
     const current = byFile.get(file) ?? {
       file,
       additions: 0,
@@ -329,7 +419,12 @@ export function parseGitNumstat(text) {
   }
   return [...byFile.values()]
     .map((entry) => ({ ...entry, commits: entry.commits.size }))
-    .sort((left, right) => right.changes - left.changes || right.commits - left.commits || left.file.localeCompare(right.file));
+    .sort(
+      (left, right) =>
+        right.changes - left.changes ||
+        right.commits - left.commits ||
+        left.file.localeCompare(right.file),
+    );
 }
 
 export async function collectGitChurn(repoRoot, { days = 90 } = {}) {
@@ -362,9 +457,10 @@ export function rankHotspots(fileMetrics, churnFiles, { reviewLimit = 500, limit
     .map(({ file, lines }) => {
       const history = churn.get(file) ?? { additions: 0, deletions: 0, changes: 0, commits: 0 };
       const sizeFactor = Math.max(0.25, lines / reviewLimit);
-      const changeFactor = history.changes > 0 || history.commits > 0
-        ? Math.log2(1 + history.changes + history.commits * 5)
-        : 0;
+      const changeFactor =
+        history.changes > 0 || history.commits > 0
+          ? Math.log2(1 + history.changes + history.commits * 5)
+          : 0;
       return {
         file,
         lines,
@@ -376,6 +472,11 @@ export function rankHotspots(fileMetrics, churnFiles, { reviewLimit = 500, limit
       };
     })
     .filter((entry) => entry.risk_score > 0)
-    .sort((left, right) => right.risk_score - left.risk_score || right.changes - left.changes || left.file.localeCompare(right.file))
+    .sort(
+      (left, right) =>
+        right.risk_score - left.risk_score ||
+        right.changes - left.changes ||
+        left.file.localeCompare(right.file),
+    )
     .slice(0, limit);
 }

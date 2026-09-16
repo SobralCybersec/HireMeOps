@@ -1,13 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_QUALITY_PATHS, evaluateQualityGate, parseQualityArgs, POLICY } from "./quality-review.mjs";
+import {
+  DEFAULT_QUALITY_PATHS,
+  evaluateQualityGate,
+  normalizeBenchmarkReport,
+  parseQualityArgs,
+  POLICY,
+} from "./quality-review.mjs";
 
 function passingSummary() {
   return {
     file_size: { oversized: 0 },
     jscpd: { enabled: true, available: true, exit_code: 0, duplication_percent: 1 },
     lizard: { enabled: true, available: true, exit_code: 0 },
-    coverage: { available: true, lines_percent: 90 },
+    coverage: {
+      available: true,
+      lines_percent: 90,
+      statements_percent: 90,
+      functions_percent: 90,
+      branches_percent: 90,
+    },
     tests: { available: true, failures: 0, errors: 0 },
     security: { enabled: false, available: false, exit_code: null, findings: null },
   };
@@ -15,7 +27,18 @@ function passingSummary() {
 
 test("parseQualityArgs keeps universal defaults and supports explicit evidence/security gates", () => {
   const options = parseQualityArgs(
-    ["src", "lib", "--strict", "--require-tools", "--require-evidence", "--security", "--coverage-min", "85", "--churn-days", "30"],
+    [
+      "src",
+      "lib",
+      "--strict",
+      "--require-tools",
+      "--require-evidence",
+      "--security",
+      "--coverage-min",
+      "85",
+      "--churn-days",
+      "30",
+    ],
     { repoRoot: "/tmp/repo" },
   );
   assert.deepEqual(options.paths, ["src", "lib"]);
@@ -29,22 +52,30 @@ test("parseQualityArgs keeps universal defaults and supports explicit evidence/s
 
 test("quality gate passes when all available evidence satisfies policy", () => {
   const options = parseQualityArgs([], { repoRoot: "/tmp/repo" });
-  assert.deepEqual(evaluateQualityGate(passingSummary(), options), { status: "pass", failures: [] });
+  assert.deepEqual(evaluateQualityGate(passingSummary(), options), {
+    status: "pass",
+    failures: [],
+  });
 });
 
 test("quality gate reports independent failures instead of hiding them behind one score", () => {
-  const options = parseQualityArgs(["--security", "--coverage-min", "80"], { repoRoot: "/tmp/repo" });
+  const options = parseQualityArgs(["--security", "--require-evidence", "--coverage-min", "80"], {
+    repoRoot: "/tmp/repo",
+  });
   const summary = passingSummary();
   summary.file_size.oversized = 2;
   summary.jscpd.exit_code = 1;
   summary.jscpd.duplication_percent = 7.5;
   summary.lizard.exit_code = 1;
   summary.coverage.lines_percent = 70;
+  summary.coverage.statements_percent = 70;
+  summary.coverage.functions_percent = 70;
+  summary.coverage.branches_percent = 70;
   summary.tests.failures = 1;
   summary.security = { enabled: true, available: true, exit_code: 1, findings: 3 };
   const gate = evaluateQualityGate(summary, options);
   assert.equal(gate.status, "fail");
-  assert.equal(gate.failures.length, 6);
+  assert.equal(gate.failures.length, 9);
   assert.match(gate.failures.join("\n"), /oversized/);
   assert.match(gate.failures.join("\n"), /duplication/);
   assert.match(gate.failures.join("\n"), /complexity/);
@@ -62,7 +93,10 @@ test("quality gate classifies review findings as warnings and hard findings as f
   assert.equal(gate.status, "pass");
   assert.equal(gate.failures.length, 0);
   assert.equal(gate.warnings.length, 3);
-  assert.equal(evaluateQualityGate(summary, parseQualityArgs(["--strict"], { repoRoot: "/tmp/repo" })).status, "fail");
+  assert.equal(
+    evaluateQualityGate(summary, parseQualityArgs(["--strict"], { repoRoot: "/tmp/repo" })).status,
+    "fail",
+  );
 });
 
 test("missing optional tools are explicit but do not fail unless required", () => {
@@ -76,14 +110,20 @@ test("missing optional tools are explicit but do not fail unless required", () =
   const required = parseQualityArgs(["--require-tools"], { repoRoot: "/tmp/repo" });
   const gate = evaluateQualityGate(summary, required);
   assert.equal(gate.status, "fail");
-  assert.deepEqual(gate.failures.sort(), ["required tool missing: jscpd", "required tool missing: lizard"].sort());
+  assert.deepEqual(
+    gate.failures.sort(),
+    ["required tool missing: jscpd", "required tool missing: lizard"].sort(),
+  );
 });
 
 test("require-evidence distinguishes no report from zero coverage", () => {
   const summary = passingSummary();
   summary.coverage = { available: false, lines_percent: null };
   summary.tests = { available: false, failures: 0, errors: 0 };
-  const gate = evaluateQualityGate(summary, parseQualityArgs(["--require-evidence"], { repoRoot: "/tmp/repo" }));
+  const gate = evaluateQualityGate(
+    summary,
+    parseQualityArgs(["--require-evidence"], { repoRoot: "/tmp/repo" }),
+  );
   assert.equal(gate.status, "fail");
   assert.deepEqual(gate.failures, ["coverage evidence missing", "test-result evidence missing"]);
 });
@@ -100,4 +140,22 @@ test("policy separates review thresholds from hard fail thresholds", () => {
 
 test("default quality scope targets project source roots", () => {
   assert.deepEqual(parseQualityArgs([], { repoRoot: "/tmp/repo" }).paths, DEFAULT_QUALITY_PATHS);
+});
+
+test("benchmark evidence accepts native and change-benchmark formats", () => {
+  assert.deepEqual(normalizeBenchmarkReport({ benchmarks: [{ name: "direct" }] }), [
+    { name: "direct" },
+  ]);
+  assert.deepEqual(
+    normalizeBenchmarkReport({
+      throughputCases: [
+        {
+          name: "import",
+          current: { timing: { samples: 5, p50Ms: 2 } },
+          throughput: { current: 500 },
+        },
+      ],
+    }),
+    [{ name: "import", iterations: 5, elapsed_ms: 2, ops_per_second: 500 }],
+  );
 });

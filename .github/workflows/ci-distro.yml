@@ -50,7 +50,9 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
-        run: echo "value=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: echo "value=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: "Install smoke — ${{ matrix.name }}"
         env:

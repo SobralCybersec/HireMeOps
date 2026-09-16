@@ -93,11 +93,12 @@ jobs:
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           mkdir dist && cd dist
-          gh release download "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
           sha256sum ./* > SHA256SUMS
-          gh release upload "${{ github.ref_name }}" SHA256SUMS \
+          gh release upload "$RELEASE_TAG" SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
           echo "Assets:"; ls -la
 
@@ -108,7 +109,8 @@ jobs:
       - name: Publish (flip draft off)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release edit "${{ github.ref_name }}" \
+          gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" --draft=false
-          echo "Published ${{ github.ref_name }} — users verify with: gh attestation verify <asset> --owner ${GITHUB_REPOSITORY%/*}"
+          echo "Published $RELEASE_TAG — users verify with: gh attestation verify <asset> --owner ${GITHUB_REPOSITORY%/*}"

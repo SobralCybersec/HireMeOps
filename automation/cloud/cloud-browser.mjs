@@ -28,7 +28,7 @@ async function installResourcePolicy(context) {
 
 export async function openCloudBrowser(
   storageState,
-  { viewport = { width: 1024, height: 768 } } = {},
+  { viewport = { width: 800, height: 600 } } = {},
 ) {
   let browser;
   try {

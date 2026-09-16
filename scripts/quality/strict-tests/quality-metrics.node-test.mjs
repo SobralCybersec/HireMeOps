@@ -8,11 +8,13 @@ import {
   aggregateTestResults,
   collectCoverage,
   collectTestResults,
+  filterLcovToPaths,
   parseCoberturaXml,
   parseGitNumstat,
   parseJacocoXml,
   parseJUnitXml,
   parseLcov,
+  parseV8JsonSummary,
   rankHotspots,
   summarizeTrivyReport,
 } from "./quality-metrics.mjs";
@@ -53,9 +55,56 @@ test("aggregateCoverage weights reports by executable counts", () => {
   assert.equal(aggregate.lines.percent, 57.5);
 });
 
+test("V8 JSON summary supports per-file source scoping and statement coverage", () => {
+  const report = JSON.stringify({
+    total: {
+      lines: { total: 30, covered: 10 },
+      statements: { total: 30, covered: 10 },
+      branches: { total: 10, covered: 5 },
+      functions: { total: 10, covered: 5 },
+    },
+    "/tmp/repo/src/a.ts": {
+      lines: { total: 10, covered: 10 },
+      statements: { total: 10, covered: 9 },
+      branches: { total: 4, covered: 4 },
+      functions: { total: 4, covered: 4 },
+    },
+    "/tmp/repo/automation/a.js": {
+      lines: { total: 20, covered: 0 },
+      statements: { total: 20, covered: 0 },
+      branches: { total: 6, covered: 1 },
+      functions: { total: 6, covered: 1 },
+    },
+  });
+  const scoped = parseV8JsonSummary(report, { repoRoot: "/tmp/repo", scopePaths: ["src"] });
+  assert.equal(scoped.lines.percent, 100);
+  assert.equal(scoped.statements.percent, 90);
+  assert.equal(scoped.branches.percent, 100);
+  assert.equal(scoped.functions.percent, 100);
+});
+
+test("coverage collection respects requested source scope", async (t) => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, "coverage"), { recursive: true });
+  await writeFile(
+    path.join(root, "coverage", "lcov.info"),
+    "SF:src/app.ts\nLF:10\nLH:9\nend_of_record\nSF:automation/worker.js\nLF:100\nLH:0\nend_of_record\n",
+  );
+  const coverage = await collectCoverage(root, ["coverage/lcov.info"], ["src"]);
+  assert.equal(coverage.aggregate.lines.percent, 90);
+  assert.match(
+    filterLcovToPaths("SF:src/app.ts\nLF:1\nLH:1\nend_of_record\n", root, ["src"]),
+    /src\/app\.ts/,
+  );
+});
+
 test("JUnit parsing and aggregation expose reliability evidence", () => {
-  const first = parseJUnitXml('<testsuite tests="10" failures="1" errors="1" skipped="2"></testsuite>');
-  const second = parseJUnitXml('<testsuites tests="5" failures="0" errors="0" skipped="1"></testsuites>');
+  const first = parseJUnitXml(
+    '<testsuite tests="10" failures="1" errors="1" skipped="2"></testsuite>',
+  );
+  const second = parseJUnitXml(
+    '<testsuites tests="5" failures="0" errors="0" skipped="1"></testsuites>',
+  );
   assert.deepEqual(first, { tests: 10, failures: 1, errors: 1, skipped: 2, passed: 6 });
   assert.deepEqual(aggregateTestResults([first, second]), {
     reports: 2,
@@ -68,7 +117,9 @@ test("JUnit parsing and aggregation expose reliability evidence", () => {
 });
 
 test("JUnit parsing counts Node test reporter cases without suite attributes", () => {
-  const report = parseJUnitXml('<testsuites><testcase name="one"/><testcase name="two"><skipped/></testcase></testsuites>');
+  const report = parseJUnitXml(
+    '<testsuites><testcase name="one"/><testcase name="two"><skipped/></testcase></testsuites>',
+  );
   assert.deepEqual(report, { tests: 2, failures: 0, errors: 0, skipped: 1, passed: 1 });
 });
 
@@ -125,7 +176,10 @@ test("hotspots prioritize files that combine size and churn", () => {
   );
   assert.equal(hotspots[0].file, "src/large.ts");
   assert.ok(hotspots[0].risk_score > hotspots[1].risk_score);
-  assert.equal(hotspots.some((entry) => entry.file === "src/stable.ts"), false);
+  assert.equal(
+    hotspots.some((entry) => entry.file === "src/stable.ts"),
+    false,
+  );
 });
 
 test("Trivy JSON summary counts high/critical findings across security categories", () => {

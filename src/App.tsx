@@ -4,7 +4,7 @@ import { router } from "./app/router";
 import { useSettingsStore } from "./stores/system/useSettingsStore";
 import { useProfileStore } from "./stores/profiles/useProfileStore";
 import { startEventBridge, stopEventBridge } from "./lib/tauri/eventBridge";
-import { seedDevState } from "./lib/devMocks";
+import { seedDevState } from "./lib/devMockSeed";
 import "./App.css";
 
 function App() {

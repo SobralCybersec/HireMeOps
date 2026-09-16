@@ -7,7 +7,16 @@ import tseslint from 'typescript-eslint'
 export default tseslint.config(
   // `frontendishere/` is a vendored Next.js design reference (with its own
   // toolchain + `.next` build cache), not our shipping code — never lint it.
-  { ignores: ['dist', 'src-tauri/target', 'node_modules', 'frontendishere'] },
+  {
+    ignores: [
+      'dist',
+      'coverage',
+      'reports',
+      'src-tauri/target',
+      'node_modules',
+      'frontendishere',
+    ],
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

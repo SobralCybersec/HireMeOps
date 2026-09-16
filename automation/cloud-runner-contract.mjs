@@ -79,6 +79,7 @@ export function decryptSessionState(encryptedState, encodedKey) {
       "aes-256-gcm",
       decodeKey(encodedKey),
       bytes.subarray(0, NONCE_BYTES),
+      { authTagLength: TAG_BYTES },
     );
     decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
     const plaintext = Buffer.concat([
@@ -98,7 +99,9 @@ export function decryptSessionState(encryptedState, encodedKey) {
 
 export function encryptSessionState(state, encodedKey) {
   const nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", decodeKey(encodedKey), nonce);
+  const cipher = createCipheriv("aes-256-gcm", decodeKey(encodedKey), nonce, {
+    authTagLength: TAG_BYTES,
+  });
   const ciphertext = Buffer.concat([cipher.update(JSON.stringify(state), "utf8"), cipher.final()]);
   return Buffer.concat([nonce, ciphertext, cipher.getAuthTag()]);
 }

@@ -20,6 +20,10 @@ docs
 # TypeScript / build artifacts
 *.tsbuildinfo
 reports/quality/
+coverage/
+reports/junit.xml
+reports/coverage/
+reports/tests/
 
 # Editor directories and files
 .vscode/*

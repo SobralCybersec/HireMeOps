@@ -20,6 +20,27 @@ vi.mock("../../lib/tauri/tauriInvoke", () => ({
 
 import { safeInvoke, invokeStrict } from "../../lib/tauri/tauriInvoke";
 import { useJobStore } from "./useJobStore";
+import {
+  cathoApply,
+  confirmIndeedSubmit,
+  draftApplication,
+  infojobsApply,
+  loginIndeed,
+  rejectIndeedSubmit,
+  runCathoSearch,
+  runFreelas99Search,
+  runGeekhunterSearch,
+  runGoogleSearch,
+  runGmailApply,
+  runGupySearch,
+  runIndeedSearch,
+  runInfojobsSearch,
+  runLinkedInPostsSearch,
+  runProgramathorSearch,
+  runUpworkSearch,
+  startIndeedApply,
+  submitApplication,
+} from "./useJobStore";
 import type { JobPostDto, JobMatchDto } from "../../types/domain";
 
 /* ── Fixtures ─────────────────────────────────────────────────────── */
@@ -197,6 +218,126 @@ it("sets isLoading true during fetch and false after", async () => {
   resolveInvoke([mockJob]);
   await promise;
   expect(useJobStore.getState().isLoading).toBe(false);
+});
+
+it("stops pagination when there is no cursor or a request is already loading", async () => {
+  await useJobStore.getState().loadMoreJobs("p1");
+  expect(safeInvoke).not.toHaveBeenCalled();
+
+  useJobStore.setState({
+    nextCursor: { discoveredAt: mockJob.discoveredAt, id: mockJob.id },
+    isLoading: false,
+  });
+  vi.mocked(safeInvoke).mockResolvedValueOnce([]);
+  await useJobStore.getState().loadMoreJobs("p1", "queued", "rust");
+  expect(safeInvoke).toHaveBeenCalledWith("list_job_posts", {
+    input: {
+      profileId: "p1",
+      limit: 50,
+      cursorDiscoveredAt: mockJob.discoveredAt,
+      cursorId: mockJob.id,
+      statusFilter: "queued",
+      search: "rust",
+    },
+  });
+
+  vi.mocked(safeInvoke).mockClear();
+  useJobStore.setState({
+    nextCursor: { discoveredAt: mockJob.discoveredAt, id: mockJob.id },
+    isLoading: true,
+  });
+  await useJobStore.getState().loadMoreJobs("p1");
+  expect(safeInvoke).not.toHaveBeenCalled();
+});
+
+it("routes all supported browser and application commands through strict IPC", async () => {
+  vi.mocked(invokeStrict).mockImplementation(async () => ({}) as never);
+  const board = {
+    profileId: "p1",
+    searchQueryId: "sq-1",
+    query: "engineer",
+    areaIds: [1],
+    workModels: ["remote"],
+    lastDays: 7,
+    maxPages: 2,
+  };
+
+  await runGoogleSearch("p1", "sq-1", "engineer", 2);
+  await runCathoSearch(board);
+  await runInfojobsSearch({ ...board, location: "rj" });
+  await runGupySearch("p1", "sq-1", "engineer", true, 2);
+  await runUpworkSearch("p1", "sq-1", "engineer", "recency", 2);
+  await runFreelas99Search("p1", "sq-1", "engineer", 2);
+  await runProgramathorSearch("p1", "sq-1", "engineer", 2);
+  await runGeekhunterSearch("p1", "sq-1", "engineer", true, 2);
+  await runIndeedSearch("p1", "sq-1", "engineer", "Rio", true, 2);
+  await runLinkedInPostsSearch("p1", "sq-1", "engineer", 2);
+  await cathoApply("p1", "offer", "https://jobs.test/offer");
+  await infojobsApply("p1", "offer", "https://jobs.test/offer");
+  await startIndeedApply("https://jobs.test/offer", "p1");
+  await loginIndeed("p1");
+  await draftApplication("match-1");
+  await submitApplication("draft-1");
+  await confirmIndeedSubmit();
+  await rejectIndeedSubmit();
+  await runGmailApply("p1", "person@example.test", "Subject", "Body", "cv-1");
+
+  expect(vi.mocked(invokeStrict).mock.calls.map(([command]) => command)).toEqual([
+    "run_google_search",
+    "run_catho_search",
+    "run_infojobs_search",
+    "run_gupy_search",
+    "run_upwork_search",
+    "run_freelas99_search",
+    "run_programathor_search",
+    "run_geekhunter_search",
+    "run_indeed_search",
+    "run_linkedin_posts_search",
+    "catho_apply",
+    "infojobs_apply",
+    "automation_start_indeed",
+    "indeed_login",
+    "draft_application",
+    "submit_application",
+    "automation_confirm_indeed_submit",
+    "automation_reject_indeed_submit",
+    "gmail_send_application",
+  ]);
+});
+
+it("normalizes omitted optional search arguments to null", async () => {
+  vi.mocked(invokeStrict).mockImplementation(async () => ({}) as never);
+  await runGoogleSearch("p1", "sq-1", "engineer");
+  await runCathoSearch({ profileId: "p1", searchQueryId: null, query: "engineer" });
+  await runInfojobsSearch({ profileId: "p1", searchQueryId: null, query: "engineer" });
+  await runGupySearch("p1", null, "engineer");
+  await runUpworkSearch("p1", null, "engineer");
+  await runFreelas99Search("p1", null, "engineer");
+  await runProgramathorSearch("p1", null, "engineer");
+  await runGeekhunterSearch("p1", null, "engineer");
+  await runIndeedSearch("p1", null, "engineer");
+  await runLinkedInPostsSearch("p1", "sq-1", "engineer");
+  await runGmailApply("p1", "person@example.test", "Subject", "Body");
+  await useJobStore.getState().runLinkedInSearch("p1", undefined, "engineer");
+  await useJobStore.getState().loginLinkedIn("p1");
+
+  expect(invokeStrict).toHaveBeenCalledWith("run_indeed_search", {
+    input: {
+      profileId: "p1",
+      searchQueryId: null,
+      keywords: "engineer",
+      location: null,
+      remoteOnly: null,
+      maxPages: null,
+    },
+  });
+  expect(invokeStrict).toHaveBeenCalledWith("gmail_send_application", {
+    profileId: "p1",
+    to: "person@example.test",
+    subject: "Subject",
+    body: "Body",
+    cvDocumentId: null,
+  });
 });
 // ── loadMatches ───────────────────────────────────────────────────
 describe("loadMatches", () => {

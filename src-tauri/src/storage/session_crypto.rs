@@ -4,7 +4,7 @@
 //! The envelope version lives beside the blob in PostgreSQL so future rotations can
 //! select a different decoder without trying to infer formats from secret bytes.
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 use std::env;
 
 #[cfg(test)]
@@ -22,12 +22,12 @@ use ring::rand::{SecureRandom, SystemRandom};
 #[cfg(any(test, feature = "real-browser"))]
 use serde_json::Value;
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 pub const ENCRYPTION_VERSION: i32 = 1;
 #[cfg(any(test, feature = "real-browser"))]
 const NONCE_LEN: usize = 12;
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 pub fn encrypt_json(state: &Value) -> Result<Vec<u8>> {
     let key = key_from_env()?;
     encrypt_json_with_key(state, &key)
@@ -79,7 +79,7 @@ fn decrypt_json_with_key(ciphertext: &[u8], key: &[u8; 32]) -> Result<Value> {
     serde_json::from_slice(plaintext).context("parse decrypted storage state")
 }
 
-#[cfg(any(test, feature = "real-browser"))]
+#[cfg(feature = "real-browser")]
 fn key_from_env() -> Result<[u8; 32]> {
     let encoded = env::var("HIREMEOPS_SESSION_ENCRYPTION_KEY")
         .ok()
