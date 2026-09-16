@@ -350,12 +350,16 @@ async function openCloudBrowser(context) {
   context.record("browser-open");
 }
 
-async function probeLogins(context) {
+async function probeLogins(context, platform) {
   const reply = await context.worker.rpc({
     cmd: "check_logins",
     user_data_dir: context.tempProfile,
     reuse_page: true,
+    sites: platform ? [platform] : undefined,
   });
+  if (reply.platform_errors) {
+    process.stderr.write(`[cloud-auth] ${JSON.stringify(reply.platform_errors)}\n`);
+  }
   return platformStatuses(reply);
 }
 
@@ -377,7 +381,7 @@ async function executeCloudRun(context) {
     storageState: state,
   });
   const platform = context.row.query_plan?.platform;
-  const initialStatuses = await probeLogins(context);
+  const initialStatuses = await probeLogins(context, platform);
   await assertAndRecordTarget(pool, context.row, initialStatuses, platform);
   context.record("post-navigation");
   const result = await context.worker.rpc(
@@ -385,7 +389,7 @@ async function executeCloudRun(context) {
   );
   context.record("scraping-peak");
   await persistResults(pool, context.row, result, platform ?? "unknown");
-  const finalStatuses = await probeLogins(context);
+  const finalStatuses = await probeLogins(context, platform);
   await assertAndRecordTarget(pool, context.row, finalStatuses, platform);
   const refreshed = await context.worker.rpc({
     cmd: "export_storage_state",
@@ -413,7 +417,7 @@ function cloudErrorCode(error) {
 
 async function refreshInvalidStatus(context) {
   if (!context.row || !context.worker || !context.handle) return;
-  const statuses = await probeLogins(context);
+  const statuses = await probeLogins(context, context.row.query_plan?.platform);
   const target = targetStatus(statuses, context.row.query_plan?.platform);
   if (target === "valid") return;
   await persistInvalidSessionStatus(context.pool, context.row, target, statuses).catch(() => {});
