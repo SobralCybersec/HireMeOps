@@ -12,6 +12,7 @@ export default tseslint.config(
       'dist',
       'coverage',
       'reports',
+      '.stryker-tmp',
       'src-tauri/target',
       'node_modules',
       'frontendishere',

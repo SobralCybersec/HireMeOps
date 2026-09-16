@@ -11,6 +11,7 @@ const DISCOVERY_IGNORES = new Set([
   ".cache",
   ".venv",
   ".quality-venv",
+  ".stryker-tmp",
   "node_modules",
   "vendor",
   "third_party",

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "index.html",
+    "settings.html",
+    "src/main.tsx",
+    "src/settings/main.tsx",
+    "automation/worker.js",
+    "automation/cloud-runner.mjs",
+    "automation/cloud-viewport-benchmark.mjs",
+    "automation/cloud-performance-benchmark.mjs",
+    "automation/cloud/cloud-dispatch.mjs",
+    "scripts/**/*.mjs",
+    "agent/tests/*.ts",
+    "src-tauri/resources/playwright-bridge/index.mjs",
+  ],
+  "project": ["src/**/*.{ts,tsx}", "automation/**/*.{js,mjs}", "agent/**/*.ts", "scripts/**/*.mjs"],
+  "ignore": [
+    "automation/dev/**",
+    "automation/tests/**",
+    ".stryker-tmp/**",
+    "reports/**",
+    "src-tauri/resources/playwright-bridge/**",
+  ],
+  "ignoreBinaries": ["Xvfb"],
+  "ignoreDependencies": ["pg"],
+}

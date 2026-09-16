@@ -17,7 +17,7 @@ A local-first job-search automation cockpit. One desktop app scrapes nine Brazil
  Demo | Command Center
 </h1>
 
-```
+```text
  HireMeOps v0.1.0                                        profile: matheus · variant: Backend Sr.
 
  ──────────────────────────────────────────────────────────────────────────
@@ -127,27 +127,27 @@ Every action the cockpit performs replaces one you'd otherwise do by hand. The n
 
 HireMeOps treats the job hunt like a running operation, not a one-off task. The design goals it's built against:
 
-- Olhar para o negócio.
-- Medir o desempenho da área.
-- Alocar custos.
-- Manter níveis de serviço interno.
-- Reduzir custo.
-- Otimizar estrutura.
-- Ser ágil.
-- Inovar nas soluções propostas.
-- Fazer previsões acuradas.
-- Não focar em "commodities".
-- Gerar informação correta.
-- Manter um Business Intelligence.
-- Focar em ações de valor.
-- Manter os processos críticos.
-- Manter o ambiente seguro.
-- Manter 24 x 7 x 365 toda a infraestrutura.
-- Modelo reutilizável.
-- Conquistar o pessoal do negócio.
-- Ser mais eficiente, ser mais eficaz.
-- Padronizar processos.
-- Automatizar tarefas dos usuários.
+* Olhar para o negócio.
+* Medir o desempenho da área.
+* Alocar custos.
+* Manter níveis de serviço interno.
+* Reduzir custo.
+* Otimizar estrutura.
+* Ser ágil.
+* Inovar nas soluções propostas.
+* Fazer previsões acuradas.
+* Não focar em "commodities".
+* Gerar informação correta.
+* Manter um Business Intelligence.
+* Focar em ações de valor.
+* Manter os processos críticos.
+* Manter o ambiente seguro.
+* Manter 24 x 7 x 365 toda a infraestrutura.
+* Modelo reutilizável.
+* Conquistar o pessoal do negócio.
+* Ser mais eficiente, ser mais eficaz.
+* Padronizar processos.
+* Automatizar tarefas dos usuários.
 
 ---
 
@@ -186,16 +186,18 @@ bun install
 
 ### Requirements
 
-- **Rust** (stable) + Cargo
-- **Bun** 1.3.11+ for root tasks and dependencies
-- **Node** 20+ only for the Patchright automation boundary and Node test scripts
-- **Linux system deps** (Tauri v2 / WebKitGTK):
+* **Rust** (stable) + Cargo
+* **Bun** 1.3.11+ for root tasks and dependencies
+* **Node** 20+ only for the Patchright automation boundary and Node test scripts
+* **Linux system deps** (Tauri v2 / WebKitGTK):
+
   ```bash
   # Debian/Ubuntu
   sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
     libayatana-appindicator3-dev librsvg2-dev
   ```
-- A logged-in browser session per job site (done once via Universal Login)
+
+* A logged-in browser session per job site (done once via Universal Login)
 
 ### Run (development)
 
@@ -482,7 +484,6 @@ flowchart LR
 ```
 
 > The **lean clippy pass is deliberate**: it guarantees the default (no-`real-browser`) build stays warning-clean, catching any missing `#[cfg(feature = "real-browser")]` gate before it reaches a contributor.
-
 > **Supply-chain posture (2026):** every action is SHA-pinned (not a moving tag), top-level `permissions: contents: read` with per-job elevation, `gitleaks` v3 (v2's Node 20 runtime is removed from runners in Sept 2026), and `trivy-action` pinned to a post-incident SHA after the March 2026 tag-hijack. Dependabot bumps the pins — and their `# vX` comments — weekly.
 
 ---
@@ -547,17 +548,19 @@ mindmap
 </h1>
 
 ### Out of Scope
-- **No paid captcha solvers**: keyless local auto-pass only; default behaviour is to pause for a human
-- **No cloud / no accounts**: everything is local-first; there is no HireMeOps server
-- **View-only sources**: Upwork + 99freelas are scraped for discovery, not auto-applied
-- **AI**: the browser-driven ChatGPT path needs a real logged-in session; there is no headless model shipped
+
+* **No paid captcha solvers**: keyless local auto-pass only; default behaviour is to pause for a human
+* **No cloud / no accounts**: everything is local-first; there is no HireMeOps server
+* **View-only sources**: Upwork + 99freelas are scraped for discovery, not auto-applied
+* **AI**: the browser-driven ChatGPT path needs a real logged-in session; there is no headless model shipped
 
 ### Notes & Guarantees
-- **Cookies never leave the machine** — a per-profile Chromium jar under the app data dir
-- **Windows stay visible, never steal focus** — you can watch a run without it grabbing your desktop
-- **Failure is debuggable** — screenshot + DOM + network bundle auto-saved to `automation/captures/`
-- **Rate discipline** — coherence over spoofing; humanized input + pacing (see `docs/AUTOMATION_UPGRADE_PLAN.md`)
-- **Lean build stays green** — CI lints the no-`real-browser` build separately
+
+* **Cookies never leave the machine** — a per-profile Chromium jar under the app data dir
+* **Windows stay visible, never steal focus** — you can watch a run without it grabbing your desktop
+* **Failure is debuggable** — screenshot + DOM + network bundle auto-saved to `automation/captures/`
+* **Rate discipline** — coherence over spoofing; humanized input + pacing (see `docs/AUTOMATION_UPGRADE_PLAN.md`)
+* **Lean build stays green** — CI lints the no-`real-browser` build separately
 
 ---
 
@@ -639,7 +642,7 @@ mindmap
 
 <h2 align="center">
 
-**Indeed rate limiting**: [docs.indeed.com](https://docs.indeed.com/getstarted/rate-limiting) · **Gupy API ref**: [apify — gupy-vagas-brasil](https://apify.com/pmodinger/gupy-vagas-brasil/api/openapi) <img src="https://go-skill-icons.vercel.app/api/icons?i=nodejs&size=32" width="40" />
+**Indeed documentation**: [docs.indeed.com](https://docs.indeed.com/) <img src="https://go-skill-icons.vercel.app/api/icons?i=nodejs&size=32" width="40" />
 
 </h2>
 

@@ -162,12 +162,44 @@ The image contains Node, Patchright, `chromium-headless-shell`, fonts and
 It excludes Tauri, frontend, AI/MCP dependencies and Xvfb. Chromium is
 headless in cloud and uses `--disable-dev-shm-usage` from the shared launch
 configuration. The cloud-only launch profile caps renderer fan-out at one and
-uses a 1024x768 window to protect the memory budget; local launch dimensions
+uses an 800x600 window to protect the memory budget; local launch dimensions
 remain unchanged.
 
 The Tauri trigger uses Northflank's documented
 `POST /v1/projects/{projectId}/jobs/{jobId}/runs` endpoint and sends only
 `runtimeEnvironment.HIREMEOPS_RUN_ID`.
+
+## Local benchmark commands
+
+Build the same image used by the Manual Job, then run synthetic workloads under
+the Northflank-equivalent resource limits:
+
+```bash
+bun run build:docker:cloud
+bun run benchmark:cloud-viewport -- --image hiremeops-cloud-worker:latest
+bun run benchmark:cloud-performance -- --image hiremeops-cloud-worker:latest --viewport 800x600
+```
+
+The viewport matrix keeps `1024x768`, `900x675` and `800x600` fixed and covers
+the current cloud allowlist: LinkedIn, LinkedIn posts, Google, Indeed, Gupy,
+Catho, InfoJobs, Upwork, 99freelas, Programathor and GeekHunter. Each row
+contains duration, exit code, cgroup peak/current maximum, Node/Chromium PSS,
+process count, result count, field validation, pagination, timeout/OOM and
+responsive-layout observation.
+
+The repeated performance benchmark runs five sequential navigations by default
+and records startup, browser-open, post-navigation, scraping, state-export and
+shutdown checkpoints. Override iteration count or viewport for an isolated A/B
+run:
+
+```bash
+bun run benchmark:cloud-performance -- --iterations 5 --viewport 900x675
+```
+
+Read human tables in `reports/quality/viewport-benchmark.md` and
+`reports/quality/cloud-performance.md`; use the matching JSON files for CI or
+comparison scripts. Synthetic fixtures validate lifecycle and selectors only;
+they do not replace manual authenticated portal validation.
 
 ## Failure behavior
 

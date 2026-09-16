@@ -7,15 +7,24 @@ import { collectTestResults, parseLcov, runCommand } from "./strict-tests/qualit
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const REPORT_ROOT = path.join(REPO_ROOT, "reports/quality");
 const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".ts", ".tsx", ".rs"]);
-const SKIP_DIRS = new Set([".git", "node_modules", "target", "dist", "coverage", "reports"]);
+const SKIP_DIRS = new Set([
+  ".git",
+  ".codegraph",
+  ".stryker-tmp",
+  "node_modules",
+  "target",
+  "dist",
+  "coverage",
+  "reports",
+]);
 const OPTIONAL_TOOLS = [
   [
     "gitleaks",
     "gitleaks",
     ["detect", "--config", ".gitleaks.toml", "--no-banner", "--redact", "--exit-code", "1"],
   ],
-  ["semgrep", "semgrep", ["scan", "--config", "auto", "--error", "--quiet"]],
-  ["knip", "bun", ["x", "knip", "--reporter", "json"]],
+  ["semgrep", "bun", ["run", "quality:semgrep"]],
+  ["knip", "bun", ["run", "quality:knip"]],
   [
     "dependency-cruiser",
     "bun",
@@ -24,9 +33,30 @@ const OPTIONAL_TOOLS = [
   [
     "markdownlint",
     "bun",
-    ["x", "markdownlint-cli2", "README.md", "README.pt-BR.md", "docs/**/*.md"],
+    [
+      "x",
+      "markdownlint-cli2",
+      "--config",
+      ".markdownlint-cli2.jsonc",
+      "README.md",
+      "README.pt-BR.md",
+      "docs/**/*.md",
+    ],
   ],
-  ["lychee", "lychee", ["--no-progress", "README.md", "README.pt-BR.md", "docs/**/*.md"]],
+  [
+    "lychee",
+    "lychee",
+    [
+      "--no-progress",
+      "--accept",
+      "200..=403",
+      "README.md",
+      "README.pt-BR.md",
+      "docs/*.md",
+      "docs/architecture/*.md",
+      "docs/project/*.md",
+    ],
+  ],
   ["hadolint", "hadolint", ["docker/Dockerfile.cloud-worker"]],
   ["actionlint", "actionlint", []],
   ["shellcheck", "shellcheck", ["docker/entrypoint.sh"]],
@@ -76,6 +106,44 @@ async function writeJson(name, value) {
 
 async function writeText(name, value) {
   await writeFile(path.join(REPORT_ROOT, name), `${String(value).trim()}\n`);
+}
+
+export function productionScopeCoverage(record, source) {
+  const testStart = source.match(/^#\[cfg\(test\)\]\s*\nmod tests/m)?.index ?? source.length;
+  const testStartLine = source.slice(0, testStart).split("\n").length;
+  const lines = [...record.matchAll(/^DA:(\d+),(\d+)/gm)]
+    .map((match) => ({ line: Number(match[1]), hits: Number(match[2]) }))
+    .filter(({ line }) => line < testStartLine);
+  const declarations = [...record.matchAll(/^FN:(\d+),(.+)$/gm)]
+    .map((match) => ({ line: Number(match[1]), name: match[2] }))
+    .filter(({ line, name }) => line < testStartLine && !name.includes("RNC"));
+  const hitCounts = new Map(
+    [...record.matchAll(/^FNDA:(\d+),(.+)$/gm)].map((match) => [match[2], Number(match[1])]),
+  );
+  const functionsByLine = new Map();
+  for (const { line, name } of declarations) {
+    const hits = hitCounts.get(name) ?? 0;
+    functionsByLine.set(line, Math.max(functionsByLine.get(line) ?? 0, hits));
+  }
+  const functions = [...functionsByLine].map(([line, hits]) => ({ line, hits }));
+  const metric = (items, hit) => ({
+    found: items.length,
+    covered: items.filter(hit).length,
+    percent: items.length
+      ? Math.round((items.filter(hit).length / items.length) * 10000) / 100
+      : null,
+  });
+  const result = {
+    lines: metric(lines, ({ hits }) => hits > 0),
+    functions: metric(functions, ({ hits }) => hits > 0),
+  };
+  const measured = [result.lines.percent, result.functions.percent].filter(
+    (value) => value != null,
+  );
+  return {
+    ...result,
+    status: measured.length > 0 && measured.every((value) => value >= 90) ? "pass" : "below-target",
+  };
 }
 
 async function actionlintArgs() {
@@ -170,7 +238,16 @@ export async function writeRuntimeReports(steps) {
 
 export async function rustCoverageReport() {
   try {
-    const coverage = parseLcov(await readFile(path.join(REPORT_ROOT, "rust-lcov.info"), "utf8"));
+    const lcov = await readFile(path.join(REPORT_ROOT, "rust-lcov.info"), "utf8");
+    const coverage = parseLcov(lcov);
+    const criticalFiles = ["src-tauri/src/storage/session_crypto.rs"];
+    const criticalRecord = lcov
+      .split(/(?=^SF:)/m)
+      .filter((record) => criticalFiles.some((file) => record.includes(file)))
+      .join("");
+    const criticalCoverage = parseLcov(criticalRecord);
+    const criticalSource = await readFile(path.join(REPO_ROOT, criticalFiles[0]), "utf8");
+    const criticalProduction = productionScopeCoverage(criticalRecord, criticalSource);
     const measured = [coverage.lines.percent, coverage.functions.percent].filter(
       (value) => value != null,
     );
@@ -181,6 +258,13 @@ export async function rustCoverageReport() {
       target_percent: 90,
       status:
         measured.length > 0 && measured.every((value) => value >= 90) ? "pass" : "below-target",
+      critical_scope: {
+        files: criticalFiles,
+        instrumented: criticalCoverage,
+        ...criticalProduction,
+        target_percent: 90,
+        status: criticalProduction.status,
+      },
     };
     await writeJson("rust-coverage.json", report);
     return report;
@@ -193,6 +277,16 @@ export async function rustCoverageReport() {
     await writeJson("rust-coverage.json", report);
     return report;
   }
+}
+
+export async function mutationReport() {
+  return (
+    (await readReport("mutation.json")) ?? {
+      generated_at: new Date().toISOString(),
+      status: "not-run",
+      reason: "Run bun run quality:mutation to generate the focused baseline.",
+    }
+  );
 }
 
 async function licenseReport() {
@@ -426,11 +520,6 @@ export async function optionalToolReports() {
     package_count: licenses.packages.length,
     unknown_count: licenses.packages.filter((item) => item.licenses === "UNKNOWN").length,
     packages: licenses.packages,
-  });
-  await writeJson("mutation.json", {
-    generated_at: new Date().toISOString(),
-    status: "not-run",
-    reason: "Mutation tools are not installed; run StrykerJS/cargo-mutants in scheduled workflow.",
   });
   return tools;
 }

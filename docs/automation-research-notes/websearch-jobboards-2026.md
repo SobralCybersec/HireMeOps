@@ -54,7 +54,6 @@ Indeed's posture "has loosened and tightened repeatedly over the years" — trea
 Sources:
 - https://webscraping.ai/blog/how-to-scrape-indeed (2026-07-28)
 - https://blog.loopcv.pro/indeed-auto-apply-bot/ (2026-07-16)
-- https://docs.indeed.com/getstarted/rate-limiting (Indeed Partner/PLUS API — partner-only, not applicable to session automation)
 
 ---
 
@@ -86,7 +85,6 @@ What the general 2026 sources indicate:
 
 Sources:
 - https://tendem.ai/blog/how-anti-bot-systems-work-scrape-anyway (2026)
-- https://apify.com/pmodinger/gupy-vagas-brasil/api/openapi (2026, third-party listing scraper)
 - https://www.scrapingbee.com/blog/web-scraping-without-getting-blocked/ (2026)
 
 ---
@@ -107,7 +105,6 @@ Cross-board principles from 2026 sources:
 Sources:
 - https://www.linkedhelper.com/blog/linkedin-automation-limits/ (2026-06-03)
 - https://phantombuster.com/blog/social-selling/linkedin-limits-2025-safe-automation-strategies/ (2026)
-- https://roboticsandautomationnews.com/2026/04/07/ai-driven-brute-force-why-traditional-rate-limiting-is-dead-in-2026/ (2026-04-07)
 
 ---
 

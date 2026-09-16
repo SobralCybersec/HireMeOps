@@ -49,6 +49,7 @@ Playwright wins if: you need cross-browser (Firefox/WebKit), or the team is JS-p
 applies here.
 
 **Sources:**
+
 - [chromiumoxide — crates.io](https://crates.io/crates/chromiumoxide)
 - [spider_chrome — crates.io](https://crates.io/crates/spider_chrome)
 - [spider-rs/chromey — GitHub](https://github.com/spider-rs/spider_chrome)
@@ -96,7 +97,7 @@ Page::start_screencast(StartScreencastParams {
 Use **Tauri Channels** (not the general event bus) for frame streaming — Channels are designed
 for high-frequency binary payloads and bypass JSON serde overhead for the body.
 
-```
+```text
 CDP WS listener (tokio task)
   └─ Page.screencastFrame event
        └─ Page.screencastFrameAck (acknowledge immediately after recv)
@@ -114,6 +115,7 @@ the Tauri IPC bridge — acceptable. If it lags on slow hardware, drop to `every
 (~7 fps) and only restore speed when the user opens the preview panel.
 
 **Sources:**
+
 - [CDP Page.startScreencast spec](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast)
 - [Tauri — Calling the Frontend from Rust (Channels)](https://v2.tauri.app/develop/calling-frontend/)
 
@@ -163,6 +165,7 @@ If HireMeOps ships a companion extension (e.g. for session bridging or page anno
 be MV3. Service worker lifecycle: the browser may suspend it; design it stateless and event-driven.
 
 **Sources:**
+
 - [Playwright MV3 extension guide 2026](https://qaskills.sh/blog/playwright-chrome-extension-testing-manifest-v3-2026)
 - [Chrome MV3 migration](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
 - [Headless Chrome — extensions note](https://developer.chrome.com/blog/headless-chrome)
@@ -177,7 +180,7 @@ The safe, practical approach is **persistent user-data-dir per profile**. The us
 manually (in the HireMeOps-controlled Chromium window), and the session cookies + local storage
 survive across runs in that directory. No credential storage in the app; no automated login form.
 
-```
+```text
 SessionSpec.user_data_dir → e.g. ~/.local/share/hiremeops/profiles/<profile_id>/chrome-data/
 ```
 
@@ -200,6 +203,7 @@ LinkedIn's bot detection is **behavioural and longitudinal**, not purely fingerp
 ### Non-negotiable constraints (already in spec)
 
 HireMeOps **never**:
+
 - Solves or bypasses CAPTCHAs or anti-bot walls → if one appears, emit `AutomationStopped` and
   surface it to the user. The task re-queues; the user handles it.
 - Auto-submits applications → every submit requires an explicit human confirmation step
@@ -263,6 +267,7 @@ let chrome_args = vec![
 - For CI or xvfb-run contexts (extension testing): add `--no-sandbox` and `--disable-dev-shm-usage`.
 
 **Sources:**
+
 - [Chromium Ozone overview](https://chromium.googlesource.com/chromium/src/+/lkgr/docs/ozone_overview.md)
 - [Arch Linux Chromium Wayland thread](https://bbs.archlinux.org/viewtopic.php?id=294895)
 - [Chromium Wayland 2025 — Phoronix](https://www.phoronix.com/news/Chromium-Ozone-Wayland-2025)
@@ -276,7 +281,7 @@ let chrome_args = vec![
 The existing trait (from `domain/automation.rs`) is already the right shape. Phase 5 adds one
 concrete implementation alongside the existing `MockDriver`:
 
-```
+```text
 src-tauri/src/domain/automation.rs   ← BrowserDriver trait (unchanged)
 src-tauri/src/browser/              ← NEW module (Phase 5)
   mod.rs
@@ -286,6 +291,7 @@ src-tauri/src/browser/              ← NEW module (Phase 5)
 ```
 
 **`ChromeDriver`** holds:
+
 - `browser: Arc<Browser>` (spider_chrome)
 - `pages: DashMap<String, Arc<Page>>` (handle → page, handle is a UUID)
 - `app_handle: AppHandle` (for screencast emit)

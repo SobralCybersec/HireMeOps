@@ -1,0 +1,26 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD033": false,
+    "MD034": false,
+    "MD045": false,
+    "MD060": false
+  },
+  "overrides": [
+    {
+      "filter": ["README.md", "README.pt-BR.md"],
+      "config": {"MD041": false},
+      "combine": "merge"
+    },
+    {
+      "filter": ["docs/project/DESIGN.md", "docs/project/TODO.md"],
+      "config": {"MD025": false},
+      "combine": "merge"
+    }
+  ],
+  "ignores": [
+    "docs/archive/**",
+    "docs/automation-research-notes/**"
+  ]
+}

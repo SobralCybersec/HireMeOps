@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   architectureReport,
   flakyReport,
+  mutationReport,
   optionalToolReports,
   runStep,
   rustCoverageReport,
@@ -100,11 +101,26 @@ function reviewViolations(strictSummary) {
   ];
 }
 
-function buildViolations(steps, reports, strictSummary) {
+function buildViolations(steps, reports, strictSummary, rustCoverage = null) {
   const testViolations = reports.testQuality.only_tests.length
     ? [{ severity: "error", source: "test-quality", message: ".only test marker found" }]
     : [];
-  return [...steps.flatMap(stepViolations), ...reviewViolations(strictSummary), ...testViolations];
+  const rustViolations =
+    rustCoverage?.status === "below-target"
+      ? [
+          {
+            severity: "warning",
+            source: "rust-coverage",
+            message: `full workspace coverage below 90% (${rustCoverage.lines?.percent ?? "n/a"}% lines, ${rustCoverage.functions?.percent ?? "n/a"}% functions)`,
+          },
+        ]
+      : [];
+  return [
+    ...steps.flatMap(stepViolations),
+    ...reviewViolations(strictSummary),
+    ...testViolations,
+    ...rustViolations,
+  ];
 }
 
 function markdownSummary(summary) {
@@ -114,11 +130,19 @@ function markdownSummary(summary) {
     ["Statements coverage", coverage.statements_percent, ">=90%"],
     ["Branches coverage", coverage.branches_percent, ">=90%"],
     ["Functions coverage", coverage.functions_percent, ">=90%"],
+    ["Rust lines coverage", summary.rust_coverage?.lines?.percent, ">=90% full workspace"],
+    ["Rust functions coverage", summary.rust_coverage?.functions?.percent, ">=90% full workspace"],
+    [
+      "Rust critical production scope",
+      summary.rust_coverage?.critical_scope?.status,
+      ">=90% lines/functions",
+    ],
     ["Duplication", summary.duplication_percent, "<=3% target"],
     ["Complexity", summary.complexity_status, "reviewed"],
     ["Test failures", summary.tests?.failures ?? null, "0"],
     ["Architecture violations", summary.architecture_violations, "0"],
     ["Chromium leaks", summary.chromium_leaks, "0"],
+    ["Mutation baseline", summary.mutation?.javascript?.mutation_score_percent, "informational"],
   ];
   return [
     "# Unified quality summary",
@@ -144,7 +168,8 @@ async function reportOnly(options) {
   const debt = await technicalDebtReport();
   const runtime = await writeRuntimeReports([]);
   const rustCoverage = await rustCoverageReport();
-  const violations = buildViolations([], { testQuality }, strictSummary);
+  const mutation = await mutationReport();
+  const violations = buildViolations([], { testQuality }, strictSummary, rustCoverage);
   return finalizeSummary({
     options,
     steps: [],
@@ -153,6 +178,7 @@ async function reportOnly(options) {
     architecture,
     debt,
     rustCoverage,
+    mutation,
     runtime,
     violations,
   });
@@ -179,6 +205,7 @@ function buildSummary(context, counts) {
     debt,
     runtime = null,
     violations,
+    mutation,
   } = context;
   return {
     generated_at: new Date().toISOString(),
@@ -186,6 +213,7 @@ function buildSummary(context, counts) {
     overall: counts.errors || (options.strict && counts.warnings) ? "fail" : "pass",
     coverage: strictSummary.coverage ?? {},
     rust_coverage: context.rustCoverage ?? { available: false, status: "not-measured" },
+    mutation: mutation ?? { status: "not-run" },
     duplication_percent: strictSummary.jscpd?.duplication_percent ?? null,
     complexity_status: strictSummary.lizard?.hard_findings ? "findings" : "pass",
     tests: testQuality.junit,
@@ -272,19 +300,24 @@ async function runFull(options) {
     await add("cloud-viewport-benchmark", "bun", ["run", "benchmark:cloud-viewport"]);
     await add("cloud-performance-benchmark", "bun", ["run", "benchmark:cloud-performance"]);
   }
+  if (process.env.QUALITY_RUN_MUTATION === "1") {
+    await add("mutation", "bun", ["run", "quality:mutation"]);
+  }
   const flaky = await flakyReport(options.flakyRuns);
   const tools = await optionalToolReports();
   const testQuality = await testQualityReport();
   const architecture = await architectureReport();
   const debt = await technicalDebtReport();
   const reports = { testQuality };
+  const rustCoverage = await rustCoverageReport();
   const violations = buildViolations(
     [...steps, ...flaky.results, ...tools],
     reports,
     strictSummary,
+    rustCoverage,
   );
   const runtime = await writeRuntimeReports(steps);
-  const rustCoverage = await rustCoverageReport();
+  const mutation = await mutationReport();
   const summary = await finalizeSummary({
     options,
     steps,
@@ -293,6 +326,7 @@ async function runFull(options) {
     architecture,
     debt,
     rustCoverage,
+    mutation,
     runtime,
     violations,
   });

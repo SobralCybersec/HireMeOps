@@ -14,12 +14,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      chromium-headless-shell \
-      ca-certificates \
-      dumb-init \
-      fonts-liberation \
-      fonts-noto-core \
-      fonts-noto-color-emoji \
+      chromium-headless-shell=152.0.7977.82-1~deb12u1 \
+      ca-certificates=20250419~deb12u1 \
+      dumb-init=1.2.5-2 \
+      fonts-liberation=1:1.07.4-11 \
+      fonts-noto-core=20201225-1 \
+      fonts-noto-color-emoji=2.042-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/automation
@@ -29,5 +29,5 @@ RUN npm ci --omit=dev --no-audit --no-fund
 COPY automation/ ./
 RUN chown -R node:node /app
 
-USER node
+USER 1000
 ENTRYPOINT ["dumb-init", "--", "node", "--max-old-space-size=96", "cloud-runner.mjs"]

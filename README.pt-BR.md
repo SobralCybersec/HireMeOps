@@ -17,7 +17,7 @@ Um cockpit local-first de automação de busca de vagas. Um único app desktop f
  Demo | Command Center
 </h1>
 
-```
+```text
  HireMeOps v0.1.0                                        profile: matheus · variant: Backend Sr.
 
  ──────────────────────────────────────────────────────────────────────────
@@ -127,27 +127,27 @@ Cada ação que o cockpit executa substitui uma que você faria à mão. Os núm
 
 O HireMeOps trata a busca de emprego como uma operação em andamento, não como uma tarefa avulsa. Os objetivos de design contra os quais ele foi construído:
 
-- Olhar para o negócio.
-- Medir o desempenho da área.
-- Alocar custos.
-- Manter níveis de serviço interno.
-- Reduzir custo.
-- Otimizar estrutura.
-- Ser ágil.
-- Inovar nas soluções propostas.
-- Fazer previsões acuradas.
-- Não focar em "commodities".
-- Gerar informação correta.
-- Manter um Business Intelligence.
-- Focar em ações de valor.
-- Manter os processos críticos.
-- Manter o ambiente seguro.
-- Manter 24 x 7 x 365 toda a infraestrutura.
-- Modelo reutilizável.
-- Conquistar o pessoal do negócio.
-- Ser mais eficiente, ser mais eficaz.
-- Padronizar processos.
-- Automatizar tarefas dos usuários.
+* Olhar para o negócio.
+* Medir o desempenho da área.
+* Alocar custos.
+* Manter níveis de serviço interno.
+* Reduzir custo.
+* Otimizar estrutura.
+* Ser ágil.
+* Inovar nas soluções propostas.
+* Fazer previsões acuradas.
+* Não focar em "commodities".
+* Gerar informação correta.
+* Manter um Business Intelligence.
+* Focar em ações de valor.
+* Manter os processos críticos.
+* Manter o ambiente seguro.
+* Manter 24 x 7 x 365 toda a infraestrutura.
+* Modelo reutilizável.
+* Conquistar o pessoal do negócio.
+* Ser mais eficiente, ser mais eficaz.
+* Padronizar processos.
+* Automatizar tarefas dos usuários.
 
 ---
 
@@ -186,16 +186,18 @@ bun install
 
 ### Requisitos
 
-- **Rust** (stable) + Cargo
-- **Bun** 1.3.11+ para tarefas e dependências do root
-- **Node** 20+ somente para o boundary de automação Patchright e scripts de teste Node
-- **Dependências de sistema no Linux** (Tauri v2 / WebKitGTK):
+* **Rust** (stable) + Cargo
+* **Bun** 1.3.11+ para tarefas e dependências do root
+* **Node** 20+ somente para o boundary de automação Patchright e scripts de teste Node
+* **Dependências de sistema no Linux** (Tauri v2 / WebKitGTK):
+
   ```bash
   # Debian/Ubuntu
   sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
     libayatana-appindicator3-dev librsvg2-dev
   ```
-- Uma sessão de navegador logada por site de vagas (feita uma vez via Login Universal)
+
+* Uma sessão de navegador logada por site de vagas (feita uma vez via Login Universal)
 
 ### Rodar (desenvolvimento)
 
@@ -474,7 +476,6 @@ flowchart LR
 ```
 
 > A **passada lean do clippy é deliberada**: ela garante que o build padrão (sem `real-browser`) fique livre de warnings, pegando qualquer gate `#[cfg(feature = "real-browser")]` faltando antes de chegar num contribuidor.
-
 > **Postura de supply-chain (2026):** todo action é fixado por SHA (não uma tag móvel), `permissions: contents: read` no topo com elevação por job, `gitleaks` v3 (o runtime Node 20 da v2 sai dos runners em set/2026) e `trivy-action` fixado num SHA pós-incidente após o sequestro de tags de março/2026. O Dependabot atualiza os pins — e seus comentários `# vX` — semanalmente.
 
 ---
@@ -539,17 +540,19 @@ mindmap
 </h1>
 
 ### Fora de Escopo
-- **Sem solvers de captcha pagos**: apenas auto-resolução local sem chave; o comportamento padrão é pausar para um humano
-- **Sem nuvem / sem contas**: tudo é local-first; não existe servidor HireMeOps
-- **Fontes somente leitura**: Upwork + 99freelas são raspados para descoberta, não para candidatura automática
-- **IA**: o caminho de ChatGPT via navegador precisa de uma sessão real logada; não há modelo headless embarcado
+
+* **Sem solvers de captcha pagos**: apenas auto-resolução local sem chave; o comportamento padrão é pausar para um humano
+* **Sem nuvem / sem contas**: tudo é local-first; não existe servidor HireMeOps
+* **Fontes somente leitura**: Upwork + 99freelas são raspados para descoberta, não para candidatura automática
+* **IA**: o caminho de ChatGPT via navegador precisa de uma sessão real logada; não há modelo headless embarcado
 
 ### Observações & Garantias
-- **Cookies nunca saem da máquina** — um jar Chromium por perfil dentro do diretório de dados do app
-- **Janelas ficam visíveis, nunca roubam o foco** — você acompanha uma execução sem ela sequestrar o seu desktop
-- **Falha é depurável** — pacote de screenshot + DOM + rede salvo automaticamente em `automation/captures/`
-- **Disciplina de rate** — coerência acima de spoofing; input humanizado + cadência (veja `docs/AUTOMATION_UPGRADE_PLAN.md`)
-- **Build enxuto continua verde** — o CI faz lint do build sem `real-browser` separadamente
+
+* **Cookies nunca saem da máquina** — um jar Chromium por perfil dentro do diretório de dados do app
+* **Janelas ficam visíveis, nunca roubam o foco** — você acompanha uma execução sem ela sequestrar o seu desktop
+* **Falha é depurável** — pacote de screenshot + DOM + rede salvo automaticamente em `automation/captures/`
+* **Disciplina de rate** — coerência acima de spoofing; input humanizado + cadência (veja `docs/AUTOMATION_UPGRADE_PLAN.md`)
+* **Build enxuto continua verde** — o CI faz lint do build sem `real-browser` separadamente
 
 ---
 
@@ -631,7 +634,7 @@ mindmap
 
 <h2 align="center">
 
-**Rate limiting do Indeed**: [docs.indeed.com](https://docs.indeed.com/getstarted/rate-limiting) · **Referência da API da Gupy**: [apify — gupy-vagas-brasil](https://apify.com/pmodinger/gupy-vagas-brasil/api/openapi) <img src="https://go-skill-icons.vercel.app/api/icons?i=nodejs&size=32" width="40" />
+**Documentação do Indeed**: [docs.indeed.com](https://docs.indeed.com/) <img src="https://go-skill-icons.vercel.app/api/icons?i=nodejs&size=32" width="40" />
 
 </h2>
 

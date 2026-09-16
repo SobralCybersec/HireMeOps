@@ -1,3 +1,5 @@
+# TODO
+
 Current: HireMeOps / gargalos concretos identificados / atacar N+1, índices compostos, contenção SQLite e payload antes de microtuning
 
 Sim. Fui além dos logs e conferi o código atual. Há otimizações de nível sênior bem mais relevantes do que simplesmente “colocar Full-Text Search”.
@@ -665,7 +667,7 @@ Isso reduz banco, Rust, serde, IPC e React ao mesmo tempo.
 
 ---
 
-# 13. Seu FTS usa prefix search em absolutamente todos os termos
+## 13. Seu FTS usa prefix search em absolutamente todos os termos
 
 A função atual transforma termos em algo equivalente a:
 
@@ -989,7 +991,7 @@ WHERE j.profile_id = ?1
 
 ---
 
-# 22. Seu build release está otimizado para **tamanho**, não velocidade
+## 22. Seu build release está otimizado para **tamanho**, não velocidade
 
 Achei isto:
 
@@ -1037,7 +1039,7 @@ Isso pode ajudar scoring, JSON parsing, dedupe, matching e processamento Rust. N
 
 ---
 
-# 23. Evolução de schema para escala grande
+## 23. Evolução de schema para escala grande
 
 O schema foi projetado com **IDs UUID em `TEXT` e timestamps ISO-8601 em `TEXT`**.
 
@@ -1081,7 +1083,7 @@ Eu **não migraria agora** só por isso. N+1, query shape e contention são muit
 
 ---
 
-# 24. `WITHOUT ROWID` é interessante, mas não no `job_posts` sem análise
+## 24. `WITHOUT ROWID` é interessante, mas não no `job_posts` sem análise
 
 SQLite suporta `WITHOUT ROWID`, que pode reduzir espaço e processamento quando a PK natural faz sentido. ([SQLite][13])
 
@@ -1107,7 +1109,7 @@ Então não faria uma conversão indiscriminada.
 
 ---
 
-# Arquitetura alvo
+## Arquitetura alvo
 
 Eu visaria isto:
 

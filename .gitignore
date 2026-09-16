@@ -24,6 +24,9 @@ coverage/
 reports/junit.xml
 reports/coverage/
 reports/tests/
+reports/mutation/
+.stryker-tmp/
+src-tauri/mutants.out/
 
 # Editor directories and files
 .vscode/*

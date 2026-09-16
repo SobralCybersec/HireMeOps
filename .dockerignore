@@ -17,11 +17,14 @@ automation/node_modules
 .gitignore
 .vscode
 .idea
+.codegraph
+.stryker-tmp
 
 # Frontend build + tooling output
 dist
 .vite
 coverage
+reports
 *.tsbuildinfo
 
 # Automation runtime junk that must not leak into an image

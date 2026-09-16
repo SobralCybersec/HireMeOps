@@ -29,7 +29,13 @@ export default defineConfig(async () => ({
   },
 
   test: {
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "reports/todo-performance/**"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.git/**",
+      "**/.stryker-tmp/**",
+      "reports/todo-performance/**",
+    ],
   },
 
   // NOTE on bundle splitting: routes are already lazy-loaded via React.lazy in

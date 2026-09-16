@@ -3,6 +3,7 @@
 Status legend: ✅ done · 🔬 agent running · ⏳ pending · 📌 decided
 
 ## Goals (from LO)
+
 1. Wire real captcha solvers into automation.
 2. Add Docker to automation.
 3. Evaluate CDP-first drivers; pick best for migration (patchright vs zendriver vs SeleniumBase-UC).
@@ -11,6 +12,7 @@ Status legend: ✅ done · 🔬 agent running · ⏳ pending · 📌 decided
 6. Web-search 2026 results to harden choices (later phase, subagents).
 
 ## Our current architecture (✅ mapped via codegraph + reads)
+
 - Rust `PlaywrightDriver` (`src-tauri/src/browser/playwright.rs`): spawns ONE Node worker
   (`node <script>`), newline-JSON RPC over stdin/stdout, lazy spawn + `prewarm()`,
   auto-respawn when reader task dies. Parked-submit human handoff state lives here.
@@ -27,6 +29,7 @@ Status legend: ✅ done · 🔬 agent running · ⏳ pending · 📌 decided
 ## Embedded browser UI — TWO approaches, different jobs (✅ analyzed)
 
 ### A. Our screencast.rs (CDP screencast) — RIGHT for "watch the bot" / Evidence Viewer
+
 - `src-tauri/src/browser/screencast.rs` ALREADY implements it via `chromiumoxide`:
   launch Chrome → `Page.startScreencast{jpeg,q80}` → `EventScreencastFrame` → base64 JPEG
   → `tauri::ipc::Channel<PreviewFrame>` → frontend. Acks each frame. open_real/close_real +
@@ -38,23 +41,26 @@ Status legend: ✅ done · 🔬 agent running · ⏳ pending · 📌 decided
 - Read-only by default; input can be forwarded via CDP Input.dispatch* if we want interactive.
 
 ### B. terax-ai native child webview — RIGHT for a user browser pane (manual login / uBlock)
+
 - `src-tauri/src/modules/browser.rs` + `src/modules/preview/NativeWebviewSurface.tsx`.
 - Technique: `window.add_child(WebviewBuilder::new(label, WebviewUrl::External(url)),
   LogicalPosition, LogicalSize)` — a REAL native OS webview (WebView2/WKWebView/WebKitGTK)
   positioned over a placeholder `<div>`. React syncs bounds via ResizeObserver + rAF →
   `preview_webview_set_bounds`; show/hide/navigate/reload/back/forward are Tauri commands;
   URL changes emitted back via `on_page_load`. uBlock injected on Windows via `extensions_path`
-  + `data_directory` (per-profile). Label validation + http/https-only URL guard.
+  - `data_directory` (per-profile). Label validation + http/https-only URL guard.
 - **Limitation:** it's the OS webview, NOT our patchright/CDP stealth browser. Cannot show or
   drive the automation session. Good for a real in-app browser tab; useless as bot-watcher.
 
 ### Decision (📌 pre-agents, revisit)
+
 - Evidence Viewer / "watch the automation" → finish screencast.rs by attaching it to the live
   session. Highest value, ~80% built.
 - Optional user browser pane (manual captcha/login by hand) → port terax-ai native webview.
   Lower priority; the parked-submit handoff already runs headed.
 
 ## Repo deep-dives (agents writing to notes/)
+
 - ✅ notes/browsers-benchmark.md   — DONE
 - ✅ notes/playwright-captcha.md    — DONE
 - ✅ notes/patchright-nodejs.md     — DONE
@@ -63,8 +69,10 @@ Status legend: ✅ done · 🔬 agent running · ⏳ pending · 📌 decided
 - ✅ notes/undetected-testing.md   — DONE
 
 ### 📌 DECIDED — SeleniumBase: no sidecar, steal the tables + CDP-click
+
 Source: seleniumbase notes. UC Mode = hardened undetected-chromedriver (patches `cdc_` out,
 disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored nodriver.
+
 - Captcha fully keyless. `uc_gui_click_captcha` = PyAutoGUI **real OS mouse** (needs focus) —
   ⚠️ DIRECTLY conflicts with our design (memory focus-safe-automation: "CDP input never moves
   the real mouse / LO watches"). DO NOT adopt PyAutoGUI. But CDP-mode `solve_captcha(use_cdp=True)`
@@ -77,6 +85,7 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
   CDP-native click. OS-input escape hatch, IF ever needed, = **nut.js/robotjs (Node), never Python**.
 
 ## ✅ CORRECTED current state (read the real files — more built than memory implied)
+
 - `automation/core/human/human.js` (mature): Bézier mouse w/ overshoot, Fitts timing, Gaussian dwell/flight
   typing w/ typos+backspace, log-normal think-time, LinkedIn-SDUI click escape (focus+Enter for
   trusted activation), self-check via `node human.js`. This IS our humanized CDP input layer — it
@@ -94,6 +103,7 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
 ## 🎯 IMPLEMENTATION ROADMAP (ordered by value/effort)
 
 ### Phase 1 — Captcha hardening (highest value, small diff) [automation/core/captcha/captcha.js]
+
 1. Route ALL captcha interaction through `human.js` (`humanClick` on reCAPTCHA anchor; replace the
    crude `humanize()` mouse loop with `humanMove`/`thinkTime`).
 2. ADD Turnstile checkbox click: locate the CF Turnstile iframe/shadow-DOM checkbox and humanClick
@@ -106,10 +116,11 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
    Test: extend the existing self-check pattern; assert selector tables resolve on saved captures.
 
 ### Phase 2 — Evidence PDF + wake the Evidence Viewer
-6. `automation/core/capture/capture.js`: add `capturePdf()` sibling to `captureMhtml()` using
+
+1. `automation/core/capture/capture.js`: add `capturePdf()` sibling to `captureMhtml()` using
    `newCDPSession().send("Page.printToPDF", {...})` (proven headful via SeleniumBase). Write
    `{base}.pdf` into the bundle; prune regex already covers extensions — extend to `|pdf`.
-7. Wake the Evidence Viewer: `screencast.rs` currently screencasts a THROWAWAY browser. Re-point it
+2. Wake the Evidence Viewer: `screencast.rs` currently screencasts a THROWAWAY browser. Re-point it
    at the live automation session. Cleanest low-risk path: run `Page.startScreencast` from INSIDE
    `worker.js` over its existing patchright CDP session and forward base64 frames up the existing
    stdout RPC → Rust → emit on the Tauri channel the frontend already consumes. Avoids a 2nd CDP
@@ -117,30 +128,37 @@ disconnect/reconnect during sensitive actions); CDP Mode = pure CDP via vendored
    as the fallback/standalone preview.
 
 ### Phase 3 — Docker for the automation worker [new: automation/Dockerfile + compose]
-8. Image: node:22 + real Google Chrome (`channel:"chrome"`) + chromium deps + font pack.
-9. **Headed under Xvfb** (`Xvfb :99` + DISPLAY), NEVER headless (evasion 40%). 
-10. Mount per-profile cookie-jar volume (automation_profile_dir), pass HIREMEOPS_* env.
-11. Scope: containerize the WORKER (worker.js) for reproducible runs/CI; the Tauri GUI stays native.
+
+1. Image: node:22 + real Google Chrome (`channel:"chrome"`) + chromium deps + font pack.
+2. **Headed under Xvfb** (`Xvfb :99` + DISPLAY), NEVER headless (evasion 40%).
+3. Mount per-profile cookie-jar volume (automation_profile_dir), pass HIREMEOPS_* env.
+4. Scope: containerize the WORKER (worker.js) for reproducible runs/CI; the Tauri GUI stays native.
     Rust `locate_worker_script`/spawn can target a container node in a docker profile (later).
 
 ### Phase 4 — Stealth verification pass (checklist, no new code)
-12. Audit worker launch: confirm `launchPersistentContext` + `channel:"chrome"` on a real Chrome
+
+ 1. Audit worker launch: confirm `launchPersistentContext` + `channel:"chrome"` on a real Chrome
     binary + `viewport:null` + zero UA/header overrides (patchright happy path).
-13. Audit every `page.evaluate` needing main-world globals passes `isolatedContext:false`.
-14. Never open a raw CDP session that calls `Runtime.enable` on the live stealth page.
+ 2. Audit every `page.evaluate` needing main-world globals passes `isolatedContext:false`.
+ 3. Never open a raw CDP session that calls `Runtime.enable` on the live stealth page.
 
 ### Phase 5 — Optional user browser pane (only if LO wants hands-on) [port terax-ai]
-15. Port terax-ai `NativeWebviewSurface` + `browser.rs` `window.add_child` webview for a real in-app
+
+ 1. Port terax-ai `NativeWebviewSurface` + `browser.rs` `window.add_child` webview for a real in-app
     browser tab (manual login/captcha by hand). Lower priority — parked-submit handoff already headed.
 
 ## Phase 0 — 2026 websearch validation (subagents)
+
 Confirm the research still holds against live 2026 anti-bot changes before we cut code.
+
 - ✅ websearch-patchright-2026.md — DONE
 - ✅ websearch-jobboards-2026.md — DONE
 - ✅ websearch-captcha-2026.md — DONE
 
 ### 📌 2026 VALIDATION (job boards) — rate-discipline is THE ban vector
+
 Source: websearch-jobboards-2026.md (2026 sources; some pacing = estimated ranges, flagged).
+
 - **LinkedIn:** own behavioral+fingerprint+account-history detection, NO Turnstile. 2026 crackdown
   explicitly targets browser-based automation = OUR class. Safe ≈ **150 total actions / 24h,
   20–40 Easy Apply / day, 4-week warm-up on new accounts, 14+ day recovery** after a hard restriction.
@@ -152,6 +170,7 @@ Source: websearch-jobboards-2026.md (2026 sources; some pacing = estimated range
   Generic Cloudflare/reCAPTCHA/hCaptcha; rely on human cadence + our DOM-capture challenge detection.
 
 ### 📌 Per-board pacing table (drive the queue drain from this)
+
 | Board    | Detection (2026)                    | Safe pacing (2026, some estimated)        |
 |----------|-------------------------------------|-------------------------------------------|
 | LinkedIn | behavioral+fingerprint+history      | ≤150 actions/24h · 20–40 EasyApply/day · warm-up 4wk |
@@ -162,8 +181,10 @@ Source: websearch-jobboards-2026.md (2026 sources; some pacing = estimated range
 | InfoJobs | generic (no 2026 data)              | human cadence + DOM-capture detection      |
 
 ### 📌 NEW Phase 1.5 — Rate-discipline governor (HIGH value — the real ban vector)
+
 Multiple agents converge: bans come from PACING, not the captcha click. Add a per-board rate
 governor to the automation queue drain (`run_automation_queue` / `worker.js`):
+
 - Per-board daily + rolling-window action caps from the table above (config, tunable knob).
 - Enforce inter-action think-time (already have `human.js thinkTime`) + short Upwork sessions.
 - On a detected challenge/DOM-capture failure, back off that board for the day.
@@ -173,7 +194,9 @@ governor to the automation queue drain (`run_automation_queue` / `worker.js`):
 ---
 
 ## ✅ PLAN COMPLETE — all 6 repos + terax-ai + 3×2026-validation folded in
+
 Headline decisions (all grounded in cited source):
+
 1. STAY on patchright, headed, humanized CDP input. No migration; nodriver/zendriver = per-site
    escape hatch only. Pin **Chrome ≥142** (coordinate-leak fix).
 2. Captcha: keyless-first (beats paid on Turnstile/DataDome in 2026); harden `captcha.js` to use
@@ -189,7 +212,9 @@ Build order: P1 captcha-hardening → P1.5 rate governor → P2 PDF + Evidence V
 P4 stealth-verify checklist (Chrome≥142) → P5 optional webview pane.
 
 ### 📌 2026 VALIDATION (captcha) — keyless-first confirmed, fallback pick refined
+
 Source: websearch-captcha-2026.md (2026 sources; solver % from one vendor guide = directional).
+
 - Keyless STILL wins in 2026 on our targets: Turnstile, reCAPTCHA v3 scoring, and v2/hCaptcha
   CHECKBOXES clear via trusted patchright + humanized click, headed/Xvfb + decent IPs. Notably,
   paid solver TOKENS get fingerprint-REJECTED on Turnstile (~30%) and DataDome (~10%) → **keyless
@@ -201,7 +226,9 @@ Source: websearch-captcha-2026.md (2026 sources; solver % from one vendor guide 
   actually show up in practice.
 
 ### 📌 2026 VALIDATION (patchright/Cloudflare) — plan HOLDS, +1 new action
+
 Source: websearch-patchright-2026.md (Apr–Jul 2026 sources).
+
 - Patchright still cleanest drop-in Playwright stealth; still strips the Runtime.enable leak. No
   patchright-SPECIFIC Cloudflare signature reported. Real system Chrome (`channel=chrome`) matters
   more than the patches themselves.
@@ -219,7 +246,9 @@ Source: websearch-patchright-2026.md (Apr–Jul 2026 sources).
   warn if the resolved `channel:"chrome"` binary is older. This is now the single cheapest hardening.
 
 ### 📌 DECIDED — Migration verdict: STAY on patchright, do NOT migrate
+
 Source: browsers-benchmark (techinz), 2026-05-26/27 run, versions pinned.
+
 - patchright HEADED = #1, 100% (10/10) bypass vs Cloudflare/DataDome/Imperva/Akamai/
   PerimeterX/Kasada/Amazon/Google/Reddit. cloakbrowser & camoufox_headless = 90%.
   nodriver 80, seleniumbase-cdp 80, **zendriver 70**.
@@ -231,7 +260,9 @@ Source: browsers-benchmark (techinz), 2026-05-26/27 run, versions pinned.
   wins"). Benchmark harness re-runnable via `python main.py` if we want our own numbers.
 
 ### 📌 DECIDED — Captcha: keyless-native, no Python dep
+
 Source: playwright-captcha (techinz) = Python, can't import into our Node worker.
+
 - Its "keyless" solve = clicking the Cloudflare Turnstile checkbox inside shadow-DOM iframes
   (`solve_by_click.py:16-112` + `unlockShadowRoot.js`) — the SAME evasion+wait+click class we
   already do. Not a cryptographic solve. Only CF + reCAPTCHA v2/v3; no hCaptcha/vision/audio.
@@ -240,7 +271,9 @@ Source: playwright-captcha (techinz) = Python, can't import into our Node worker
   ever wanted, call the **2captcha Node SDK** directly — do NOT add the Python lib.
 
 ### 📌 DECIDED — Patchright stealth: we're on the happy path, harden INPUT only
+
 Source: patchright-nodejs (README + codemod source).
+
 - Stealth mechanism = avoid the leaky CDP calls: `isolatedContext=true` on all evaluate,
   Console API disabled, init-scripts via route interception (not the leaky CDP inject),
   `sourceURL` fingerprint stripped. Chromium-only.
@@ -258,6 +291,7 @@ Source: patchright-nodejs (README + codemod source).
   highest-value hardening.
 
 ### 📌 DECIDED — PDF/print: do NOT use patchright page.pdf()
+
 - patchright has no PDF support and `page.pdf()` requires headless, which conflicts with the
   headed stealth config (and headless collapses evasion to 40% per benchmark).
 - CVs already render via LaTeX — keep that path untouched.
@@ -266,7 +300,9 @@ Source: patchright-nodejs (README + codemod source).
   NOT the live stealth session. Confirm approach against zendriver/seleniumbase notes.
 
 ### 📌 DECIDED — zendriver: no Python sidecar, borrow 3 ideas in Node
+
 Source: zendriver notes. AGPL-3.0 (LICENSE:1) = distribution hazard; pure-CDP nodriver fork.
+
 - Attach only works if Chrome exposes `--remote-debugging-port`; patchright defaults to
   `--remote-debugging-pipe` (no TCP). Two CDP clients on one browser race on target discovery.
 - All PDF/HTML/screenshot are thin CDP wrappers: `Page.printToPDF` (tab.py:1445),
@@ -277,9 +313,11 @@ Source: zendriver notes. AGPL-3.0 (LICENSE:1) = distribution hazard; pure-CDP no
   (3) their GPU-Chrome Docker recipe as a reference (it's a Wayland+VNC harness, not slim).
 
 ### 📌 DECIDED — Real-input captcha is the load-bearing piece (validated)
+
 Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC IPs).
+
 - Proven keyless-passing targets incl. **Upwork + Indeed** (our targets ✅) via `activate_cdp_mode()`
-  + `uc_gui_click_captcha()` = REAL OS mouse (PyAutoGUI), not JS `.click()`. Zero UA spoofing.
+  - `uc_gui_click_captcha()` = REAL OS mouse (PyAutoGUI), not JS `.click()`. Zero UA spoofing.
 - No Docker, no headless — **Xvfb virtual display** (real-mouse needs a display).
 - ⚠️ **No LinkedIn tested anywhere** → treat LinkedIn Turnstile as best-effort. PerimeterX
   (Walmart) flaky/commented out.
@@ -288,6 +326,7 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
   on it — it's on us; matches memory antibot-strategy-2026).
 
 ## Docker plan (📌 shape decided; details pending seleniumbase note)
+
 - Purpose: reproducible Linux runner for the Node patchright worker (not the Tauri GUI).
 - Base: node:22-slim + real Google Chrome (`channel:"chrome"` requires it) + chromium deps.
 - **Headed under Xvfb** (`xvfb-run` / start Xvfb + DISPLAY) — NEVER headless (evasion 40% + real
@@ -298,6 +337,7 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
 - Reference: zendriver's Wayland+VNC GPU-Chrome harness; simplify to Xvfb.
 
 ## PDF / HTML / page-print plan (📌 decided)
+
 - CVs: keep LaTeX render (untouched).
 - Evidence/page snapshots: CDP over a `newCDPSession()` from the worker —
   `Page.captureSnapshot` (MHTML, single file) for HTML archiving, `Page.captureScreenshot` for
@@ -307,12 +347,14 @@ Source: undetected-testing (mdmintz CI rig, current 2026-07-24, keyless from DC 
   the Page domain, NOT Runtime.enable, so it won't reintroduce the patchright leak. (calibration knob)
 
 ## Phase 2 (⏳ after plan sign-off) — 2026 websearch hardening
+
 - Subagent web-search pass (2026 results) to confirm: patchright still #1, CF Turnstile keyless
   click still works, Indeed/Upwork/LinkedIn anti-bot changes, rate-limit thresholds per board.
 
 ---
 
 ## 🔨 BUILD STATUS (2026-08-03)
+
 - ✅ **Phase 1 — captcha hardening + ShyMouse** (SHIPPED, unit-verified, 101/101 automation tests pass)
   - NEW `automation/core/human/shy-mouse.js` — coordinate-level humanized mouse (Fitts timing, Bézier +
     overshoot, fatigue, jerk-smoothing, 60–144Hz polling sim); ESM + added `clickAtPoint(x,y)`.
