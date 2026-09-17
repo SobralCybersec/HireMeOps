@@ -4,7 +4,7 @@
  HireMeOps
 </h1>
 
-Um cockpit local-first de automação de busca de vagas. Um único app desktop faz scraping de nove portais de emprego brasileiros + globais, pontua cada vaga contra o seu currículo, dirige sessões reais de navegador logado para se candidatar e reescreve o seu currículo com um LLM operado via navegador — sem chaves de API, sem nuvem, seus cookies nunca saem da máquina. Construído sobre Tauri v2 (Rust) + React 19.
+Um cockpit local-first de automação de busca de vagas. Um único app desktop faz scraping de nove portais de emprego brasileiros + globais, pontua cada vaga contra o seu currículo, dirige sessões reais de navegador logado para se candidatar e reescreve o seu currículo com um LLM operado via navegador — sem chaves de API e sem conta de nuvem por padrão. O Cloud Sessions opcional criptografa o storage state do BrowserContext com AES-256-GCM antes de sincronizá-lo com PostgreSQL/Northflank. Construído sobre Tauri v2 (Rust) + React 19.
 
 [English](README.md) · **Português (BR)**
 
@@ -542,13 +542,13 @@ mindmap
 ### Fora de Escopo
 
 * **Sem solvers de captcha pagos**: apenas auto-resolução local sem chave; o comportamento padrão é pausar para um humano
-* **Sem nuvem / sem contas**: tudo é local-first; não existe servidor HireMeOps
+* **Execução cloud opcional**: local-first continua sendo o padrão; Cloud Sessions é um caminho opt-in para worker Northflank
 * **Fontes somente leitura**: Upwork + 99freelas são raspados para descoberta, não para candidatura automática
 * **IA**: o caminho de ChatGPT via navegador precisa de uma sessão real logada; não há modelo headless embarcado
 
 ### Observações & Garantias
 
-* **Cookies nunca saem da máquina** — um jar Chromium por perfil dentro do diretório de dados do app
+* **Armazenamento local-first de sessão** — cookies ficam na máquina por padrão. Com Cloud Sessions habilitado, o estado do BrowserContext é criptografado com AES-256-GCM antes da sincronização com PostgreSQL/Northflank; cookies e tokens plaintext nunca são enviados
 * **Janelas ficam visíveis, nunca roubam o foco** — você acompanha uma execução sem ela sequestrar o seu desktop
 * **Falha é depurável** — pacote de screenshot + DOM + rede salvo automaticamente em `automation/captures/`
 * **Disciplina de rate** — coerência acima de spoofing; input humanizado + cadência (veja `docs/AUTOMATION_UPGRADE_PLAN.md`)

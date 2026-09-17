@@ -1,7 +1,6 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { closeCloudBrowser, openCloudBrowser } from "./cloud/cloud-browser.mjs";
 import { memorySnapshot } from "./cloud-memory.mjs";
 

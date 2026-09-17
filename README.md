@@ -4,7 +4,7 @@
  HireMeOps
 </h1>
 
-A local-first job-search automation cockpit. One desktop app scrapes nine Brazilian + global job boards, scores every posting against your CV, drives real logged-in browser sessions to apply, and rewrites your résumé with a browser-driven LLM — no API keys, no cloud, your cookies never leave the machine. Built on Tauri v2 (Rust) + React 19.
+A local-first job-search automation cockpit. One desktop app scrapes nine Brazilian + global job boards, scores every posting against your CV, drives real logged-in browser sessions to apply, and rewrites your résumé with a browser-driven LLM — no API keys and no cloud account required by default. Optional Cloud Sessions encrypt BrowserContext storage state with AES-256-GCM before synchronizing it to PostgreSQL/Northflank. Built on Tauri v2 (Rust) + React 19.
 
 **English** · [Português (BR)](README.pt-BR.md)
 
@@ -550,13 +550,13 @@ mindmap
 ### Out of Scope
 
 * **No paid captcha solvers**: keyless local auto-pass only; default behaviour is to pause for a human
-* **No cloud / no accounts**: everything is local-first; there is no HireMeOps server
+* **Optional cloud execution**: local-first remains the default; Cloud Sessions is an opt-in Northflank worker path
 * **View-only sources**: Upwork + 99freelas are scraped for discovery, not auto-applied
 * **AI**: the browser-driven ChatGPT path needs a real logged-in session; there is no headless model shipped
 
 ### Notes & Guarantees
 
-* **Cookies never leave the machine** — a per-profile Chromium jar under the app data dir
+* **Local-first session storage** — cookies stay on the machine by default. When Cloud Sessions is enabled, BrowserContext state is encrypted with AES-256-GCM before PostgreSQL/Northflank sync; plaintext cookies and tokens are never sent
 * **Windows stay visible, never steal focus** — you can watch a run without it grabbing your desktop
 * **Failure is debuggable** — screenshot + DOM + network bundle auto-saved to `automation/captures/`
 * **Rate discipline** — coherence over spoofing; humanized input + pacing (see `docs/AUTOMATION_UPGRADE_PLAN.md`)

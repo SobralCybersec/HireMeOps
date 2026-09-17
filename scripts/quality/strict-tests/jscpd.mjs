@@ -214,7 +214,12 @@ function spawnCapture(command, args, { cwd }) {
     try {
       child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
-      resolveRun({ code: 127, missing: error.code === "ENOENT", stdout: "", stderr: error.message });
+      resolveRun({
+        code: 127,
+        missing: error.code === "ENOENT",
+        stdout: "",
+        stderr: error.message,
+      });
       return;
     }
     let stdout = "";
@@ -294,6 +299,7 @@ export async function runJscpd(options) {
     const detail = (run.stderr || run.stdout).trim();
     throw new Error(
       `jscpd exited ${run.code} but JSON report was not readable at ${reportPath}: ${error.message}${detail ? `\n${detail}` : ""}`,
+      { cause: error },
     );
   }
 

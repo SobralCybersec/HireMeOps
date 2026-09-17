@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { summarizeTrivyReport } from "./quality-security.mjs";
 export { summarizeTrivyReport } from "./quality-security.mjs";
 
-const COVERAGE_FILE_RE = /^(?:lcov\.info|coverage\.xml|coverage-summary\.json|jacoco(?:TestReport)?\.xml)$/i;
+const COVERAGE_FILE_RE =
+  /^(?:lcov\.info|coverage\.xml|coverage-summary\.json|jacoco(?:TestReport)?\.xml)$/i;
 const TEST_FILE_RE = /(?:^|[-_.])(?:junit|test-results?|surefire|failsafe)(?:[-_.]|$).*\.xml$/i;
 const DISCOVERY_IGNORES = new Set([
   ".git",

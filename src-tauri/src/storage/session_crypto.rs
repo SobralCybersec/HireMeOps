@@ -112,8 +112,11 @@ fn decode_key(encoded: &str) -> Result<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     const KEY: [u8; 32] = [7; 32];
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn encryption_roundtrip() {
@@ -171,6 +174,7 @@ mod tests {
     #[cfg(feature = "real-browser")]
     #[test]
     fn encryption_reads_key_from_environment() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let previous = env::var("HIREMEOPS_SESSION_ENCRYPTION_KEY").ok();
         env::set_var(
             "HIREMEOPS_SESSION_ENCRYPTION_KEY",
@@ -190,6 +194,7 @@ mod tests {
     #[cfg(feature = "real-browser")]
     #[test]
     fn encryption_requires_environment_key() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let previous = env::var("HIREMEOPS_SESSION_ENCRYPTION_KEY").ok();
         env::remove_var("HIREMEOPS_SESSION_ENCRYPTION_KEY");
         let result = key_from_env();

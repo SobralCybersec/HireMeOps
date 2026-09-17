@@ -1,25 +1,25 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import tseslint from 'typescript-eslint'
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   // `frontendishere/` is a vendored Next.js design reference (with its own
   // toolchain + `.next` build cache), not our shipping code — never lint it.
   {
     ignores: [
-      'dist',
-      'coverage',
-      'reports',
-      '.stryker-tmp',
-      'src-tauri/target',
-      'node_modules',
-      'frontendishere',
+      "dist",
+      "coverage",
+      "reports",
+      ".stryker-tmp",
+      "src-tauri/target",
+      "node_modules",
+      "frontendishere",
     ],
   },
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ["**/*.{ts,tsx}"],
     extends: [
       js.configs.recommended,
       ...tseslint.configs.recommended,
@@ -30,7 +30,7 @@ export default tseslint.config(
     // which flat config rejects. Register the plugin as an object manually and
     // pull in just its (format-agnostic) recommended rules map.
     plugins: {
-      'react-hooks': reactHooks,
+      "react-hooks": reactHooks,
     },
     languageOptions: {
       ecmaVersion: 2020,
@@ -51,14 +51,49 @@ export default tseslint.config(
       "react-hooks/immutability": "off",
       // Underscore-prefixed args/vars/catch bindings are a deliberate
       // "intentionally unused" signal — honour that convention.
-      '@typescript-eslint/no-unused-vars': [
-        'error',
+      "@typescript-eslint/no-unused-vars": [
+        "error",
         {
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_',
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
         },
       ],
     },
   },
-)
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    ignores: [
+      // These modules contain browser-evaluated code. Their globals are not
+      // Node globals and linting them as Node creates false positives.
+      "automation/core/captcha/**",
+      "automation/core/capture/**",
+      "automation/core/human/**",
+      "automation/dev/**",
+      "automation/core/worker/worker-lifecycle.js",
+      "automation/core/worker/worker-network.js",
+      "automation/core/worker/worker-storage.test.js",
+      "automation/platforms/**",
+      "src-tauri/resources/playwright-bridge/**",
+    ],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+    rules: {
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      // Cloud runner explicitly clears large state objects before export/close.
+      "no-useless-assignment": "off",
+      "no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+);

@@ -402,9 +402,7 @@ function sqliteMetadata(db, file) {
         "SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat WHERE name LIKE 'job_posts_fts%'",
       )
       .get().bytes;
-  } catch {
-    ftsBytes = null;
-  }
+  } catch {}
   return {
     pragmas: {
       pageSize: pragma(db, "page_size"),

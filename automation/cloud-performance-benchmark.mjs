@@ -7,7 +7,6 @@ import { closeCloudBrowser, openCloudBrowser } from "./cloud/cloud-browser.mjs";
 import { memorySnapshot } from "./cloud-memory.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const DEFAULT_VIEWPORT = { width: 1024, height: 768 };
 const FIXTURE = `<!doctype html><title>cloud performance fixture</title><main>${Array.from(
   { length: 200 },
   (_, index) =>

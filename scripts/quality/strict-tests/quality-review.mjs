@@ -2,13 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path, { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkFileSizes, formatFileSizeReport, sourceFiles } from "./check-file-size.mjs";
-import {
-  DEFAULT_IGNORES,
-  DEFAULT_MIN_LINES,
-  DEFAULT_MIN_TOKENS,
-  DEFAULT_THRESHOLD,
-  runJscpd,
-} from "./jscpd.mjs";
+import { DEFAULT_IGNORES, runJscpd } from "./jscpd.mjs";
 
 // Quality gate ignores short generated/UI boilerplate clones; standalone jscpd keeps its stricter defaults.
 const QUALITY_MIN_LINES = 50;
@@ -269,7 +263,7 @@ async function runTrivy(repoRoot, reportRoot) {
   );
   if (result.missing)
     return { available: false, exitCode: null, error: "trivy executable not found" };
-  let metrics = null;
+  let metrics;
   try {
     metrics = summarizeTrivyReport(JSON.parse(await readFile(reportPath, "utf8")));
   } catch (error) {

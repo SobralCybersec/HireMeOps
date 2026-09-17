@@ -24,6 +24,8 @@ function markdown(report) {
     "# Semgrep inventory",
     "",
     `Status: **${report.status}**`,
+    `Scanner execution: **${report.scanner_execution}**`,
+    `Findings policy: **${report.findings_policy}**`,
     `Findings: ${report.findings.length}`,
     "",
     "| Severity | Findings | Policy |",
@@ -52,12 +54,19 @@ const result = await runCommand(
     "target",
     "--exclude",
     "dist",
+    // GitHub Actions expressions are validated by actionlint; Semgrep's
+    // auto-rules currently parse `${{ }}` snippets as shell and emit parser
+    // errors before producing a complete report.
+    "--exclude",
+    ".github/workflows",
   ],
   { cwd: ROOT },
 );
 let parsed;
+let parsedSuccessfully = false;
 try {
   parsed = JSON.parse(result.stdout);
+  parsedSuccessfully = true;
 } catch {
   parsed = { results: [], errors: [{ message: "semgrep_json_missing" }] };
 }
@@ -68,13 +77,21 @@ const bySeverity = Object.fromEntries(
     findings.filter((finding) => finding.severity === severity).length,
   ]),
 );
+const scannerExecution =
+  result.code === 0 && parsedSuccessfully && (parsed.errors ?? []).length === 0 ? "pass" : "failed";
+const errors = (parsed.errors ?? []).map((error) => String(error.message ?? error).slice(0, 240));
+if (result.code !== 0) {
+  errors.push(`semgrep_exit_${result.code}`);
+}
 const report = {
   generated_at: new Date().toISOString(),
-  status: result.code === 0 || findings.length > 0 ? "report-only" : "failed",
+  status: scannerExecution === "pass" ? "report-only" : "failed",
+  scanner_execution: scannerExecution,
+  findings_policy: "report-only",
   exit_code: result.code,
   by_severity: bySeverity,
   findings,
-  errors: (parsed.errors ?? []).map((error) => String(error.message ?? error).slice(0, 240)),
+  errors,
 };
 await mkdir(REPORT_DIR, { recursive: true });
 await writeFile(path.join(REPORT_DIR, "semgrep.json"), `${JSON.stringify(report, null, 2)}\n`);
