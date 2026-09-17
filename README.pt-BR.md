@@ -162,7 +162,7 @@ O HireMeOps trata a busca de emprego como uma operação em andamento, não como
 * **Shell / Runtime**: Tauri v2 (núcleo Rust + WebView do sistema), binário único
 * **Backend**: Rust 2021 · async `tokio` · `sqlx` 0.9 + SQLite (FTS5) · erros de domínio `thiserror` · spans estruturados `tracing`
 * **Frontend**: React 19 · TypeScript · Vite 8 · React Router 7 · estado Zustand 5 · Tailwind 4 · HugeIcons · anime.js · Chart.js · pdf.js
-* **Automação de navegador**: [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) 1.61 (fork stealth do Playwright) via um sidecar JSON-RPC Node `worker.js`; `chromiumoxide` 0.7 (CDP) atrás da feature `real-browser`
+* **Automação de navegador**: [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) 1.63.0 (fork stealth do Playwright) via um sidecar JSON-RPC Node `worker.js`; `chromiumoxide` 0.7 (CDP) atrás da feature `real-browser`
 * **IA**: sessão de ChatGPT operada via navegador (sem chave de API) + provedores HTTP `reqwest` opcionais
 * **I/O de CV**: `pdf-extract` (leitura) · `lopdf` (escrita) · `zip` + `quick-xml` (DOCX)
 * **Segredos**: keyring do SO (`keyring`, backends nativos — sem necessidade de dbus/secret-service no build)

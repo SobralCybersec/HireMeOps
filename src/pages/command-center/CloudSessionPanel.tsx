@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui";
 import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
+import { useProfileStore } from "../../stores/profiles/useProfileStore";
 import type { BrowserSessionMetadata, BrowserSessionStatus } from "../../types/domain";
+import { assertCloudSessionMetadata } from "./cloud-session-metadata";
 
 const PLATFORMS = [
   ["linkedin", "LinkedIn"],
@@ -59,7 +61,8 @@ async function runSessionAction(
   }
 }
 
-function useCloudSession(profileId: string | null) {
+function useCloudSession() {
+  const profileId = useProfileStore((state) => state.activeProfileId);
   const [metadata, setMetadata] = useState<BrowserSessionMetadata | null>(null);
   const [localStatus, setLocalStatus] = useState<Record<string, BrowserSessionStatus>>({});
   const [busy, setBusy] = useState(false);
@@ -96,6 +99,25 @@ function useCloudSession(profileId: string | null) {
       const value = await invokeStrict<BrowserSessionMetadata>("sync_browser_session", {
         profileId,
       });
+      assertCloudSessionMetadata(value, profileId);
+      const confirmed = await invokeStrict<BrowserSessionMetadata | null>(
+        "browser_session_status",
+        { profileId },
+      );
+      if (!confirmed) throw new Error("Cloud session metadata was not returned after sync.");
+      assertCloudSessionMetadata(confirmed, profileId);
+      setMetadata(confirmed);
+      setLocalStatus(confirmed.platformStatus);
+    });
+  }, [profileId]);
+
+  const validate = useCallback(async () => {
+    if (!profileId) return;
+    await runSessionAction(setBusy, setError, async () => {
+      const value = await invokeStrict<BrowserSessionMetadata>("validate_browser_session", {
+        profileId,
+      });
+      assertCloudSessionMetadata(value, profileId);
       setMetadata(value);
       setLocalStatus(value.platformStatus);
     });
@@ -112,26 +134,30 @@ function useCloudSession(profileId: string | null) {
     });
   }, [metadata, profileId]);
 
-  return { metadata, localStatus, busy, error, check, sync, revoke };
+  return { profileId, metadata, localStatus, busy, error, check, sync, validate, revoke };
 }
 
-export function CloudSessionPanel({ profileId }: { profileId: string | null }) {
-  const { metadata, localStatus, busy, error, check, sync, revoke } = useCloudSession(profileId);
+export function CloudSessionPanel() {
+  const { profileId, metadata, localStatus, busy, error, check, sync, validate, revoke } =
+    useCloudSession();
+  const currentMetadata = metadata?.profileId === profileId ? metadata : null;
+  const currentLocalStatus = metadata?.profileId === profileId ? localStatus : {};
 
-  const status = localStatus;
+  const status = currentLocalStatus;
   return (
     <section className="cc-session-panel" aria-labelledby="cloud-session-title">
-      <SessionHeader metadata={metadata} />
+      <SessionHeader metadata={currentMetadata} />
       <SessionPlatforms status={status} />
       <SessionActions
         profileId={profileId}
-        metadata={metadata}
+        metadata={currentMetadata}
         busy={busy}
         check={check}
         sync={sync}
+        validate={validate}
         revoke={revoke}
       />
-      <SessionFooter metadata={metadata} error={error} />
+      <SessionFooter metadata={currentMetadata} error={error} />
     </section>
   );
 }
@@ -169,10 +195,19 @@ type SessionActionsProps = {
   busy: boolean;
   check: () => Promise<void>;
   sync: () => Promise<void>;
+  validate: () => Promise<void>;
   revoke: () => Promise<void>;
 };
 
-function SessionActions({ profileId, metadata, busy, check, sync, revoke }: SessionActionsProps) {
+function SessionActions({
+  profileId,
+  metadata,
+  busy,
+  check,
+  sync,
+  validate,
+  revoke,
+}: SessionActionsProps) {
   return (
     <div className="cc-session-panel__actions">
       <Button variant="ghost" size="sm" onClick={() => void check()} disabled={busy || !profileId}>
@@ -180,6 +215,9 @@ function SessionActions({ profileId, metadata, busy, check, sync, revoke }: Sess
       </Button>
       <Button variant="primary" size="sm" onClick={() => void sync()} disabled={busy || !profileId}>
         Sync to cloud
+      </Button>
+      <Button size="sm" onClick={() => void validate()} disabled={busy || !profileId}>
+        Validate cloud
       </Button>
       {metadata && (
         <Button variant="danger" size="sm" onClick={() => void revoke()} disabled={busy}>
@@ -201,7 +239,9 @@ function SessionFooter({
     <>
       <p className="cc-zone__muted" aria-live="polite">
         {metadata ? syncedLabel(metadata.updatedAt) : "Local login state is not synchronized."}
-        {metadata ? ` · revision ${metadata.revision}` : ""}
+        {metadata
+          ? ` · profile ${metadata.profileId} · revision ${metadata.revision} · encrypted state ${metadata.encryptedStateBytes.toLocaleString()} bytes`
+          : ""}
       </p>
       {error && (
         <p className="cc-danger" role="alert">

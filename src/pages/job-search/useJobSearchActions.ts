@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { runAutoApply } from "./auto-apply";
+import { buildLinkedInCloudRunInput } from "./cloud-run-input";
 import {
   applyLinkedInJob,
   deleteOldScans,
@@ -7,7 +9,9 @@ import {
   runAllSearches,
   runSearchAction,
 } from "./search-actions";
+import { errMessage, invokeStrict } from "../../lib/tauri/tauriInvoke";
 import type { SearchPlatform } from "./search-runners";
+import type { CloudRunReceipt } from "../../types/domain";
 import type { JobSearchState } from "./useJobSearchState";
 import type { useJobSearchData } from "./useJobSearchData";
 import type { useJobSearchDerived } from "./useJobSearchDerived";
@@ -30,8 +34,14 @@ export function useSearchRunActions({ state, data }: Omit<Context, "derived">) {
     loadMatches,
     runSearch,
     runLinkedInSearch,
+    savedQueries,
   } = data;
   const { selectedSkills, runningAll, setRunningAll, setSearchMsg } = state;
+  const [cloudRunning, setCloudRunning] = useState(false);
+  const linkedInQuery = savedQueries.find(
+    (query) =>
+      query.profileId === activeProfileId && query.platform === "linkedin" && query.enabled,
+  );
   const handleRunSearch = (platform: SearchPlatform) =>
     runSearchAction({
       profileId: activeProfileId,
@@ -53,7 +63,31 @@ export function useSearchRunActions({ state, data }: Omit<Context, "derived">) {
       setMessage: setSearchMsg,
       runSearch: handleRunSearch,
     });
-  return { handleRunSearch, handleRunAll };
+  const handleRunCloud = async () => {
+    if (!activeProfileId || !linkedInQuery || cloudRunning) return;
+    setCloudRunning(true);
+    setSearchMsg("Starting cloud LinkedIn search…");
+    try {
+      const receipt = await invokeStrict<CloudRunReceipt>("trigger_cloud_run", {
+        input: buildLinkedInCloudRunInput(activeProfileId, linkedInQuery, filters),
+      });
+      if (receipt.profileId !== activeProfileId) throw new Error("Cloud run profile mismatch.");
+      setSearchMsg(
+        `Cloud run started · profile ${receipt.profileId} · revision ${receipt.sessionRevision} · search ${receipt.searchRunId}`,
+      );
+    } catch (error) {
+      setSearchMsg(`Cloud run failed: ${errMessage(error)}`);
+    } finally {
+      setCloudRunning(false);
+    }
+  };
+  return {
+    handleRunSearch,
+    handleRunAll,
+    handleRunCloud,
+    cloudRunning,
+    cloudReady: activeProfileId !== null && linkedInQuery !== undefined,
+  };
 }
 
 export function useSearchSelectionActions({ state, data, derived }: Context) {

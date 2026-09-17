@@ -346,6 +346,9 @@ export type JobSearchViewModel = {
   isGenerating: boolean;
   searchDisabledTitle: string | undefined;
   handleRunAll: () => Promise<void>;
+  handleRunCloud: () => Promise<void>;
+  cloudRunning: boolean;
+  cloudReady: boolean;
   showManual: boolean;
   toggleManual: () => void;
   handleRunSearch: (platform: SearchPlatform) => Promise<void>;
@@ -458,6 +461,9 @@ function SearchToolbar({ model }: { model: JobSearchViewModel }) {
     isGenerating,
     searchDisabledTitle,
     handleRunAll,
+    handleRunCloud,
+    cloudRunning,
+    cloudReady,
     showPreferences,
     showManual,
     toggleManual,
@@ -490,6 +496,20 @@ function SearchToolbar({ model }: { model: JobSearchViewModel }) {
         onClick={() => void handleRunAll()}
       >
         {runningAll ? "Searching all…" : isGenerating ? "Generating…" : "Search all"}
+      </Button>
+      <Button
+        variant="primary"
+        disabled={!cloudReady || cloudRunning || runningAll || isGenerating}
+        title={
+          activeProfileId === null
+            ? "Select a profile first"
+            : cloudReady
+              ? "Run the enabled LinkedIn query in cloud"
+              : "Generate an enabled LinkedIn query first"
+        }
+        onClick={() => void handleRunCloud()}
+      >
+        {cloudRunning ? "Starting cloud…" : "Run cloud"}
       </Button>
       <Button size="sm" onClick={() => toggleManual()} title="Run one platform at a time">
         {showManual ? "Hide manual searches" : "Manual searches"}

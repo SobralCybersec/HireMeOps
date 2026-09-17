@@ -331,6 +331,7 @@ mod tests {
         .unwrap()
         .expect("session insert should return metadata");
         assert_eq!(first.revision, 1);
+        assert_eq!(first.encrypted_state_bytes, 3);
         let updated = update_browser_session_status(
             pool,
             &fixture_profile,
@@ -342,6 +343,7 @@ mod tests {
         .unwrap()
         .expect("session status update should return metadata");
         assert_eq!(updated.status, "challenged");
+        assert_eq!(updated.revision, first.revision + 1);
         assert!(upsert_browser_session(
             pool,
             BrowserSessionWrite {

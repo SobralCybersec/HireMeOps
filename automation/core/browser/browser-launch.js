@@ -36,12 +36,17 @@ export const BASE_STEALTH_ARGS = [
 const HEADLESS_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
+// The cloud image pins chromium-headless-shell 152. Keep its browser-level
+// UA aligned with that binary; Client Hints must not advertise another major.
+const CLOUD_HEADLESS_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
 export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
   return {
     headless: true,
     args: [
       ...BASE_STEALTH_ARGS,
-      `--user-agent=${HEADLESS_UA}`,
+      `--user-agent=${CLOUD_HEADLESS_UA}`,
       "--window-size=1024,768",
       "--renderer-process-limit=1",
       ...extraArgs,
@@ -67,7 +72,8 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
   // forced here: on a headless box it needs specific hardware/Vulkan and did not
   // move the needle on the IP-reputation-gated sites (Indeed/Upwork) in testing —
   // that path lives in the headed + Xvfb "hidden" mode where a real GPU exists.
-  const uaArgs = headless ? [`--user-agent=${HEADLESS_UA}`, "--window-size=1920,1080"] : [];
+  const headlessUA = process.env.HIREMEOPS_CLOUD ? CLOUD_HEADLESS_UA : HEADLESS_UA;
+  const uaArgs = headless ? [`--user-agent=${headlessUA}`, "--window-size=1920,1080"] : [];
   // Cloud uses one page/profile per job; cap renderer fan-out and use a smaller
   // desktop viewport only there. Local headed/headless behavior stays unchanged.
   const cloudArgs = process.env.HIREMEOPS_CLOUD

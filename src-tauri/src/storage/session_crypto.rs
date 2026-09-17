@@ -22,7 +22,6 @@ use ring::rand::{SecureRandom, SystemRandom};
 #[cfg(any(test, feature = "real-browser"))]
 use serde_json::Value;
 
-#[cfg(feature = "real-browser")]
 pub const ENCRYPTION_VERSION: i32 = 1;
 #[cfg(any(test, feature = "real-browser"))]
 const NONCE_LEN: usize = 12;

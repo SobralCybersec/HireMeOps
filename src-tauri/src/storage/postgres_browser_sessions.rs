@@ -15,6 +15,7 @@ pub struct BrowserSessionMetadata {
     pub state_format_version: i32,
     pub revision: i64,
     pub status: String,
+    pub encrypted_state_bytes: i64,
     pub platform_status: Value,
     pub created_at: String,
     pub updated_at: String,
@@ -29,6 +30,7 @@ struct BrowserSessionRow {
     state_format_version: i32,
     revision: i64,
     status: String,
+    encrypted_state_bytes: i64,
     platform_status: sqlx::types::Json<Value>,
     created_at: String,
     updated_at: String,
@@ -44,6 +46,7 @@ impl From<BrowserSessionRow> for BrowserSessionMetadata {
             state_format_version: row.state_format_version,
             revision: row.revision,
             status: row.status,
+            encrypted_state_bytes: row.encrypted_state_bytes,
             platform_status: row.platform_status.0,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -54,6 +57,7 @@ impl From<BrowserSessionRow> for BrowserSessionMetadata {
 
 const SESSION_METADATA_COLUMNS: &str = "
     id, profile_id, encryption_version, state_format_version, revision, status,
+    octet_length(encrypted_state)::bigint AS encrypted_state_bytes,
     platform_status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS created_at,
     to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS updated_at,
     CASE WHEN last_validated_at IS NULL THEN NULL ELSE to_char(last_validated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') END AS last_validated_at";

@@ -162,7 +162,7 @@ HireMeOps treats the job hunt like a running operation, not a one-off task. The 
 * **Shell / Runtime**: Tauri v2 (Rust core + system WebView), single binary
 * **Backend**: Rust 2021 · `tokio` async · `sqlx` 0.9 + SQLite (FTS5) · `thiserror` domain errors · `tracing` structured spans
 * **Frontend**: React 19 · TypeScript · Vite 8 · React Router 7 · Zustand 5 state · Tailwind 4 · HugeIcons · anime.js · Chart.js · pdf.js
-* **Browser automation**: [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) 1.61 (stealth Playwright fork) via a Node `worker.js` JSON-RPC sidecar; `chromiumoxide` 0.7 (CDP) behind the `real-browser` feature
+* **Browser automation**: [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) 1.63.0 (stealth Playwright fork) via a Node `worker.js` JSON-RPC sidecar; `chromiumoxide` 0.7 (CDP) behind the `real-browser` feature
 * **AI**: browser-driven ChatGPT session (no API key) + optional `reqwest` HTTP providers
 * **CV I/O**: `pdf-extract` (read) · `lopdf` (write) · `zip` + `quick-xml` (DOCX)
 * **Secrets**: OS keyring (`keyring`, native backends — no dbus/secret-service needed at build)
@@ -294,7 +294,7 @@ HIREMEOPS_USE_DOCKER=1 bun run app
 
 | Flavour | Base | Trade |
 |---|---|---|
-| `noble` | `mcr.microsoft.com/playwright:v1.62.1-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
+| `noble` | `mcr.microsoft.com/playwright:v1.63.0-noble` | Most reliable; bundles all three browsers though we use only Chromium — larger |
 | `slim` | `node:22-bookworm-slim` + `patchright install chromium` | Chromium only → noticeably smaller image |
 
 > **Why not Alpine?** patchright's Chromium is glibc-only — Playwright dropped musl/Alpine support and Chromium won't launch there. Slim **Debian** is the lightest base that actually runs a browser.

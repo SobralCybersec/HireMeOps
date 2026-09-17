@@ -28,10 +28,29 @@ export interface BrowserSessionMetadata {
   stateFormatVersion: number;
   revision: number;
   status: BrowserSessionStatus;
+  encryptedStateBytes: number;
   platformStatus: Record<string, BrowserSessionStatus>;
   createdAt: string;
   updatedAt: string;
   lastValidatedAt: string | null;
+}
+
+export interface CloudRunInput {
+  profileId: string;
+  intent: string;
+  queryPlan: {
+    platform: string;
+    command: string;
+    args: Record<string, unknown>;
+  };
+}
+
+export interface CloudRunReceipt {
+  profileId: string;
+  sessionRevision: number;
+  searchRunId: string;
+  northflankRunId: string;
+  northflankRunName: string;
 }
 
 export interface CvDocument {

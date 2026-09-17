@@ -1,11 +1,12 @@
 import { chromium } from "patchright";
-import { sessions, indeedPopups } from "./worker-context.js";
+import { isHostname, sessions, indeedPopups } from "./worker-context.js";
 import { reclaimProfileDir, resolveChromiumExec } from "./worker-lifecycle.js";
 import { attachDiagnostics } from "../capture/capture.js";
 import { CAPTURE_ENABLED } from "../capture/capture-config.js";
 import {
   LOGIN_PROBES,
   classifyLogin,
+  classifyPlatformUrl,
   sanitizeProbeError,
   sanitizeProbeUrl,
   selectLoginProbeSites,
@@ -13,6 +14,7 @@ import {
 
 export {
   classifyLogin,
+  classifyPlatformUrl,
   sanitizeProbeError,
   selectLoginProbeSites,
 } from "../auth/auth-classification.js";
@@ -25,21 +27,16 @@ export async function cmdCheckLogin({ user_data_dir }) {
   return probeFreshLogin(user_data_dir);
 }
 
-const isLoggedInUrl = (url) => !/\/login|\/authwall|\/checkpoint|\/uas\/login/.test(url);
-
 async function probeExistingLogin(browser) {
-  let probe;
+  const probe = findExistingLoginPage(browser, "https://www.linkedin.com/feed/");
+  const page = probe ?? (await browser.newPage());
   try {
-    probe = await browser.newPage();
-    await probe.goto("https://www.linkedin.com/feed/", {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    return { logged_in: isLoggedInUrl(probe.url()) };
+    await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
+    return { logged_in: classifyPlatformUrl("linkedin", page.url()) === "valid" };
   } catch {
     return { logged_in: false };
   } finally {
-    if (probe) await probe.close().catch(() => {});
+    if (!probe) await page.close().catch(() => {});
   }
 }
 
@@ -54,11 +51,8 @@ async function probeFreshLogin(userDataDir) {
       executablePath: resolvedExec,
     });
     const page = browser.pages()[0] ?? (await browser.newPage());
-    await page.goto("https://www.linkedin.com/feed/", {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
-    return { logged_in: isLoggedInUrl(page.url()) };
+    await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
+    return { logged_in: classifyPlatformUrl("linkedin", page.url()) === "valid" };
   } catch {
     return { logged_in: false };
   } finally {
@@ -84,11 +78,10 @@ export async function cmdOpenLoginTabs({ handle, sites }) {
   );
   const opened = [];
   for (let i = 0; i < wanted.length; i++) {
-    const p = i === 0 ? page : await browser.newPage();
-    if (CAPTURE_ENABLED) attachDiagnostics(p);
-    await p
-      .goto(LOGIN_URLS[wanted[i]], { waitUntil: "domcontentloaded", timeout: 45_000 })
-      .catch(() => {});
+    const existingPage = findExistingLoginPage(browser, LOGIN_URLS[wanted[i]]);
+    const p = existingPage ?? (i === 0 ? page : await browser.newPage());
+    if (!existingPage && CAPTURE_ENABLED) attachDiagnostics(p);
+    await navigateLoginProbe(p, LOGIN_URLS[wanted[i]], 45_000).catch(() => {});
     opened.push(wanted[i]);
   }
   return { opened };
@@ -137,18 +130,36 @@ async function checkBrowserLogins(browser, sharedPage, result, sites) {
 
 async function probeLogin(browser, site, sharedPage, result) {
   const { url, out } = LOGIN_PROBES[site];
-  const tab = sharedPage ?? (await browser.newPage());
+  const existingPage = findExistingLoginPage(browser, url);
+  const tab = existingPage ?? sharedPage ?? (await browser.newPage());
+  const ownsPage = !existingPage && !sharedPage;
   try {
-    await tab.goto(url, { waitUntil: "commit", timeout: 30_000 });
+    await navigateLoginProbe(tab, url);
     const currentUrl = tab.url();
     result.platform_status[site] = classifyLogin(currentUrl, out);
     result.status[site] = result.platform_status[site] === "valid";
-    await tab.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => {});
   } catch (error) {
     recordProbeFailure(result, site, error, tab);
   } finally {
-    if (!sharedPage) await tab.close().catch(() => {});
+    if (ownsPage) await tab.close().catch(() => {});
   }
+}
+
+function findExistingLoginPage(browser, probeUrl) {
+  const host = new URL(probeUrl).hostname;
+  return browser.pages().find((page) => {
+    if (page.isClosed()) return false;
+    try {
+      return isHostname(page.url(), host);
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function navigateLoginProbe(page, url, timeout = 30_000) {
+  if (isHostname(page.url(), new URL(url).hostname)) return;
+  await page.goto(url, { waitUntil: "commit", timeout });
 }
 
 function recordProbeFailure(result, site, error, tab) {

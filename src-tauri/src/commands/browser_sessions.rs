@@ -13,8 +13,15 @@ use crate::storage::postgres_browser_sessions::ProfileSessionLock;
 #[cfg(feature = "real-browser")]
 use crate::storage::session_crypto;
 
-#[cfg(feature = "real-browser")]
 const STORAGE_STATE_VERSION: i32 = 1;
+
+fn validated_profile_id(profile_id: &str) -> Result<&str, String> {
+    let trimmed = profile_id.trim();
+    if trimmed.is_empty() {
+        return Err("profile_id is required".to_owned());
+    }
+    Ok(trimmed)
+}
 
 fn shared_db(state: &crate::AppState) -> Result<&sqlx::PgPool, String> {
     state
@@ -81,7 +88,8 @@ pub async fn browser_session_status(
     state: tauri::State<'_, crate::AppState>,
     profile_id: String,
 ) -> Result<Option<BrowserSessionMetadata>, String> {
-    postgres::get_browser_session_metadata(shared_db(&state)?, &profile_id)
+    let profile_id = validated_profile_id(&profile_id)?;
+    postgres::get_browser_session_metadata(shared_db(&state)?, profile_id)
         .await
         .map_err(|error| error.to_string())
 }
@@ -91,21 +99,22 @@ pub async fn sync_browser_session(
     state: tauri::State<'_, crate::AppState>,
     profile_id: String,
 ) -> Result<BrowserSessionMetadata, String> {
+    let profile_id = validated_profile_id(&profile_id)?;
     #[cfg(feature = "real-browser")]
     {
         use crate::storage::paths::automation_profile_dir;
 
         let pool = shared_db(&state)?;
-        let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
+        let Some(lock) = postgres::try_lock_profile(pool, profile_id)
             .await
             .map_err(|error| error.to_string())?
         else {
             return Err("browser session is busy".to_owned());
         };
-        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+        let user_data_dir = automation_profile_dir(&state.paths.data_dir, profile_id)
             .to_string_lossy()
             .into_owned();
-        let result = sync_locked(&state, pool, &profile_id, &user_data_dir).await;
+        let result = sync_locked(&state, pool, profile_id, &user_data_dir).await;
         release_lock(lock, result).await
     }
     #[cfg(not(feature = "real-browser"))]
@@ -150,20 +159,21 @@ pub async fn validate_browser_session(
     state: tauri::State<'_, crate::AppState>,
     profile_id: String,
 ) -> Result<BrowserSessionMetadata, String> {
+    let profile_id = validated_profile_id(&profile_id)?;
     #[cfg(feature = "real-browser")]
     {
         use crate::storage::paths::automation_profile_dir;
         let pool = shared_db(&state)?;
-        let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
+        let Some(lock) = postgres::try_lock_profile(pool, profile_id)
             .await
             .map_err(|error| error.to_string())?
         else {
             return Err("browser session is busy".to_owned());
         };
-        let user_data_dir = automation_profile_dir(&state.paths.data_dir, &profile_id)
+        let user_data_dir = automation_profile_dir(&state.paths.data_dir, profile_id)
             .to_string_lossy()
             .into_owned();
-        let result = validate_locked(&state, pool, &profile_id, &user_data_dir).await;
+        let result = validate_locked(&state, pool, profile_id, &user_data_dir).await;
         release_lock(lock, result).await
     }
     #[cfg(not(feature = "real-browser"))]
@@ -252,14 +262,15 @@ pub async fn revoke_browser_session(
     state: tauri::State<'_, crate::AppState>,
     profile_id: String,
 ) -> Result<Option<BrowserSessionMetadata>, String> {
+    let profile_id = validated_profile_id(&profile_id)?;
     let pool = shared_db(&state)?;
-    let Some(lock) = postgres::try_lock_profile(pool, &profile_id)
+    let Some(lock) = postgres::try_lock_profile(pool, profile_id)
         .await
         .map_err(|error| error.to_string())?
     else {
         return Err("browser session is busy".to_owned());
     };
-    let result = postgres::revoke_browser_session(pool, &profile_id)
+    let result = postgres::revoke_browser_session(pool, profile_id)
         .await
         .map_err(|error| error.to_string());
     let release = lock.release().await.map_err(|error| error.to_string());
@@ -280,6 +291,8 @@ pub struct CloudRunInput {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudRunReceipt {
+    pub profile_id: String,
+    pub session_revision: i64,
     pub search_run_id: String,
     pub northflank_run_id: String,
     pub northflank_run_name: String,
@@ -288,16 +301,19 @@ pub struct CloudRunReceipt {
 #[tauri::command]
 pub async fn trigger_cloud_run(
     state: tauri::State<'_, crate::AppState>,
-    input: CloudRunInput,
+    mut input: CloudRunInput,
 ) -> Result<CloudRunReceipt, String> {
+    input.profile_id = validated_profile_id(&input.profile_id)?.to_owned();
     let pool = shared_db(&state)?;
     let platform = input.query_plan.get("platform").and_then(Value::as_str);
-    ensure_cloud_session(pool, &input.profile_id, platform).await?;
+    let session = ensure_cloud_session(pool, &input.profile_id, platform).await?;
     let config = NorthflankConfig::from_env()?;
     let search_run_id = create_search_run(pool, &input).await?;
     let (northflank_run_id, northflank_run_name) =
         trigger_and_record_failure(pool, &config, &search_run_id).await?;
     Ok(CloudRunReceipt {
+        profile_id: input.profile_id,
+        session_revision: session.revision,
         search_run_id,
         northflank_run_id,
         northflank_run_name,
@@ -326,11 +342,40 @@ async fn ensure_cloud_session(
     pool: &sqlx::PgPool,
     profile_id: &str,
     platform: Option<&str>,
-) -> Result<(), String> {
+) -> Result<BrowserSessionMetadata, String> {
+    let profile_id = validated_profile_id(profile_id)?;
     let session = postgres::get_browser_session_metadata(pool, profile_id)
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "cloud browser session is not synchronized".to_owned())?;
+    validate_cloud_session(&session, profile_id, platform)?;
+    Ok(session)
+}
+
+fn validate_cloud_session(
+    session: &BrowserSessionMetadata,
+    profile_id: &str,
+    platform: Option<&str>,
+) -> Result<(), String> {
+    let profile_id = validated_profile_id(profile_id)?;
+    if session.profile_id != profile_id {
+        return Err("cloud browser session profile mismatch".to_owned());
+    }
+    if session.encrypted_state_bytes <= 0 {
+        return Err("cloud browser session has no encrypted state".to_owned());
+    }
+    if session.encryption_version != crate::storage::session_crypto::ENCRYPTION_VERSION {
+        return Err(format!(
+            "unsupported session encryption version: {}",
+            session.encryption_version
+        ));
+    }
+    if session.state_format_version != STORAGE_STATE_VERSION {
+        return Err(format!(
+            "unsupported storage state version: {}",
+            session.state_format_version
+        ));
+    }
     let status = target_session_status(&session.status, &session.platform_status, platform);
     if status != "valid" {
         return Err(format!(
@@ -507,5 +552,83 @@ mod tests {
             target_session_status("valid", &statuses, Some("google")),
             "valid"
         );
+    }
+
+    fn valid_cloud_session() -> BrowserSessionMetadata {
+        BrowserSessionMetadata {
+            id: "session-fixture".to_owned(),
+            profile_id: "default".to_owned(),
+            encryption_version: crate::storage::session_crypto::ENCRYPTION_VERSION,
+            state_format_version: STORAGE_STATE_VERSION,
+            revision: 8,
+            status: "valid".to_owned(),
+            encrypted_state_bytes: 201_625,
+            platform_status: json!({ "linkedin": "valid" }),
+            created_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            last_validated_at: None,
+        }
+    }
+
+    #[test]
+    fn cloud_session_preflight_requires_real_profile_and_ciphertext() {
+        let session = valid_cloud_session();
+        assert_eq!(
+            validate_cloud_session(&session, " ", Some("linkedin")),
+            Err("profile_id is required".to_owned())
+        );
+
+        let mut empty = session.clone();
+        empty.encrypted_state_bytes = 0;
+        assert_eq!(
+            validate_cloud_session(&empty, "default", Some("linkedin")),
+            Err("cloud browser session has no encrypted state".to_owned())
+        );
+
+        assert_eq!(
+            validate_cloud_session(&session, "work", Some("linkedin")),
+            Err("cloud browser session profile mismatch".to_owned())
+        );
+    }
+
+    #[test]
+    fn cloud_session_preflight_requires_supported_versions_and_target_status() {
+        let session = valid_cloud_session();
+        let mut wrong_encryption = session.clone();
+        wrong_encryption.encryption_version = 99;
+        assert!(
+            validate_cloud_session(&wrong_encryption, "default", Some("linkedin"))
+                .unwrap_err()
+                .contains("unsupported session encryption version")
+        );
+
+        let mut wrong_state = session.clone();
+        wrong_state.state_format_version = 99;
+        assert!(
+            validate_cloud_session(&wrong_state, "default", Some("linkedin"))
+                .unwrap_err()
+                .contains("unsupported storage state version")
+        );
+
+        let mut challenged = session;
+        challenged.platform_status = json!({ "linkedin": "challenged" });
+        assert_eq!(
+            validate_cloud_session(&challenged, "default", Some("linkedin")),
+            Err("cloud browser session is not valid for linkedin: challenged".to_owned())
+        );
+    }
+
+    #[test]
+    fn cloud_run_receipt_includes_profile_and_session_revision() {
+        let value = serde_json::to_value(CloudRunReceipt {
+            profile_id: "default".to_owned(),
+            session_revision: 8,
+            search_run_id: "search-fixture".to_owned(),
+            northflank_run_id: "run-fixture".to_owned(),
+            northflank_run_name: "hiremeops-fixture".to_owned(),
+        })
+        .unwrap();
+        assert_eq!(value["profileId"], "default");
+        assert_eq!(value["sessionRevision"], 8);
     }
 }

@@ -347,7 +347,7 @@ function CommandCenterVariantView({
               {opening ? "Opening…" : "Open all logins"}
             </Button>
 
-            {variant.showReference ? <CloudSessionPanel profileId={activeProfileId} /> : null}
+            {variant.showReference ? <CloudSessionPanel /> : null}
 
             <Switch
               checked={autoConnect}
