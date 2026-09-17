@@ -63,6 +63,8 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(shouldRefreshInvalidStatus("worker_command_timeout"), false);
     assert.equal(shouldRefreshInvalidStatus("worker_exited"), false);
     assert.equal(shouldRefreshInvalidStatus("session_revision_conflict"), false);
+    assert.equal(shouldRefreshInvalidStatus("linkedin_document_not_ready"), false);
+    assert.equal(shouldRefreshInvalidStatus("linkedin_results_not_loaded"), false);
   });
 
   it("merges target status without deleting other platforms", () => {
@@ -125,6 +127,7 @@ describe("cloud runner dispatch boundary", () => {
         first: () => ({ click: async () => {}, isVisible: async () => false }),
       }),
       waitForSelector: async () => {},
+      waitForLoadState: async () => {},
       waitForTimeout: async () => {},
       evaluate: async () =>
         page.evaluateCalls++ === 0

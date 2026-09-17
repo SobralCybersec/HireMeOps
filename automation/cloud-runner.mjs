@@ -458,7 +458,11 @@ async function executeCloudRun(context) {
 function cloudErrorCode(error) {
   if (error instanceof CloudRunnerError) return error.code;
   const code = error?.code;
-  return ["linkedin_results_not_loaded", "cloud_results_invalid"].includes(code)
+  return [
+    "linkedin_document_not_ready",
+    "linkedin_results_not_loaded",
+    "cloud_results_invalid",
+  ].includes(code)
     ? code
     : "cloud_run_failed";
 }
@@ -471,6 +475,8 @@ const RECORDED_AUTH_FAILURES = new Set([
   "worker_exited",
   "cloud_operation_timeout",
   "memory_budget_exceeded",
+  "linkedin_document_not_ready",
+  "linkedin_results_not_loaded",
 ]);
 
 export function shouldRefreshInvalidStatus(code) {

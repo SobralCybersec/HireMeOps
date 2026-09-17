@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { JSDOM } from "jsdom";
-import { fetchLinkedInJobDetail, waitForLinkedInSearchState } from "./worker-linkedin.js";
+import {
+  classifyLinkedInReadinessError,
+  fetchLinkedInJobDetail,
+  waitForLinkedInSearchState,
+} from "./worker-linkedin.js";
 import {
   classifyLinkedInSearchState,
   extractLinkedInCardsFromDocument,
@@ -66,6 +70,15 @@ describe("LinkedIn search readiness", () => {
     expect(classifyLinkedInSearchState({ jobViewLinks: 2 })).toBe("results");
     expect(classifyLinkedInSearchState({ noResultsBanners: 1 })).toBe("empty");
     expect(classifyLinkedInSearchState({ bodyTextLength: 500 })).toBe("not_loaded");
+  });
+
+  it("separates a document that never became ready from an unknown loaded DOM", () => {
+    expect(classifyLinkedInReadinessError({ readyState: "loading", bodyTextLength: 0 })).toBe(
+      "linkedin_document_not_ready",
+    );
+    expect(classifyLinkedInReadinessError({ readyState: "complete", bodyTextLength: 12 })).toBe(
+      "linkedin_results_not_loaded",
+    );
   });
 
   it("keeps unknown DOM distinct from confirmed empty", async () => {

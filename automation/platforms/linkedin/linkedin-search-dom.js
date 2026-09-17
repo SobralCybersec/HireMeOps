@@ -27,6 +27,7 @@ export function inspectLinkedInSearchDocument() {
     noResultsBanners: Array.from(document.querySelectorAll(noResultsSelector)).filter(visible)
       .length,
     bodyTextLength: document.body?.innerText?.length ?? 0,
+    documentHtmlLength: document.documentElement?.outerHTML?.length ?? 0,
   };
 }
 

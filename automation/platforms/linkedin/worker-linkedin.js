@@ -1,5 +1,5 @@
 import { session } from "../../core/worker/worker-context.js";
-import { classifyPlatformUrl } from "../../core/auth/auth-classification.js";
+import { classifyPlatformUrl, sanitizeProbeUrl } from "../../core/auth/auth-classification.js";
 import {
   classifyLinkedInSearchState,
   extractLinkedInCardsFromDocument,
@@ -52,11 +52,31 @@ async function readLinkedInSearchDiagnostics(page) {
   return page.evaluate(inspectLinkedInSearchDocument);
 }
 
-function linkedInSearchError(diagnostics) {
-  const error = new Error("linkedin_results_not_loaded");
-  error.code = "linkedin_results_not_loaded";
+function linkedInSearchError(diagnostics, code = "linkedin_results_not_loaded") {
+  const error = new Error(code);
+  error.code = code;
   error.diagnostics = diagnostics;
   return error;
+}
+
+function linkedInNavigationTimeout() {
+  return process.env.HIREMEOPS_CLOUD === "1" ? 30_000 : 15_000;
+}
+
+export function classifyLinkedInReadinessError(diagnostics) {
+  return diagnostics?.readyState === "loading" && diagnostics?.bodyTextLength === 0
+    ? "linkedin_document_not_ready"
+    : "linkedin_results_not_loaded";
+}
+
+function navigationMetadata(response) {
+  if (!response) return { navigationStatus: null, navigationContentType: null };
+  try {
+    const contentType = response.headers?.()["content-type"]?.split(";", 1)[0] ?? null;
+    return { navigationStatus: response.status?.() ?? null, navigationContentType: contentType };
+  } catch {
+    return { navigationStatus: null, navigationContentType: null };
+  }
 }
 
 function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
@@ -69,7 +89,7 @@ function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
 }
 
 async function openLinkedInSearch(page, url) {
-  await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
+  const response = await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
   const currentUrl = page.url();
   const authStatus = classifyPlatformUrl("linkedin", currentUrl);
   if (authStatus === "login_required") {
@@ -90,16 +110,29 @@ async function openLinkedInSearch(page, url) {
     .first()
     .click({ timeout: 2_000 })
     .catch(() => {});
-  const readiness = await waitForLinkedInSearchState(page);
+  await page
+    .waitForLoadState("domcontentloaded", {
+      timeout: linkedInNavigationTimeout(),
+    })
+    .catch(() => {});
+  const readiness = await waitForLinkedInSearchState(page, {
+    timeout: linkedInNavigationTimeout(),
+  });
   const { url: diagnosticUrl, ...metadata } = readiness.diagnostics;
   process.stderr.write(
     `[linkedin-search] ${JSON.stringify({
       state: readiness.state,
-      url: diagnosticUrl ? diagnosticUrl.replace(/[?#].*$/, "") : "[unavailable]",
+      ...navigationMetadata(response),
+      finalUrl: sanitizeProbeUrl(diagnosticUrl),
       ...metadata,
     })}\n`,
   );
-  if (readiness.state === "not_loaded") throw linkedInSearchError(readiness.diagnostics);
+  if (readiness.state === "not_loaded") {
+    throw linkedInSearchError(
+      readiness.diagnostics,
+      classifyLinkedInReadinessError(readiness.diagnostics),
+    );
+  }
   return readiness;
 }
 
