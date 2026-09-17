@@ -70,23 +70,33 @@ function cgroupValue(...names) {
 }
 
 export function readCgroupMemoryLimits() {
+  const stat = readKeyValues(cgroupFile("memory.stat"));
+  const current = cgroupValue("memory.current", "memory/memory.usage_in_bytes");
+  const inactiveFile = stat.inactive_file;
   return {
-    current: cgroupValue("memory.current", "memory/memory.usage_in_bytes"),
+    current,
     max: cgroupValue("memory.max", "memory/memory.limit_in_bytes"),
+    workingSet:
+      current == null || inactiveFile == null ? current : Math.max(0, current - inactiveFile),
+    inactiveFile: inactiveFile ?? null,
+    activeFile: stat.active_file ?? null,
+    slabReclaimable: stat.slab_reclaimable ?? null,
+    slabUnreclaimable: stat.slab_unreclaimable ?? null,
+    stat,
   };
 }
 
 function cgroupMemory() {
   const limits = readCgroupMemoryLimits();
   return {
+    ...limits,
     current: limits.current,
     peak: cgroupValue("memory.peak", "memory/memory.max_usage_in_bytes"),
     max: limits.max,
   };
 }
 
-function cgroupMemoryStat() {
-  const raw = readKeyValues(cgroupFile("memory.stat"));
+function cgroupMemoryStat(raw) {
   const kernel =
     raw.kernel ??
     ["kernel_stack", "pagetables", "slab", "sock"].reduce(
@@ -97,10 +107,14 @@ function cgroupMemoryStat() {
     anonMb: bytesToMb(raw.anon),
     fileMb: bytesToMb(raw.file),
     shmemMb: bytesToMb(raw.shmem),
+    inactiveFileMb: bytesToMb(raw.inactive_file),
+    activeFileMb: bytesToMb(raw.active_file),
     kernelMb: bytesToMb(kernel),
     kernelStackMb: bytesToMb(raw.kernel_stack),
     pagetablesMb: bytesToMb(raw.pagetables),
     slabMb: bytesToMb(raw.slab),
+    slabReclaimableMb: bytesToMb(raw.slab_reclaimable),
+    slabUnreclaimableMb: bytesToMb(raw.slab_unreclaimable),
     sockMb: bytesToMb(raw.sock),
   };
 }
@@ -217,6 +231,13 @@ function collectProcessMemory(pids) {
   return { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType };
 }
 
+export function chromiumProcessCount() {
+  return processTree(process.pid).filter((pid) => {
+    if (isZombie(pid)) return false;
+    return chromiumType(pid, processName(pid), processCommandLine(pid)) != null;
+  }).length;
+}
+
 function mb(value) {
   return +(value / 1024).toFixed(1);
 }
@@ -226,8 +247,9 @@ export function memorySnapshot(stage) {
   const { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType } =
     collectProcessMemory(pids);
   const cgroup = cgroupMemory();
-  const stat = cgroupMemoryStat();
+  const stat = cgroupMemoryStat(cgroup.stat);
   const events = cgroupMemoryEvents();
+  const toMb = (value) => (value == null ? null : +(value / BYTES_PER_MB).toFixed(1));
   return {
     stage,
     at: new Date().toISOString(),
@@ -239,10 +261,16 @@ export function memorySnapshot(stage) {
     ),
     otherProcessPssMb: mb(otherPss),
     cgroupCurrentMb: cgroup.current == null ? null : +(cgroup.current / BYTES_PER_MB).toFixed(1),
+    cgroupWorkingSetMb: toMb(cgroup.workingSet),
+    inactiveFileMb: toMb(cgroup.inactiveFile),
+    activeFileMb: toMb(cgroup.activeFile),
+    slabReclaimableMb: toMb(cgroup.slabReclaimable),
+    slabUnreclaimableMb: toMb(cgroup.slabUnreclaimable),
     cgroupPeakMb: cgroup.peak == null ? null : +(cgroup.peak / BYTES_PER_MB).toFixed(1),
     cgroupMaxMb: cgroup.max == null ? null : +(cgroup.max / BYTES_PER_MB).toFixed(1),
     cgroup: {
       currentMb: cgroup.current == null ? null : +(cgroup.current / BYTES_PER_MB).toFixed(1),
+      workingSetMb: toMb(cgroup.workingSet),
       peakMb: cgroup.peak == null ? null : +(cgroup.peak / BYTES_PER_MB).toFixed(1),
       maxMb: cgroup.max == null ? null : +(cgroup.max / BYTES_PER_MB).toFixed(1),
       stat,

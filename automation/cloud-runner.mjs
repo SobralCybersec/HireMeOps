@@ -251,6 +251,8 @@ function cloudConfig(runId) {
 function createMemoryRecorder(report) {
   const record = (stage) => {
     const snapshot = memorySnapshot(stage);
+    snapshot.guardReason = report.guardReason;
+    snapshot.pressureSamples = report.pressureSamples;
     report.stages.push(snapshot);
     process.stderr.write(`[cloud-memory] ${JSON.stringify(snapshot)}\n`);
   };
@@ -258,7 +260,12 @@ function createMemoryRecorder(report) {
 }
 
 function cloudContext(config, pool) {
-  const report = { runId: config.runId, stages: [] };
+  const report = {
+    runId: config.runId,
+    stages: [],
+    guardReason: null,
+    pressureSamples: 0,
+  };
   return {
     ...config,
     pool,
@@ -304,14 +311,19 @@ async function openCloudBrowser(context, storageState) {
   context.memoryGuard = createCgroupMemoryGuard({
     ratio: memorySoftLimitRatio(),
     intervalMs: 500,
-    onLimit: async ({ current, max }) => {
+    onLimit: async ({ current, max, workingSet, reason, pressureSamples }) => {
+      report.guardReason = reason;
+      report.pressureSamples = pressureSamples;
       context.memoryBudgetExceeded = true;
       context.report.memoryBudgetExceeded = {
         currentMb: memoryMb(current),
         maxMb: memoryMb(max),
+        workingSetMb: memoryMb(workingSet),
+        reason,
+        pressureSamples,
       };
       process.stderr.write(
-        `[cloud-memory] budget-exceeded currentMb=${memoryMb(current)} maxMb=${memoryMb(max)}\n`,
+        `[cloud-memory] budget-exceeded reason=${reason} currentMb=${memoryMb(current)} workingSetMb=${memoryMb(workingSet)} maxMb=${memoryMb(max)} samples=${pressureSamples}\n`,
       );
       await closeCloudRuntime(context);
     },

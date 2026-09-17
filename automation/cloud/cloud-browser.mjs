@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { chromium } from "patchright";
 import { cloudLaunchOptions } from "../core/browser/browser-launch.js";
+import { chromiumProcessCount } from "../cloud-memory.mjs";
 
 const DEFAULT_EXECUTABLES = ["/usr/bin/chromium-headless-shell", "/usr/bin/chromium"];
 
@@ -48,8 +49,13 @@ export async function openCloudBrowser(
 }
 
 export async function closeCloudBrowser(runtime) {
+  if (!runtime) return;
   await runtime?.context?.close().catch(() => {});
   await runtime?.browser?.close().catch(() => {});
+  const deadline = Date.now() + 3_000;
+  while (chromiumProcessCount() > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 export function cloudBrowserOptions() {

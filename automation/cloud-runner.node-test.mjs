@@ -85,7 +85,11 @@ describe("cloud runner crypto boundary", () => {
   });
 
   it("keeps memory diagnostics metadata-only", () => {
-    const log = JSON.stringify(memorySnapshot("fixture"));
+    const snapshot = memorySnapshot("fixture");
+    const log = JSON.stringify(snapshot);
+    assert.ok("cgroupWorkingSetMb" in snapshot);
+    assert.ok("inactiveFileMb" in snapshot);
+    assert.ok("slabReclaimableMb" in snapshot);
     assert.doesNotMatch(log, /cookies|authorization|storageState|indexedDB|token/i);
   });
 });
@@ -145,24 +149,56 @@ describe("cloud runner lifecycle boundary", () => {
     assert.equal(closed, true);
   });
 
-  it("trips memory guard only above configured cgroup ratio", async () => {
+  it("trips memory guard only after sustained working-set pressure", async () => {
     let current = 89;
+    let workingSet = 89;
     let tripped = 0;
+    let reason;
     const guard = createCgroupMemoryGuard({
       ratio: 0.9,
       intervalMs: 60_000,
-      readMemory: () => ({ current, max: 100 }),
-      onLimit: async () => {
+      readMemory: () => ({ current, workingSet, max: 100 }),
+      onLimit: async (details) => {
         tripped += 1;
+        reason = details.reason;
       },
     });
     await guard.check();
     assert.equal(tripped, 0);
     current = 91;
+    workingSet = 50;
+    await guard.check();
+    await guard.check();
+    assert.equal(tripped, 0);
+    workingSet = 91;
+    await guard.check();
     await guard.check();
     await guard.check();
     guard.stop();
     assert.equal(tripped, 1);
+    assert.equal(reason, "working_set_sustained");
+  });
+
+  it("requires two hard-limit samples even when cache is reclaimable", async () => {
+    let tripped = 0;
+    let reason;
+    const guard = createCgroupMemoryGuard({
+      ratio: 0.9,
+      hardRatio: 0.998,
+      intervalMs: 60_000,
+      readMemory: () => ({ current: 100, workingSet: 40, max: 100 }),
+      sustainedSamples: 99,
+      onLimit: async (details) => {
+        tripped += 1;
+        reason = details.reason;
+      },
+    });
+    await guard.check();
+    assert.equal(tripped, 0);
+    await guard.check();
+    guard.stop();
+    assert.equal(tripped, 1);
+    assert.equal(reason, "cgroup_hard_limit");
   });
 
   it("keeps cloud runner single-process and free of persistent profile calls", async () => {
