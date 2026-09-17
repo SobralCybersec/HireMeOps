@@ -218,6 +218,12 @@ async function persistResults(pool, row, result, platform) {
   return count;
 }
 
+export function cloudResultCount(command, result) {
+  if (command !== "search_jobs") return null;
+  if (!Array.isArray(result?.jobs)) throw new CloudRunnerError("cloud_results_invalid");
+  return result.jobs.length;
+}
+
 export async function persistRefreshedState(pool, row, encrypted, platformStatus) {
   const mergedStatus = mergePlatformStatuses(row.platform_status, platformStatus);
   const { rowCount } = await pool.query(
@@ -265,6 +271,8 @@ function cloudContext(config, pool) {
     stages: [],
     guardReason: null,
     pressureSamples: 0,
+    resultCount: null,
+    persistedCount: null,
   };
   return {
     ...config,
@@ -312,8 +320,8 @@ async function openCloudBrowser(context, storageState) {
     ratio: memorySoftLimitRatio(),
     intervalMs: 500,
     onLimit: async ({ current, max, workingSet, reason, pressureSamples }) => {
-      report.guardReason = reason;
-      report.pressureSamples = pressureSamples;
+      context.report.guardReason = reason;
+      context.report.pressureSamples = pressureSamples;
       context.memoryBudgetExceeded = true;
       context.report.memoryBudgetExceeded = {
         currentMb: memoryMb(current),
@@ -405,10 +413,23 @@ async function executeCloudRun(context) {
   const platform = context.row.query_plan?.platform;
   const request = buildOperationRequest(context.row.query_plan, context.handle);
   let result = await executeCloudOperation(context, request, platform);
+  const resultCount = cloudResultCount(request.cmd, result);
+  context.report.resultCount = resultCount;
   assertMemoryBudget(context);
   await recordOperationStatus(context, platform);
   context.record("post-navigation");
   const persistedCount = await persistResults(pool, context.row, result, platform ?? "unknown");
+  context.report.persistedCount = persistedCount;
+  process.stderr.write(
+    `[cloud-results] ${JSON.stringify({
+      operation: request.cmd,
+      resultCount,
+      persistedCount,
+    })}\n`,
+  );
+  if (request.cmd === "search_jobs" && resultCount > 0 && persistedCount === 0) {
+    throw new CloudRunnerError("cloud_results_not_persisted");
+  }
   context.record("scraping-peak");
   result = null;
   assertMemoryBudget(context);
@@ -424,11 +445,22 @@ async function executeCloudRun(context) {
     ...(authPlatform ? { [authPlatform]: "valid" } : {}),
   });
   await updateRun(pool, runId, "completed");
-  return { runId, status: "completed", results: persistedCount, memory: context.report };
+  return {
+    runId,
+    status: "completed",
+    results: persistedCount,
+    resultCount,
+    persistedCount,
+    memory: context.report,
+  };
 }
 
 function cloudErrorCode(error) {
-  return error instanceof CloudRunnerError ? error.code : "cloud_run_failed";
+  if (error instanceof CloudRunnerError) return error.code;
+  const code = error?.code;
+  return ["linkedin_results_not_loaded", "cloud_results_invalid"].includes(code)
+    ? code
+    : "cloud_run_failed";
 }
 
 const RECORDED_AUTH_FAILURES = new Set([

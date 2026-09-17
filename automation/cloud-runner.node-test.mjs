@@ -7,6 +7,7 @@ import { sessions } from "./core/worker/worker-context.js";
 import {
   CloudRunnerError,
   buildOperationRequest,
+  cloudResultCount,
   decryptSessionState,
   encryptSessionState,
   mergePlatformStatus,
@@ -104,6 +105,12 @@ describe("cloud runner dispatch boundary", () => {
         keywords: "Rust",
       },
     );
+    assert.equal(cloudResultCount("search_jobs", { jobs: [] }), 0);
+    assert.equal(cloudResultCount("search_indeed_jobs", { jobs: [] }), null);
+    assert.throws(
+      () => cloudResultCount("search_jobs", {}),
+      (error) => error instanceof CloudRunnerError && error.code === "cloud_results_invalid",
+    );
     assert.throws(
       () => buildOperationRequest({ command: "arbitrary", args: {} }, "h"),
       (error) => error instanceof CloudRunnerError && error.code === "unsupported_operation",
@@ -114,10 +121,23 @@ describe("cloud runner dispatch boundary", () => {
     const page = {
       goto: async () => {},
       url: () => "https://www.linkedin.com/jobs/search/",
-      locator: () => ({ first: () => ({ click: async () => {} }) }),
+      locator: () => ({
+        first: () => ({ click: async () => {}, isVisible: async () => false }),
+      }),
       waitForSelector: async () => {},
       waitForTimeout: async () => {},
-      evaluate: async () => (page.evaluateCalls++ === 0 ? false : []),
+      evaluate: async () =>
+        page.evaluateCalls++ === 0
+          ? {
+              url: "https://www.linkedin.com/jobs/search/",
+              title: "Jobs",
+              readyState: "complete",
+              occludableCards: 1,
+              jobViewLinks: 1,
+              noResultsBanners: 0,
+              bodyTextLength: 40,
+            }
+          : [{ job_id: null, title: "Synthetic role", apply_url: "https://fixture.invalid/job" }],
       evaluateCalls: 0,
     };
     sessions.set("cloud-dispatch-fixture", {

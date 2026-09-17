@@ -1,18 +1,23 @@
 import { session } from "../../core/worker/worker-context.js";
 import { classifyPlatformUrl } from "../../core/auth/auth-classification.js";
+import {
+  classifyLinkedInSearchState,
+  extractLinkedInCardsFromDocument,
+  inspectLinkedInSearchDocument,
+} from "./linkedin-search-dom.js";
 
 export async function cmdSearchJobs(config) {
   const { handle, keywords = "", location = "", page_index = 0, filters = {} } = config;
   const sess = session(handle);
   const { page } = sess;
   const url = buildLinkedInSearchUrl({ keywords, location, pageIndex: page_index, filters });
-  const noResults = await openLinkedInSearch(page, url);
-  if (noResults) return { jobs: [], has_next_page: false };
+  const searchState = await openLinkedInSearch(page, url);
+  if (searchState.state === "empty") return { jobs: [], has_next_page: false };
 
   await page.waitForTimeout(400 + Math.floor(Math.random() * 400));
   const jobs = await readLinkedInCards(page);
+  if (jobs.length === 0) throw linkedInSearchError(searchState.diagnostics);
   await enrichLinkedInJobs(page, sess.browser, jobs);
-  if (jobs.length === 0) return { jobs, has_next_page: false };
 
   const hasNextPage = await page
     .locator(
@@ -26,6 +31,32 @@ export async function cmdSearchJobs(config) {
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
   return { jobs, has_next_page: hasNextPage };
+}
+
+export async function waitForLinkedInSearchState(
+  page,
+  { timeout = 15_000, pollInterval = 250 } = {},
+) {
+  const deadline = Date.now() + Math.max(0, timeout);
+  let diagnostics = await readLinkedInSearchDiagnostics(page);
+  let state = classifyLinkedInSearchState(diagnostics);
+  while (state === "not_loaded" && Date.now() < deadline) {
+    await page.waitForTimeout(Math.min(pollInterval, deadline - Date.now()));
+    diagnostics = await readLinkedInSearchDiagnostics(page);
+    state = classifyLinkedInSearchState(diagnostics);
+  }
+  return { state, diagnostics };
+}
+
+async function readLinkedInSearchDiagnostics(page) {
+  return page.evaluate(inspectLinkedInSearchDocument);
+}
+
+function linkedInSearchError(diagnostics) {
+  const error = new Error("linkedin_results_not_loaded");
+  error.code = "linkedin_results_not_loaded";
+  error.diagnostics = diagnostics;
+  return error;
 }
 
 function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
@@ -59,78 +90,21 @@ async function openLinkedInSearch(page, url) {
     .first()
     .click({ timeout: 2_000 })
     .catch(() => {});
-  await Promise.race([
-    page.waitForSelector("li[data-occludable-job-id]", { timeout: 15_000 }).catch(() => {}),
-    page
-      .waitForSelector(".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner", {
-        timeout: 15_000,
-      })
-      .catch(() => {}),
-  ]);
-  return page.evaluate(() => {
-    const banner = document.querySelector(
-      ".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner",
-    );
-    const text = document.body?.innerText ?? "";
-    return (
-      !!banner ||
-      /Nenhuma vaga corresponde|No matching jobs|No results found|Aucune offre/i.test(text)
-    );
-  });
+  const readiness = await waitForLinkedInSearchState(page);
+  const { url: diagnosticUrl, ...metadata } = readiness.diagnostics;
+  process.stderr.write(
+    `[linkedin-search] ${JSON.stringify({
+      state: readiness.state,
+      url: diagnosticUrl ? diagnosticUrl.replace(/[?#].*$/, "") : "[unavailable]",
+      ...metadata,
+    })}\n`,
+  );
+  if (readiness.state === "not_loaded") throw linkedInSearchError(readiness.diagnostics);
+  return readiness;
 }
 
 async function readLinkedInCards(page) {
-  return page.evaluate(() => {
-    const text = (node) => (node?.textContent ?? "").trim();
-    const cards = Array.from(document.querySelectorAll("li[data-occludable-job-id]"));
-    return cards
-      .map((card) => {
-        const jobId = card.getAttribute("data-occludable-job-id") ?? null;
-        const titleEl = card.querySelector(
-          ".job-card-list__title--link, .job-card-container__link, .job-card-list__title, " +
-            ".artdeco-entity-lockup__title a, a[href*='/jobs/view/'], .artdeco-entity-lockup__title",
-        );
-        const title =
-          [
-            text(titleEl?.querySelector('span[aria-hidden="true"]')),
-            titleEl?.getAttribute("aria-label")?.trim(),
-            text(titleEl),
-          ].find(Boolean) ?? null;
-        const subtitle = text(card.querySelector(".artdeco-entity-lockup__subtitle"));
-        const separator = subtitle.indexOf(" · ");
-        const rawLocation = separator === -1 ? "" : subtitle.slice(separator + 3).trim();
-        const paren = rawLocation.lastIndexOf("(");
-        const location = (paren === -1 ? rawLocation : rawLocation.slice(0, paren)).trim();
-        const company =
-          (separator === -1 ? subtitle : subtitle.slice(0, separator)).trim() ||
-          text(
-            card.querySelector(
-              ".job-card-container__primary-description, .job-card-container__company-name",
-            ),
-          ) ||
-          null;
-        const resolvedLocation =
-          location || text(card.querySelector(".job-card-container__metadata-item")) || null;
-        const link = card.querySelector('a[href*="/jobs/view/"]');
-        const applyUrl =
-          link?.href ?? (jobId ? `https://www.linkedin.com/jobs/view/${jobId}/` : null);
-        const isEasyApply = [
-          '[aria-label*="Easy Apply"]',
-          'a[href*="openSDUIApplyFlow=true"]',
-          ".job-card-container__apply-method",
-        ].some((selector) => card.querySelector(selector));
-        if (!jobId && !title) return null;
-        return {
-          job_id: jobId,
-          title,
-          company,
-          location: resolvedLocation,
-          apply_url: applyUrl,
-          is_easy_apply: isEasyApply,
-        };
-      })
-      .filter(Boolean);
-  });
+  return page.evaluate(extractLinkedInCardsFromDocument);
 }
 
 const LINKEDIN_DETAIL_DECO = "com.linkedin.voyager.deco.jobs.web.shared.WebLightJobPosting-23";
