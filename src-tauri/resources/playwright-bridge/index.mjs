@@ -1,8 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import dns from 'node:dns'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  chatGPTLaunchOptions,
+  gotoChatGPT,
+  selectChatGPTPage,
+} from './chatgpt-runtime.mjs'
 
 // Fix IPv6/IPv4 resolution issue in Node 17+ (localhost resolves to ::1 instead of 127.0.0.1)
 // See: https://github.com/microsoft/playwright/issues/20784
@@ -59,15 +64,6 @@ async function importPlaywright() {
 const playwright = await importPlaywright()
 const { chromium, firefox, webkit } = playwright
 
-function isHostname(url, hostname) {
-  try {
-    const actual = new URL(url).hostname.toLowerCase()
-    return actual === hostname || actual.endsWith(`.${hostname}`)
-  } catch {
-    return false
-  }
-}
-
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
 }
@@ -117,182 +113,8 @@ function resolveChromiumExecutable() {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Stealth helpers — shared across all provider init functions
-// ---------------------------------------------------------------------------
-
-function stealthArgs() {
-  return [
-    '--disable-blink-features=AutomationControlled',
-    '--disable-features=DevToolsDebuggingRestrictions',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-infobars',
-    '--disable-dev-shm-usage',
-  ]
-}
-
-async function applyStealthScripts(context) {
-  await context.addInitScript(() => {
-    // Core tell: webdriver property
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-
-    // Headless Chromium reports 0 plugins; real Chrome ships with 5.
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => Object.assign([1, 2, 3, 4, 5], {
-        item: () => null,
-        namedItem: () => null,
-        refresh: () => {},
-      }),
-    })
-
-    // Headless can return an empty language list
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] })
-
-    // Realistic CPU count
-    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 })
-
-    // window.chrome is absent in headless — detectors check for it
-    if (!window.chrome) window.chrome = {}
-    if (!window.chrome.runtime) window.chrome.runtime = {}
-
-    // Remove Playwright's residual CDP automation markers
-    ;[
-      'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
-      'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
-    ].forEach(p => { try { delete window[p] } catch {} })
-  })
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function getParseTime() {
-  const d = new Date()
-  const parts = d.toString().match(/^(.*?) GMT/)
-  return parts ? parts[1].trim() + ' GMT-0500 (Eastern Standard Time)' : d.toString()
-}
-
-function getPowConfig(userAgent, dpl) {
-  const cores = [8, 16, 24, 32]
-  const screens = [3000, 4000, 3120, 4160]
-  const navigatorKeys = [
-    'webdriver−false',
-    'hardwareConcurrency−8',
-    'cookieEnabled−true',
-    'pdfViewerEnabled−true',
-    'vendor−Google Inc.',
-    'product−Gecko',
-  ]
-  const documentKeys = ['location', '_reactListeningo743lnnpvdg']
-  const windowKeys = ['window', 'document', 'location', 'navigator', 'chrome', 'performance']
-  const perfNow = typeof performance !== 'undefined' ? performance.now() * 1000 : Date.now()
-
-  return [
-    screens[Math.floor(Math.random() * screens.length)],
-    getParseTime(),
-    4294705152,
-    0,
-    userAgent,
-    dpl ? `https://cdn.oaistatic.com/_next/static/${dpl}/_ssgManifest.js` : '',
-    dpl || '',
-    'en-US',
-    'en-US,en',
-    0,
-    navigatorKeys[Math.floor(Math.random() * navigatorKeys.length)],
-    documentKeys[Math.floor(Math.random() * documentKeys.length)],
-    windowKeys[Math.floor(Math.random() * windowKeys.length)],
-    perfNow,
-    randomUUID(),
-    '',
-    cores[Math.floor(Math.random() * cores.length)],
-    Date.now() - perfNow,
-  ]
-}
-
-function generatePowAnswer(seed, diff, config) {
-  const targetDiff = Buffer.from(diff, 'hex')
-  const diffLen = targetDiff.length
-  const seedBuf = Buffer.from(seed)
-
-  for (let i = 0; i < 500000; i += 1) {
-    config[3] = i
-    config[9] = i >> 1
-    const jsonData = JSON.stringify(config)
-    const base = Buffer.from(jsonData).toString('base64')
-    const hash = createHash('sha3-512').update(Buffer.concat([seedBuf, Buffer.from(base)])).digest()
-    if (Buffer.compare(hash.subarray(0, diffLen), targetDiff) <= 0) {
-      return { answer: base, solved: true }
-    }
-  }
-  const fallbackBase = Buffer.from(`"${seed}"`).toString('base64')
-  return { answer: 'wQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallbackBase, solved: false }
-}
-
-function getRequirementsToken(config) {
-  const clonedConfig = [...config]
-  const { answer } = generatePowAnswer(String(Math.random()), '0fffff', clonedConfig)
-  return 'gAAAAAC' + answer
-}
-
-function getProofToken(seed, difficulty, config) {
-  const clonedConfig = [...config]
-  const { answer, solved } = generatePowAnswer(seed, difficulty, clonedConfig)
-  return { token: 'gAAAAAB' + answer, solved }
-}
-
-async function extractDpl(page) {
-  return page.evaluate(() => {
-    const dataBuild = document.documentElement.getAttribute('data-build')
-    if (dataBuild) return dataBuild
-    for (const script of document.querySelectorAll('script[src]')) {
-      const match = (script.getAttribute('src') || '').match(/\/_next\/static\/([^/]+)\//)
-      if (match) return match[1]
-    }
-    return ''
-  }).catch(() => '')
-}
-
-async function fetchFreshSentinelTokens(page, baseHeaders) {
-  const userAgent = await page.evaluate(() => navigator.userAgent).catch(() => '')
-  const dpl = await extractDpl(page)
-  const config = getPowConfig(userAgent, dpl)
-  const pToken = getRequirementsToken([...config])
-
-  const sentinelHeaders = {}
-  try {
-    const resp = await page.context().request.post(
-      'https://chatgpt.com/backend-api/sentinel/chat-requirements',
-      {
-        headers: {
-          ...baseHeaders,
-          'content-type': 'application/json',
-        },
-        data: { p: pToken },
-        timeout: 10000,
-      },
-    )
-    if (!resp.ok()) return sentinelHeaders
-    const requirements = await resp.json()
-
-    if (requirements.token) {
-      sentinelHeaders['openai-sentinel-chat-requirements-token'] = requirements.token
-    }
-
-    const proofofwork = requirements.proofofwork || {}
-    if (proofofwork.required && proofofwork.seed && proofofwork.difficulty) {
-      const { token: proofToken } = getProofToken(proofofwork.seed, proofofwork.difficulty, [...config])
-      sentinelHeaders['openai-sentinel-proof-token'] = proofToken
-    }
-
-    if (requirements.turnstile?.token) {
-      sentinelHeaders['openai-sentinel-turnstile-token'] = requirements.turnstile.token
-    }
-  } catch {}
-
-  return sentinelHeaders
 }
 
 // How long a `manual_login` call blocks on the *open* login window waiting for
@@ -303,12 +125,10 @@ async function fetchFreshSentinelTokens(page, baseHeaders) {
 // logged-in tab. Generous by default (5 min) and overridable for tests.
 const LOGIN_WAIT_MS = Number(process.env.HIREMEOPS_BROWSER_LOGIN_TIMEOUT_MS) || 300000
 
-// How long the Node-layer POST to ChatGPT's conversation endpoint may stream
-// before Playwright aborts it. Reasoning models stream for minutes on a heavy
-// prompt (a full CV rewrite), so the old 120s cap aborted requests whose answer
-// had in fact fully generated ("apiRequestContext.post: Timeout 120000ms
-// exceeded"). Kept just under the Rust bridge's DEFAULT_BRIDGE_TIMEOUT_MS so this
-// inner limit surfaces a clean error before the outer RPC gives up.
+// How long the browser-side POST to ChatGPT's conversation endpoint may stream
+// before its AbortController cancels it. Kept just under the Rust bridge's
+// DEFAULT_BRIDGE_TIMEOUT_MS so this inner limit surfaces a clean error before
+// the outer RPC gives up.
 const CHAT_REQUEST_TIMEOUT_MS = Number(process.env.HIREMEOPS_CHAT_REQUEST_TIMEOUT_MS) || 600000
 
 // Composer interception is only needed to learn request headers/payload shape.
@@ -325,6 +145,10 @@ const state = {
     context: null,
     page: null,
     headless: null,
+    runtimeDir: null,
+    browserChoice: null,
+    profileDir: null,
+    cleanLaunch: false,
     authenticated: false,
     cachedHeaders: null,
     lastHeadersTime: 0,
@@ -434,17 +258,61 @@ function addKnownChatGPTModels(target) {
   }
 }
 
+const BROWSER_MANAGED_HEADERS = new Set([
+  'connection',
+  'content-length',
+  'cookie',
+  'host',
+  'origin',
+  'referer',
+  'user-agent',
+])
+
+function browserRequestHeaders(headers = {}) {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([key]) => !BROWSER_MANAGED_HEADERS.has(key.toLowerCase())),
+  )
+}
+
+async function fetchPageResponse(page, url, { method = 'GET', headers = {}, body, timeout = 10000 } = {}) {
+  return page.evaluate(async ({ url: targetUrl, method: requestMethod, headers: requestHeaders, body: requestBody, timeout: requestTimeout }) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeout)
+    try {
+      const response = await fetch(targetUrl, {
+        method: requestMethod,
+        headers: requestHeaders,
+        ...(requestBody == null ? {} : { body: requestBody }),
+        credentials: 'include',
+        signal: controller.signal,
+      })
+      return {
+        ok: response.ok,
+        status: response.status,
+        body: await response.text(),
+      }
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }, {
+    url,
+    method,
+    headers: browserRequestHeaders(headers),
+    body,
+    timeout,
+  })
+}
+
 async function scanPageModelHints(page, provider, endpointPaths = []) {
   const bodies = []
 
-  // Fetch API endpoints at the Node.js layer — page.context().request shares
-  // the browser session's cookies but is immune to SPA navigation context
-  // destruction that kills a long-running page.evaluate mid-flight.
+  // Fetch model endpoints from the page origin so browser session and request
+  // transport remain the same. A failed navigation is retried by the caller.
   for (const endpoint of endpointPaths) {
     try {
-      const resp = await page.context().request.get(endpoint, { timeout: 8000 })
-      if (resp.ok()) {
-        const text = await resp.text()
+      const resp = await fetchPageResponse(page, endpoint, { timeout: 8000 })
+      if (resp.ok) {
+        const text = resp.body
         if (text && text.trim()) bodies.push(text.slice(0, 500000))
       }
     } catch {}
@@ -550,28 +418,26 @@ const SITE_INITIALIZERS = {
 }
 
 /**
- * A cached per-site session is only reusable if its page is still open. The
- * persistent context or its page can die between requests (browser crash, the
- * headless page being closed, a login window the user closed, or the profile
- * being relaunched). Reusing a dead handle makes the next `page.goto` throw
- * "Target page, context or browser has been closed", so callers must fall
- * through to a fresh init when this returns false.
+ * A cached per-site session is reusable only while its context is connected.
+ * The persistent context or all of its pages can die between requests (browser
+ * crash, the window closed by the user, or the profile being relaunched).
+ * Reusing a dead handle makes the next `page.goto` throw "Target page, context
+ * or browser has been closed", so callers must fall through to a fresh init.
  */
 function isSessionAlive(s) {
   try {
-    if (!s || !s.page || s.page.isClosed()) return false
+    if (!s?.context) return false
     // A persistent context whose browser process has disconnected (crash, the
     // window closed by the user, the profile relaunched) can leave a page whose
     // isClosed() has not yet flipped. Verify the underlying browser is still
     // connected so we don't hand back a stale handle whose next `page.goto`
     // throws "Target page, context or browser has been closed".
     const ctx = s.context
-    if (!ctx) return false
     const browser = typeof ctx.browser === 'function' ? ctx.browser() : null
     if (browser && typeof browser.isConnected === 'function' && !browser.isConnected()) {
       return false
     }
-    return true
+    return Boolean(selectChatGPTPage(ctx))
   } catch {
     return false
   }
@@ -587,24 +453,51 @@ function isSessionAlive(s) {
  */
 async function ensureLiveSession(site) {
   const s = state[site]
-  if (isSessionAlive(s)) return
+  if (isSessionAlive(s)) {
+    s.page = selectChatGPTPage(s.context) || await s.context.newPage()
+    return
+  }
   const init = SITE_INITIALIZERS[site]
   if (!init || !s || !s.runtimeDir) {
     throw new Error(`${site} Playwright not initialized`)
   }
   // Let the initializer tear down the stale context and relaunch. Reusing the
   // params from the last successful init keeps the same profile/browser choice.
-  await init({ runtime_dir: s.runtimeDir, headless: true, browser: s.browserChoice })
+  await init({
+    runtime_dir: s.runtimeDir,
+    headless: true,
+    browser: s.browserChoice,
+    clean: s.cleanLaunch,
+  })
 }
 
-async function initChatGPT({ runtime_dir, headless, browser }) {
-  ensureDir(runtime_dir)
-  process.chdir(runtime_dir)
-  // Reuse a live context for any headless call (a visible, logged-in context serves
-  // headless requests fine); only relaunch to open a *visible* login window
-  // (headless===false) when the current context isn't already headed. This stops a
-  // chat/list_models probe (headless:true) from tearing down a mid-login headed window.
-  if (state.chatgpt.context && isSessionAlive(state.chatgpt) && (headless || state.chatgpt.headless === false)) return
+async function initChatGPT({ runtime_dir, headless, browser, clean = false }) {
+  const runtimeDir = path.resolve(runtime_dir || process.cwd())
+  const selectedHeadless = Boolean(headless)
+  const selectedBrowser = String(browser || 'chromium').trim().toLowerCase()
+  const cleanLaunch = Boolean(clean)
+  ensureDir(runtimeDir)
+  process.chdir(runtimeDir)
+  const chatgptProfileDir = path.resolve(
+    process.env.HIREMEOPS_CHATGPT_PROFILE_DIR || 'chatgpt_profile',
+  )
+  ensureDir(chatgptProfileDir)
+  // Reuse a live context only when all launch identity fields match. A context
+  // tied to another profile, browser, runtime, or headless mode must not
+  // silently serve this request and interrupt a login flow.
+  if (
+    state.chatgpt.context &&
+    isSessionAlive(state.chatgpt) &&
+    state.chatgpt.headless === selectedHeadless &&
+    state.chatgpt.browserChoice === selectedBrowser &&
+    state.chatgpt.runtimeDir === runtimeDir &&
+    state.chatgpt.profileDir === chatgptProfileDir &&
+    state.chatgpt.cleanLaunch === cleanLaunch
+  ) {
+    state.chatgpt.page = selectChatGPTPage(state.chatgpt.context) || await state.chatgpt.context.newPage()
+    await state.chatgpt.page.bringToFront().catch(() => {})
+    return
+  }
   if (state.chatgpt.context) {
     await closeContext(state.chatgpt.context)
     state.chatgpt.context = null
@@ -617,37 +510,32 @@ async function initChatGPT({ runtime_dir, headless, browser }) {
   // so a single ChatGPT login — via Settings OR the Command Center's Universal
   // Login — authenticates both the AI bridge and the job automations. Falls back
   // to the standalone ./chatgpt_profile when the app doesn't set it.
-  const chatgptProfileDir = process.env.HIREMEOPS_CHATGPT_PROFILE_DIR || path.resolve('chatgpt_profile')
-  ensureDir(chatgptProfileDir)
-  const { engine, channel } = resolveEngine(browser)
+  const { engine, channel } = resolveEngine(selectedBrowser)
   // Prefer a real system Chromium so headless doesn't need the bundled
   // `chromium_headless_shell`. executablePath and channel are mutually
   // exclusive, so drop the channel whenever we resolve an explicit binary.
   const executablePath = engine === chromium ? resolveChromiumExecutable() : undefined
-  // Headless Chromium announces "HeadlessChrome/<major>" in BOTH navigator.userAgent
-  // AND the Sec-CH-UA client hints — a hard Cloudflare 403 at auth.openai.com
-  // (verified: HeadlessChrome UA → 403 "Just a moment"; identical request with the
-  // token stripped → the API's own 400/200). Override the UA at the BROWSER level
-  // (the --user-agent flag, not the context `userAgent` option, so Sec-CH-UA stays
-  // coherent) to strip only "Headless", on a Linux UA that matches this binary's
-  // platform and major. Headed launches keep the genuine UA (a visible window is
-  // never "HeadlessChrome"). Mirrors automation/core/browser/browser-launch.js HEADLESS_UA.
-  // ponytail: bump the major when the system Chromium jumps a major.
-  const uaArgs = headless
-    ? ['--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36']
-    : []
+  // Headless automation keeps the existing browser-level configuration. Manual
+  // login uses a clean headed context without custom UA, args, or init scripts.
+  const headlessUserAgent = cleanLaunch
+    ? ''
+    : process.env.HIREMEOPS_CHATGPT_HEADLESS_UA ||
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36'
   state.chatgpt.context = await engine.launchPersistentContext(chatgptProfileDir, {
-    headless,
+    ...chatGPTLaunchOptions({
+      headless: selectedHeadless,
+      clean: cleanLaunch,
+      userAgent: headlessUserAgent,
+    }),
     channel: executablePath ? undefined : channel,
-    ignoreDefaultArgs: ['--enable-automation'],
-    args: [...stealthArgs(), ...uaArgs],
     executablePath,
   })
-  await applyStealthScripts(state.chatgpt.context)
-  state.chatgpt.page = await state.chatgpt.context.newPage()
-  state.chatgpt.headless = headless
-  state.chatgpt.runtimeDir = runtime_dir
-  state.chatgpt.browserChoice = browser
+  state.chatgpt.page = selectChatGPTPage(state.chatgpt.context) || await state.chatgpt.context.newPage()
+  state.chatgpt.headless = selectedHeadless
+  state.chatgpt.runtimeDir = runtimeDir
+  state.chatgpt.browserChoice = selectedBrowser
+  state.chatgpt.profileDir = chatgptProfileDir
+  state.chatgpt.cleanLaunch = cleanLaunch
   state.chatgpt.authenticated = await hasChatGPTSession()
 }
 
@@ -660,9 +548,7 @@ async function captureChatGPTTemplate(forceNew = false) {
     return state.chatgpt.cachedHeaders
   }
 
-  if (!isHostname(page.url(), 'chatgpt.com') || forceNew) {
-    await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
-  }
+  await gotoChatGPT(page)
 
   const inputSelector = 'textarea:visible, #prompt-textarea:visible, div[contenteditable="true"]:visible'
   await page.waitForSelector(inputSelector, { timeout: 30000 }).catch(() => {
@@ -728,9 +614,6 @@ async function captureChatGPTTemplate(forceNew = false) {
         'oai-device-id': reqHeaders['oai-device-id'] || '',
         'oai-language': reqHeaders['oai-language'] || 'en-US',
         'oai-session-id': reqHeaders['oai-session-id'] || '',
-        'openai-sentinel-chat-requirements-token': reqHeaders['openai-sentinel-chat-requirements-token'] || '',
-        'openai-sentinel-proof-token': reqHeaders['openai-sentinel-proof-token'] || '',
-        'openai-sentinel-turnstile-token': reqHeaders['openai-sentinel-turnstile-token'] || '',
         'x-conduit-token': reqHeaders['x-conduit-token'] || '',
         'x-oai-turn-trace-id': reqHeaders['x-oai-turn-trace-id'] || '',
         'x-openai-target-path': reqHeaders['x-openai-target-path'] || '/backend-api/f/conversation',
@@ -941,9 +824,7 @@ async function listChatGPTModels() {
   await ensureLiveSession('chatgpt')
   const page = state.chatgpt.page
   if (!page) throw new Error('ChatGPT Playwright not initialized')
-  if (!isHostname(page.url(), 'chatgpt.com')) {
-    await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
-  }
+  await gotoChatGPT(page)
 
   await waitForInteractiveSelector(page, [
     'textarea:visible',
@@ -968,27 +849,11 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
 
   const template = await captureChatGPTTemplate(true)
   const requestHeaders = { ...template.headers }
-  delete requestHeaders.cookie
 
   // The "a" test message in captureChatGPTTemplate can trigger a SPA navigation
   // (/ → /c/{id}). Wait for it to settle before making any requests — otherwise
   // page.evaluate below would die with "Execution context was destroyed".
   await page.waitForLoadState('domcontentloaded', { timeout: 6000 }).catch(() => {})
-
-  // Fetch fresh sentinel tokens — stale/reused tokens trigger 403 "unusual activity"
-  const cookieHeader = (await page.context().cookies('https://chatgpt.com'))
-    .map(c => `${c.name}=${c.value}`).join('; ')
-  const sentinelBaseHeaders = {
-    cookie: cookieHeader,
-    authorization: requestHeaders.authorization || '',
-    'user-agent': requestHeaders['user-agent'] || '',
-    origin: 'https://chatgpt.com',
-    referer: 'https://chatgpt.com/',
-    'oai-language': requestHeaders['oai-language'] || 'en-US',
-    'oai-device-id': requestHeaders['oai-device-id'] || '',
-  }
-  const freshSentinel = await fetchFreshSentinelTokens(page, sentinelBaseHeaders)
-  Object.assign(requestHeaders, freshSentinel)
 
   const sendConversation = async (promptText) => {
     const payload = buildChatGPTPayloadFromTemplate(
@@ -998,18 +863,19 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
       web_search,
     )
 
-    // page.context().request runs at the Node.js layer — immune to SPA navigation
-    // context destruction, while still sharing the browser session's cookies.
-    const apiResp = await page.context().request.post(
+    // Fetch from the page origin. Browser cookies and browser transport stay
+    // together; authentication/challenge failures surface as ordinary status.
+    const apiResp = await fetchPageResponse(page,
       'https://chatgpt.com/backend-api/f/conversation',
       {
+        method: 'POST',
         headers: requestHeaders,
-        data: JSON.stringify(payload),
+        body: JSON.stringify(payload),
         timeout: CHAT_REQUEST_TIMEOUT_MS,
       },
     )
-    const bodyText = await apiResp.text()
-    const status = apiResp.status()
+    const bodyText = apiResp.body
+    const status = apiResp.status
 
     // Extract conversationId from the SSE stream that came back
     let conversationId = ''
@@ -1030,7 +896,7 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
 
     return {
       payload,
-      requestResult: { ok: apiResp.ok(), status, conversationId, body: bodyText },
+      requestResult: { ok: apiResp.ok, status, conversationId },
     }
   }
 
@@ -1038,24 +904,20 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
 
   const conversationId = sent.requestResult.conversationId || sent.payload.conversation_id || ''
   if (!sent.requestResult.ok || !conversationId) {
-    const detail = sent.requestResult.body?.trim()
-    throw new Error(
-      detail
-        ? `ChatGPT upstream request failed with status ${sent.requestResult.status}: ${detail.slice(0, 400)}`
-        : `ChatGPT upstream request failed with status ${sent.requestResult.status}`,
-    )
+    throw new Error(`ChatGPT upstream request failed with status ${sent.requestResult.status}`)
   }
 
-  // Poll for the complete conversation — also at Node.js layer, no page.evaluate
+  // Poll for the complete conversation through the same browser page.
   let conversationJson = ''
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const pollResp = await page.context().request.get(
+    const pollResp = await fetchPageResponse(
+      page,
       `https://chatgpt.com/backend-api/conversation/${conversationId}`,
       { headers: requestHeaders, timeout: 10_000 },
     ).catch(() => null)
 
-    if (pollResp?.ok()) {
-      const text = await pollResp.text()
+    if (pollResp?.ok) {
+      const text = pollResp.body
       if (text && text !== 'null') {
         conversationJson = text
         break
@@ -1084,9 +946,10 @@ async function chatChatGPT({ model, prompt, web_search = false }) {
 }
 
 async function openChatGPTLogin({ runtime_dir, browser }) {
-  await initChatGPT({ runtime_dir, headless: false, browser })
+  await initChatGPT({ runtime_dir, headless: false, browser, clean: true })
   const page = state.chatgpt.page
-  await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' })
+  await page.bringToFront().catch(() => {})
+  await gotoChatGPT(page)
   // Block until the user has ACTUALLY authenticated. DOM heuristics are useless
   // here: ChatGPT's logged-OUT landing renders the same composer/textarea, and a
   // stray hidden textarea evaluates true before the login buttons even paint — so
@@ -1130,7 +993,7 @@ async function logoutChatGPT() {
     }
 
     if (session.page && !session.page.isClosed()) {
-      await session.page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' }).catch(() => {})
+      await gotoChatGPT(session.page, { force: true }).catch(() => {})
     }
 
     session.authenticated = await hasChatGPTSession()
@@ -1144,15 +1007,17 @@ async function logoutChatGPT() {
 }
 
 async function chatGPTStatus() {
-  try {
-    if (!state.chatgpt.context && state.chatgpt.runtimeDir) {
-      await ensureLiveSession('chatgpt')
-    }
-    state.chatgpt.authenticated = await hasChatGPTSession()
-    return { logged_in: state.chatgpt.authenticated }
-  } finally {
+  if (!state.chatgpt.context && state.chatgpt.runtimeDir) {
+    await ensureLiveSession('chatgpt')
+  }
+  state.chatgpt.authenticated = await hasChatGPTSession()
+
+  // Keep an unauthenticated headed window alive while the user completes
+  // login/challenge. Closing it during status polling resets that flow.
+  if (state.chatgpt.headless !== false || state.chatgpt.authenticated) {
     await releaseChatgptIfShared()
   }
+  return { logged_in: state.chatgpt.authenticated }
 }
 
 async function closeAll() {
@@ -1162,6 +1027,10 @@ async function closeAll() {
       state[key].context = null
       state[key].page = null
       state[key].headless = null
+      state[key].runtimeDir = null
+      state[key].browserChoice = null
+      state[key].profileDir = null
+      state[key].cleanLaunch = false
       state[key].authenticated = false
       state[key].cachedHeaders = null
       state[key].lastHeadersTime = 0

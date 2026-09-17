@@ -6,19 +6,19 @@ newline-delimited JSON-RPC on stdin/stdout.
 
 ## One-time setup
 
-Playwright is **not** vendored. Install it into this directory once (and again
-whenever `playwright` is bumped), before `tauri build`:
+Patchright is **not** vendored in this directory. Install it into this directory
+once (and again whenever `patchright` is bumped), before `tauri build`:
 
 ```sh
 cd src-tauri/resources/playwright-bridge
-npm install            # installs playwright into ./node_modules
-npx playwright install # downloads the browser binaries
+npm install            # installs Patchright into ./node_modules
+npx patchright install # downloads the browser binaries
 ```
 
-`index.mjs` resolves playwright from `./node_modules/playwright` (and a few
+`index.mjs` resolves Patchright from `./node_modules/patchright` (and a few
 parent `node_modules` as fallback), so installing here is enough. Bundling is
 configured in `src-tauri/tauri.conf.json` (`bundle.resources`), which ships
-this whole directory — including `node_modules` — with the app.
+the bridge entrypoints and vendored runtime with the app.
 
 ## Wire protocol
 
