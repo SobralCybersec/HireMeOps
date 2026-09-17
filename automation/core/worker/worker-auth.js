@@ -30,15 +30,41 @@ export async function cmdCheckLogin({ user_data_dir }) {
 }
 
 async function probeExistingLogin(browser) {
-  const probe = findExistingLoginPage(browser, "https://www.linkedin.com/feed/");
-  const page = probe ?? (await browser.newPage());
+  const page = await browser.newPage();
   try {
-    await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
-    return { logged_in: (await classifyProbePage("linkedin", page)) === "valid" };
+    return { logged_in: (await probeLinkedInPage(page)) === "valid" };
   } catch {
     return { logged_in: false };
   } finally {
-    if (!probe) await page.close().catch(() => {});
+    await page.close().catch(() => {});
+  }
+}
+
+async function probeLinkedInPage(page) {
+  await page.goto(LOGIN_PROBES.linkedin.url, { waitUntil: "commit", timeout: 30_000 });
+  return (await waitForLinkedInAuthState(page)).status;
+}
+
+export async function waitForLinkedInAuthState(
+  page,
+  { timeout = 15_000, pollInterval = 250 } = {},
+) {
+  const deadline = Date.now() + Math.max(0, timeout);
+  let markers = await readLinkedInAuthMarkers(page);
+  let status = classifyLinkedInAuth({ url: page.url(), ...markers });
+  while (status === "unknown" && Date.now() < deadline) {
+    await page.waitForTimeout(Math.min(pollInterval, deadline - Date.now()));
+    markers = await readLinkedInAuthMarkers(page);
+    status = classifyLinkedInAuth({ url: page.url(), ...markers });
+  }
+  return { status, markers };
+}
+
+async function readLinkedInAuthMarkers(page) {
+  try {
+    return (await page.evaluate?.(inspectLinkedInAuthDocument)) ?? {};
+  } catch {
+    return {};
   }
 }
 
@@ -52,9 +78,12 @@ async function probeFreshLogin(userDataDir) {
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
       executablePath: resolvedExec,
     });
-    const page = browser.pages()[0] ?? (await browser.newPage());
-    await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
-    return { logged_in: (await classifyProbePage("linkedin", page)) === "valid" };
+    const probePage = await browser.newPage();
+    try {
+      return { logged_in: (await probeLinkedInPage(probePage)) === "valid" };
+    } finally {
+      await probePage.close().catch(() => {});
+    }
   } catch {
     return { logged_in: false };
   } finally {
@@ -132,6 +161,18 @@ async function checkBrowserLogins(browser, sharedPage, result, sites) {
 
 async function probeLogin(browser, site, sharedPage, result) {
   const { url, out } = LOGIN_PROBES[site];
+  if (site === "linkedin") {
+    const probePage = await browser.newPage();
+    try {
+      result.platform_status[site] = await probeLinkedInPage(probePage);
+      result.status[site] = result.platform_status[site] === "valid";
+    } catch (error) {
+      recordProbeFailure(result, site, error, probePage);
+    } finally {
+      await probePage.close().catch(() => {});
+    }
+    return;
+  }
   const existingPage = findExistingLoginPage(browser, url);
   const tab = existingPage ?? sharedPage ?? (await browser.newPage());
   const ownsPage = !existingPage && !sharedPage;
@@ -149,10 +190,7 @@ async function probeLogin(browser, site, sharedPage, result) {
 async function classifyProbePage(site, page, out = LOGIN_PROBES[site]?.out) {
   const url = page.url();
   if (site !== "linkedin") return classifyLogin(url, out);
-  let markers = {};
-  try {
-    markers = (await page.evaluate?.(inspectLinkedInAuthDocument)) ?? {};
-  } catch {}
+  const markers = await readLinkedInAuthMarkers(page);
   return classifyLinkedInAuth({ url, ...markers });
 }
 

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   classifyLinkedInAuth,
   classifyLogin,
   sanitizeProbeError,
   selectLoginProbeSites,
+  waitForLinkedInAuthState,
 } from "./worker-auth.js";
 
 const loginUrl = /\/login|\/signin/;
@@ -40,6 +41,29 @@ describe("login probe classification", () => {
         loginMarkers: 1,
       }),
     ).toBe("login_required");
+  });
+
+  it("waits for positive authentication evidence after commit", async () => {
+    let calls = 0;
+    const page = {
+      url: () => "https://www.linkedin.com/feed/",
+      evaluate: vi.fn(async () => ({ authenticatedMarkers: calls++ > 0 ? 1 : 0 })),
+      waitForTimeout: vi.fn(async () => {}),
+    };
+    await expect(waitForLinkedInAuthState(page, { timeout: 100 })).resolves.toMatchObject({
+      status: "valid",
+    });
+    expect(page.evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns unknown after bounded auth probing without evidence", async () => {
+    const page = {
+      url: () => "https://www.linkedin.com/feed/",
+      evaluate: vi.fn(async () => ({ authenticatedMarkers: 0 })),
+    };
+    await expect(waitForLinkedInAuthState(page, { timeout: 0 })).resolves.toMatchObject({
+      status: "unknown",
+    });
   });
 
   it("selects only requested login probes", () => {
