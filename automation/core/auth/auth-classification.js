@@ -29,6 +29,19 @@ export function classifyLogin(url, out) {
   return "valid";
 }
 
+export function classifyLinkedInAuth({
+  url = "",
+  authenticatedMarkers = 0,
+  loginMarkers = 0,
+  challengeMarkers = 0,
+} = {}) {
+  const urlStatus = classifyLogin(String(url), LOGIN_PROBES.linkedin.out);
+  if (urlStatus !== "valid") return urlStatus;
+  if (Number(challengeMarkers) > 0) return "challenged";
+  if (Number(loginMarkers) > 0) return "login_required";
+  return Number(authenticatedMarkers) > 0 ? "valid" : "unknown";
+}
+
 export function classifyPlatformUrl(platform, url) {
   const probe = LOGIN_PROBES[platform];
   if (!probe || !url) return "unknown";

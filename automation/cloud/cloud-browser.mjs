@@ -15,6 +15,10 @@ function blocksHeavyResources() {
   return !/^(0|false|no)$/i.test(process.env.HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES ?? "1");
 }
 
+export function cloudResourcePolicyEnabled() {
+  return blocksHeavyResources();
+}
+
 async function installResourcePolicy(context) {
   if (!blocksHeavyResources()) return;
   await context.route("**/*", async (route) => {
@@ -61,6 +65,6 @@ export async function closeCloudBrowser(runtime) {
 export function cloudBrowserOptions() {
   return {
     executablePath: executablePath() ?? null,
-    blockHeavyResources: blocksHeavyResources(),
+    blockHeavyResources: cloudResourcePolicyEnabled(),
   };
 }

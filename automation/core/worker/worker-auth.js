@@ -5,14 +5,16 @@ import { attachDiagnostics } from "../capture/capture.js";
 import { CAPTURE_ENABLED } from "../capture/capture-config.js";
 import {
   LOGIN_PROBES,
+  classifyLinkedInAuth,
   classifyLogin,
-  classifyPlatformUrl,
   sanitizeProbeError,
   sanitizeProbeUrl,
   selectLoginProbeSites,
 } from "../auth/auth-classification.js";
+import { inspectLinkedInAuthDocument } from "../../platforms/linkedin/linkedin-search-dom.js";
 
 export {
+  classifyLinkedInAuth,
   classifyLogin,
   classifyPlatformUrl,
   sanitizeProbeError,
@@ -32,7 +34,7 @@ async function probeExistingLogin(browser) {
   const page = probe ?? (await browser.newPage());
   try {
     await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
-    return { logged_in: classifyPlatformUrl("linkedin", page.url()) === "valid" };
+    return { logged_in: (await classifyProbePage("linkedin", page)) === "valid" };
   } catch {
     return { logged_in: false };
   } finally {
@@ -52,7 +54,7 @@ async function probeFreshLogin(userDataDir) {
     });
     const page = browser.pages()[0] ?? (await browser.newPage());
     await navigateLoginProbe(page, "https://www.linkedin.com/feed/");
-    return { logged_in: classifyPlatformUrl("linkedin", page.url()) === "valid" };
+    return { logged_in: (await classifyProbePage("linkedin", page)) === "valid" };
   } catch {
     return { logged_in: false };
   } finally {
@@ -135,14 +137,23 @@ async function probeLogin(browser, site, sharedPage, result) {
   const ownsPage = !existingPage && !sharedPage;
   try {
     await navigateLoginProbe(tab, url);
-    const currentUrl = tab.url();
-    result.platform_status[site] = classifyLogin(currentUrl, out);
+    result.platform_status[site] = await classifyProbePage(site, tab, out);
     result.status[site] = result.platform_status[site] === "valid";
   } catch (error) {
     recordProbeFailure(result, site, error, tab);
   } finally {
     if (ownsPage) await tab.close().catch(() => {});
   }
+}
+
+async function classifyProbePage(site, page, out = LOGIN_PROBES[site]?.out) {
+  const url = page.url();
+  if (site !== "linkedin") return classifyLogin(url, out);
+  let markers = {};
+  try {
+    markers = (await page.evaluate?.(inspectLinkedInAuthDocument)) ?? {};
+  } catch {}
+  return classifyLinkedInAuth({ url, ...markers });
 }
 
 function findExistingLoginPage(browser, probeUrl) {

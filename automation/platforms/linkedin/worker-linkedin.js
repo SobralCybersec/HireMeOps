@@ -1,5 +1,6 @@
 import { session } from "../../core/worker/worker-context.js";
 import { classifyPlatformUrl, sanitizeProbeUrl } from "../../core/auth/auth-classification.js";
+import { createNavigationTelemetry } from "../../cloud/cloud-navigation-telemetry.mjs";
 import {
   classifyLinkedInSearchState,
   extractLinkedInCardsFromDocument,
@@ -37,15 +38,63 @@ export async function waitForLinkedInSearchState(
   page,
   { timeout = 15_000, pollInterval = 250 } = {},
 ) {
+  const startedAt = Date.now();
   const deadline = Date.now() + Math.max(0, timeout);
-  let diagnostics = await readLinkedInSearchDiagnostics(page);
-  let state = classifyLinkedInSearchState(diagnostics);
-  while (state === "not_loaded" && Date.now() < deadline) {
-    await page.waitForTimeout(Math.min(pollInterval, deadline - Date.now()));
-    diagnostics = await readLinkedInSearchDiagnostics(page);
-    state = classifyLinkedInSearchState(diagnostics);
+  const dcl = observeDomContentLoaded(page, deadline);
+  try {
+    let diagnostics = await readLinkedInSearchDiagnostics(page);
+    dcl.markReady(["interactive", "complete"].includes(diagnostics.readyState));
+    let state = classifyLinkedInSearchState(diagnostics);
+    while (state === "not_loaded" && Date.now() < deadline) {
+      await page.waitForTimeout(Math.min(pollInterval, deadline - Date.now()));
+      diagnostics = await readLinkedInSearchDiagnostics(page);
+      dcl.markReady(["interactive", "complete"].includes(diagnostics.readyState));
+      state = classifyLinkedInSearchState(diagnostics);
+    }
+    return {
+      state,
+      diagnostics,
+      dcl: dcl.snapshot(),
+      semanticElapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    dcl.stop();
   }
-  return { state, diagnostics };
+}
+
+function observeDomContentLoaded(page, deadline) {
+  const startedAt = Date.now();
+  const state = { reached: false, elapsedMs: null };
+  if (typeof page.once !== "function") {
+    return {
+      markReady: (ready) => {
+        if (ready) {
+          state.reached = true;
+          state.elapsedMs ??= Date.now() - startedAt;
+        }
+      },
+      snapshot: () => ({ ...state }),
+      stop: () => {},
+    };
+  }
+  const onDomContentLoaded = () => {
+    state.reached = true;
+    state.elapsedMs = Date.now() - startedAt;
+  };
+  page.once("domcontentloaded", onDomContentLoaded);
+  return {
+    markReady: (ready) => {
+      if (ready && !state.reached) {
+        state.reached = true;
+        state.elapsedMs ??= Date.now() - startedAt;
+      }
+    },
+    snapshot: () => ({
+      ...state,
+      elapsedMs: state.elapsedMs ?? Math.min(Date.now() - startedAt, deadline - startedAt),
+    }),
+    stop: () => page.off?.("domcontentloaded", onDomContentLoaded),
+  };
 }
 
 async function readLinkedInSearchDiagnostics(page) {
@@ -64,7 +113,7 @@ function linkedInNavigationTimeout() {
 }
 
 export function classifyLinkedInReadinessError(diagnostics) {
-  return diagnostics?.readyState === "loading" && diagnostics?.bodyTextLength === 0
+  return diagnostics?.readyState === "loading"
     ? "linkedin_document_not_ready"
     : "linkedin_results_not_loaded";
 }
@@ -89,51 +138,82 @@ function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
 }
 
 async function openLinkedInSearch(page, url) {
-  const response = await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
-  const currentUrl = page.url();
-  const authStatus = classifyPlatformUrl("linkedin", currentUrl);
-  if (authStatus === "login_required") {
-    throw new Error("LinkedIn session expired — use the Login LinkedIn button to re-authenticate");
-  }
-  if (authStatus === "challenged") {
-    throw new Error(
-      "LinkedIn requires a verification challenge — authenticate locally, then retry",
-    );
-  }
-  await page
-    .locator(
-      [
-        "button.msg-overlay-bubble-header__control--close",
-        "button.artdeco-toast-item__dismiss",
-      ].join(","),
-    )
-    .first()
-    .click({ timeout: 2_000 })
-    .catch(() => {});
-  await page
-    .waitForLoadState("domcontentloaded", {
+  const telemetry =
+    process.env.HIREMEOPS_CLOUD === "1"
+      ? createNavigationTelemetry(page, {
+          resourcePolicyEnabled: cloudResourcePolicyEnabled(),
+        })
+      : null;
+  let response = null;
+  try {
+    response = await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
+    const currentUrl = page.url();
+    const authStatus = classifyPlatformUrl("linkedin", currentUrl);
+    if (authStatus !== "valid") throw linkedInSearchError({ url: currentUrl }, authStatus);
+    const readiness = await waitForLinkedInSearchState(page, {
       timeout: linkedInNavigationTimeout(),
-    })
-    .catch(() => {});
-  const readiness = await waitForLinkedInSearchState(page, {
-    timeout: linkedInNavigationTimeout(),
-  });
-  const { url: diagnosticUrl, ...metadata } = readiness.diagnostics;
+    });
+    const diagnostics = {
+      ...readiness.diagnostics,
+      dcl: readiness.dcl,
+      semanticElapsedMs: readiness.semanticElapsedMs,
+      ...(telemetry
+        ? {
+            network: telemetry.snapshot(),
+            resourcePolicyEnabled: cloudResourcePolicyEnabled(),
+          }
+        : {}),
+    };
+    if (readiness.state === "not_loaded") {
+      throw linkedInSearchError(diagnostics, classifyLinkedInReadinessError(diagnostics));
+    }
+    if (readiness.state === "login_required" || readiness.state === "challenged") {
+      throw linkedInSearchError(diagnostics, readiness.state);
+    }
+    await page
+      .locator(
+        [
+          "button.msg-overlay-bubble-header__control--close",
+          "button.artdeco-toast-item__dismiss",
+        ].join(","),
+      )
+      .first()
+      .click({ timeout: 2_000 })
+      .catch(() => {});
+    logLinkedInSearchDiagnostics(readiness.state, response, diagnostics);
+    return { ...readiness, diagnostics };
+  } catch (error) {
+    const diagnostics = {
+      ...(error.diagnostics ?? { url: page.url() }),
+      ...(telemetry
+        ? {
+            network: telemetry.snapshot(),
+            resourcePolicyEnabled: cloudResourcePolicyEnabled(),
+          }
+        : {}),
+    };
+    error.diagnostics = diagnostics;
+    logLinkedInSearchDiagnostics(error.code ?? "failed", response, diagnostics);
+    throw error;
+  } finally {
+    telemetry?.detach();
+  }
+}
+
+function cloudResourcePolicyEnabled() {
+  return !/^(0|false|no)$/i.test(process.env.HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES ?? "1");
+}
+
+function logLinkedInSearchDiagnostics(state, response, diagnostics) {
+  const { url: diagnosticUrl, ...metadata } = diagnostics;
   process.stderr.write(
     `[linkedin-search] ${JSON.stringify({
-      state: readiness.state,
+      state,
       ...navigationMetadata(response),
       finalUrl: sanitizeProbeUrl(diagnosticUrl),
       ...metadata,
     })}\n`,
   );
-  if (readiness.state === "not_loaded") {
-    throw linkedInSearchError(
-      readiness.diagnostics,
-      classifyLinkedInReadinessError(readiness.diagnostics),
-    );
-  }
-  return readiness;
 }
 
 async function readLinkedInCards(page) {

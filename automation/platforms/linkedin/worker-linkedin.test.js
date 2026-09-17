@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import {
   classifyLinkedInReadinessError,
@@ -73,7 +73,7 @@ describe("LinkedIn search readiness", () => {
   });
 
   it("separates a document that never became ready from an unknown loaded DOM", () => {
-    expect(classifyLinkedInReadinessError({ readyState: "loading", bodyTextLength: 0 })).toBe(
+    expect(classifyLinkedInReadinessError({ readyState: "loading", bodyTextLength: 23 })).toBe(
       "linkedin_document_not_ready",
     );
     expect(classifyLinkedInReadinessError({ readyState: "complete", bodyTextLength: 12 })).toBe(
@@ -96,6 +96,77 @@ describe("LinkedIn search readiness", () => {
     };
     const result = await waitForLinkedInSearchState(page, { timeout: 0 });
     expect(result.state).toBe("not_loaded");
+  });
+
+  it("returns results before DOMContentLoaded when cards are already visible", async () => {
+    let domContentLoaded;
+    const page = {
+      once: (_event, listener) => {
+        domContentLoaded = listener;
+      },
+      off: vi.fn(),
+      evaluate: async () => ({
+        url: "https://www.linkedin.com/jobs/search/",
+        title: "Jobs",
+        readyState: "loading",
+        occludableCards: 1,
+        jobViewLinks: 1,
+        noResultsBanners: 0,
+        bodyTextLength: 20,
+      }),
+      waitForTimeout: vi.fn(),
+    };
+    const result = await waitForLinkedInSearchState(page, { timeout: 100 });
+    expect(result.state).toBe("results");
+    expect(result.dcl.reached).toBe(false);
+    expect(page.off).toHaveBeenCalledWith("domcontentloaded", domContentLoaded);
+  });
+
+  it("keeps polling after DCL timeout when results appear", async () => {
+    let calls = 0;
+    const page = {
+      once: vi.fn(),
+      off: vi.fn(),
+      evaluate: async () => {
+        const ready = calls++ > 0;
+        return {
+          url: "https://www.linkedin.com/jobs/search/",
+          title: "Jobs",
+          readyState: "loading",
+          occludableCards: ready ? 1 : 0,
+          jobViewLinks: ready ? 1 : 0,
+          noResultsBanners: 0,
+          bodyTextLength: ready ? 20 : 23,
+        };
+      },
+      waitForTimeout: vi.fn(),
+    };
+    const result = await waitForLinkedInSearchState(page, { timeout: 100 });
+    expect(result.state).toBe("results");
+    expect(result.dcl.reached).toBe(false);
+  });
+
+  it("recognizes login and challenge markers as terminal readiness states", async () => {
+    const page = {
+      evaluate: async () => ({
+        readyState: "loading",
+        bodyTextLength: 23,
+        loginMarkers: 1,
+        challengeMarkers: 0,
+      }),
+    };
+    await expect(waitForLinkedInSearchState(page, { timeout: 0 })).resolves.toMatchObject({
+      state: "login_required",
+    });
+    page.evaluate = async () => ({
+      readyState: "loading",
+      bodyTextLength: 23,
+      loginMarkers: 0,
+      challengeMarkers: 1,
+    });
+    await expect(waitForLinkedInSearchState(page, { timeout: 0 })).resolves.toMatchObject({
+      state: "challenged",
+    });
   });
 
   it("accepts only the specific no-results banner as empty", async () => {

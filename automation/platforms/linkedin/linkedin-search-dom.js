@@ -1,9 +1,58 @@
 export function classifyLinkedInSearchState(diagnostics) {
+  if (Number(diagnostics?.challengeMarkers) > 0) return "challenged";
+  if (Number(diagnostics?.loginMarkers) > 0) return "login_required";
   if (Number(diagnostics?.occludableCards) > 0 || Number(diagnostics?.jobViewLinks) > 0) {
     return "results";
   }
   if (Number(diagnostics?.noResultsBanners) > 0) return "empty";
   return "not_loaded";
+}
+
+export function inspectLinkedInAuthDocument() {
+  const visible = (element) => {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      element.getClientRects().length > 0
+    );
+  };
+  const count = (selectors) =>
+    new Set(
+      selectors.flatMap((selector) =>
+        Array.from(document.querySelectorAll(selector)).filter(visible),
+      ),
+    ).size;
+  const authenticatedMarkers = count([
+    "nav.global-nav",
+    ".global-nav",
+    "[data-test-global-nav]",
+    ".global-nav__me",
+    ".feed-identity-module",
+    ".share-box-feed-entry__closed-share-box",
+    ".jobs-search-two-pane__wrapper",
+    ".jobs-search-results-list",
+    ".jobs-search-no-results-banner",
+    ".jobs-search-two-pane__no-results-banner",
+    "li[data-occludable-job-id]",
+  ]);
+  const loginMarkers = count([
+    'form[action*="/login"]',
+    'input[name="session_key"]',
+    'input[name="session_password"]',
+    ".login__form",
+    '[data-test-id="login-form"]',
+  ]);
+  const challengeMarkers = count([
+    '[id*="checkpoint" i]',
+    '[class*="checkpoint" i]',
+    '[id*="challenge" i]',
+    '[class*="challenge" i]',
+    'form[action*="checkpoint"]',
+    'iframe[src*="captcha" i]',
+  ]);
+  return { authenticatedMarkers, loginMarkers, challengeMarkers };
 }
 
 export function inspectLinkedInSearchDocument() {
@@ -18,16 +67,64 @@ export function inspectLinkedInSearchDocument() {
       element.getClientRects().length > 0
     );
   };
+  const countVisible = (selectors) =>
+    new Set(
+      selectors.flatMap((selector) =>
+        Array.from(document.querySelectorAll(selector)).filter(visible),
+      ),
+    ).size;
+  const authenticatedMarkers = countVisible([
+    "nav.global-nav",
+    ".global-nav",
+    "[data-test-global-nav]",
+    ".global-nav__me",
+    ".feed-identity-module",
+    ".share-box-feed-entry__closed-share-box",
+    ".jobs-search-two-pane__wrapper",
+    ".jobs-search-results-list",
+    ".jobs-search-no-results-banner",
+    ".jobs-search-two-pane__no-results-banner",
+    "li[data-occludable-job-id]",
+  ]);
+  const loginMarkers = countVisible([
+    'form[action*="/login"]',
+    'input[name="session_key"]',
+    'input[name="session_password"]',
+    ".login__form",
+    '[data-test-id="login-form"]',
+  ]);
+  const challengeMarkers = countVisible([
+    '[id*="checkpoint" i]',
+    '[class*="checkpoint" i]',
+    '[id*="challenge" i]',
+    '[class*="challenge" i]',
+    'form[action*="checkpoint"]',
+    'iframe[src*="captcha" i]',
+  ]);
   return {
     url: location.href,
     title: document.title,
     readyState: document.readyState,
+    bodyChildren: document.body?.children?.length ?? 0,
+    scriptCount: document.scripts?.length ?? 0,
+    externalScriptCount: document.querySelectorAll("script[src]").length,
+    stylesheetCount: document.querySelectorAll('link[rel~="stylesheet"], style').length,
     occludableCards: document.querySelectorAll("li[data-occludable-job-id]").length,
     jobViewLinks: document.querySelectorAll('a[href*="/jobs/view/"]').length,
     noResultsBanners: Array.from(document.querySelectorAll(noResultsSelector)).filter(visible)
       .length,
     bodyTextLength: document.body?.innerText?.length ?? 0,
     documentHtmlLength: document.documentElement?.outerHTML?.length ?? 0,
+    rawJobsViewOccurrences: (document.documentElement?.outerHTML?.match(/\/jobs\/view\//g) ?? [])
+      .length,
+    rawJobPostingOccurrences: (document.documentElement?.outerHTML?.match(/jobPostings/gi) ?? [])
+      .length,
+    authenticatedMarkers,
+    loginMarkers,
+    challengeMarkers,
+    jobsRootMarkers: document.querySelectorAll(
+      ".jobs-search-two-pane__wrapper, .jobs-search-results-list",
+    ).length,
   };
 }
 

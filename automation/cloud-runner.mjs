@@ -420,10 +420,10 @@ export async function withCloudDeadline(operation, { timeoutMs, onTimeout } = {}
 async function persistOperationAuthFailure(context, platform) {
   const authPlatform = authStatusPlatform(platform);
   if (!authPlatform) return null;
-  const { status } = classifyPageAuth(platform, context.page);
-  const code = authErrorCode(status);
+  const { status } = await classifyPageAuth(platform, context.page);
+  const code = authErrorCode(status) ?? (status === "unknown" ? "session_status_unknown" : null);
   if (!code) return null;
-  await persistInvalidSessionStatus(context.pool, context.row, authPlatform, code);
+  await persistInvalidSessionStatus(context.pool, context.row, authPlatform, status);
   return code;
 }
 
@@ -450,7 +450,7 @@ function assertMemoryBudget(context) {
 
 async function recordOperationStatus(context, platform) {
   const authPlatform = authStatusPlatform(platform);
-  const { status } = classifyPageAuth(platform, context.page);
+  const { status } = await classifyPageAuth(platform, context.page);
   if (status === "valid") return status;
   await persistInvalidSessionStatus(context.pool, context.row, authPlatform ?? platform, status);
   throw new CloudRunnerError(status === "unknown" ? "session_status_unknown" : status);
@@ -516,6 +516,9 @@ function cloudErrorCode(error) {
   if (error instanceof CloudRunnerError) return error.code;
   const code = error?.code;
   return [
+    "login_required",
+    "challenged",
+    "session_status_unknown",
     "linkedin_document_not_ready",
     "linkedin_results_not_loaded",
     "cloud_results_invalid",

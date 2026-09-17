@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 
 const BYTES_PER_MB = 1_048_576;
+let previousCpuStat = null;
 
 function cgroupFile(name) {
   const path = processCgroupPath();
@@ -33,19 +34,45 @@ function readValue(file) {
 
 function readKeyValues(file) {
   try {
-    return Object.fromEntries(
-      readFileSync(file, "utf8")
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [key, value] = line.trim().split(/\s+/, 2);
-          return [key, Number(value)];
-        })
-        .filter(([, value]) => Number.isFinite(value)),
-    );
+    return parseKeyValues(readFileSync(file, "utf8"));
   } catch {
     return {};
+  }
+}
+
+export function parseKeyValues(raw) {
+  return Object.fromEntries(
+    String(raw)
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [key, value] = line.trim().split(/\s+/, 2);
+        return [key, Number(value)];
+      })
+      .filter(([, value]) => Number.isFinite(value)),
+  );
+}
+
+export function parseCpuMax(raw) {
+  const [quota, period] = String(raw).trim().split(/\s+/, 2);
+  const periodUsec = Number(period);
+  const quotaUsec = quota === "max" ? null : Number(quota);
+  return {
+    quotaUsec: Number.isFinite(quotaUsec) ? quotaUsec : null,
+    periodUsec: Number.isFinite(periodUsec) ? periodUsec : null,
+    quotaCpus:
+      Number.isFinite(quotaUsec) && Number.isFinite(periodUsec) && periodUsec > 0
+        ? +(quotaUsec / periodUsec).toFixed(3)
+        : null,
+  };
+}
+
+function readText(file) {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
   }
 }
 
@@ -84,6 +111,49 @@ export function readCgroupMemoryLimits() {
     slabUnreclaimable: stat.slab_unreclaimable ?? null,
     events: cgroupMemoryEvents(),
     stat,
+  };
+}
+
+export function readCgroupCpu() {
+  const statFile = cgroupFile("cpu.stat");
+  const maxFile = cgroupFile("cpu.max");
+  return {
+    stat: statFile ? parseKeyValues(readText(statFile)) : {},
+    ...(maxFile
+      ? parseCpuMax(readText(maxFile))
+      : { quotaUsec: null, periodUsec: null, quotaCpus: null }),
+  };
+}
+
+export function deltaCpuStats(current = {}, previous = null) {
+  const delta = (key) => {
+    if (!previous) return null;
+    return Math.max(0, (current[key] ?? 0) - (previous[key] ?? 0));
+  };
+  return {
+    usageUsecDelta: delta("usage_usec"),
+    userUsecDelta: delta("user_usec"),
+    systemUsecDelta: delta("system_usec"),
+    nrPeriodsDelta: delta("nr_periods"),
+    nrThrottledDelta: delta("nr_throttled"),
+    throttledUsecDelta: delta("throttled_usec"),
+  };
+}
+
+function cpuSnapshot() {
+  const current = readCgroupCpu();
+  const previous = previousCpuStat;
+  previousCpuStat = current.stat;
+  const deltas = deltaCpuStats(current.stat, previous);
+  return {
+    quotaCpus: current.quotaCpus,
+    usageUsec: current.stat.usage_usec ?? null,
+    userUsec: current.stat.user_usec ?? null,
+    systemUsec: current.stat.system_usec ?? null,
+    nrPeriods: current.stat.nr_periods ?? null,
+    nrThrottled: current.stat.nr_throttled ?? null,
+    throttledUsec: current.stat.throttled_usec ?? null,
+    ...deltas,
   };
 }
 
@@ -248,6 +318,7 @@ export function memorySnapshot(stage) {
   const { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType } =
     collectProcessMemory(pids);
   const cgroup = cgroupMemory();
+  const cpu = cpuSnapshot();
   const stat = cgroupMemoryStat(cgroup.stat);
   const events = cgroup.events ?? cgroupMemoryEvents();
   const toMb = (value) => (value == null ? null : +(value / BYTES_PER_MB).toFixed(1));
@@ -277,6 +348,7 @@ export function memorySnapshot(stage) {
       stat,
       events,
     },
+    cpu,
     chromiumProcesses,
   };
 }
