@@ -290,12 +290,12 @@ function cloudContext(config, pool) {
 }
 
 function memorySoftLimitRatio() {
-  const value = Number(process.env.HIREMEOPS_MEMORY_SOFT_LIMIT_RATIO ?? 0.9);
-  return Number.isFinite(value) && value > 0 && value < 1 ? value : 0.9;
+  const value = Number(process.env.HIREMEOPS_MEMORY_SOFT_LIMIT_RATIO ?? 0.95);
+  return Number.isFinite(value) && value > 0 && value < 1 ? value : 0.95;
 }
 
 function memoryMb(bytes) {
-  return +(bytes / 1_048_576).toFixed(1);
+  return bytes == null ? null : +(bytes / 1_048_576).toFixed(1);
 }
 
 async function closeCloudRuntime(context) {
@@ -319,7 +319,27 @@ async function openCloudBrowser(context, storageState) {
   context.memoryGuard = createCgroupMemoryGuard({
     ratio: memorySoftLimitRatio(),
     intervalMs: 500,
-    onLimit: async ({ current, max, workingSet, reason, pressureSamples }) => {
+    onLimit: async ({
+      current,
+      max,
+      workingSet,
+      inactiveFile,
+      activeFile,
+      slabReclaimable,
+      slabUnreclaimable,
+      stat,
+      events,
+      reason,
+      pressureSamples,
+    }) => {
+      const pressure = memoryPressureMetadata({
+        inactiveFile,
+        activeFile,
+        slabReclaimable,
+        slabUnreclaimable,
+        stat,
+        events,
+      });
       context.report.guardReason = reason;
       context.report.pressureSamples = pressureSamples;
       context.memoryBudgetExceeded = true;
@@ -329,13 +349,50 @@ async function openCloudBrowser(context, storageState) {
         workingSetMb: memoryMb(workingSet),
         reason,
         pressureSamples,
+        ...pressure,
       };
       process.stderr.write(
-        `[cloud-memory] budget-exceeded reason=${reason} currentMb=${memoryMb(current)} workingSetMb=${memoryMb(workingSet)} maxMb=${memoryMb(max)} samples=${pressureSamples}\n`,
+        `[cloud-memory] budget-exceeded ${JSON.stringify({
+          reason,
+          currentMb: memoryMb(current),
+          workingSetMb: memoryMb(workingSet),
+          maxMb: memoryMb(max),
+          pressureSamples,
+          ...pressure,
+        })}\n`,
       );
       await closeCloudRuntime(context);
     },
   });
+}
+
+function memoryPressureMetadata({
+  inactiveFile,
+  activeFile,
+  slabReclaimable,
+  slabUnreclaimable,
+  stat = {},
+  events = {},
+}) {
+  const kernel =
+    stat.kernel ??
+    ["kernel_stack", "pagetables", "slab", "sock"].reduce(
+      (total, key) => total + (stat[key] ?? 0),
+      0,
+    );
+  return {
+    anonMb: memoryMb(stat.anon),
+    inactiveFileMb: memoryMb(inactiveFile),
+    activeFileMb: memoryMb(activeFile),
+    kernelMb: memoryMb(kernel),
+    slabReclaimableMb: memoryMb(slabReclaimable),
+    slabUnreclaimableMb: memoryMb(slabUnreclaimable),
+    memoryEvents: {
+      max: events.max ?? 0,
+      oom: events.oom ?? 0,
+      oomKill: events.oomKill ?? 0,
+    },
+  };
 }
 
 function operationTimeoutMs() {

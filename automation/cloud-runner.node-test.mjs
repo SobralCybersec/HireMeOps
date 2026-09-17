@@ -180,6 +180,7 @@ describe("cloud runner lifecycle boundary", () => {
     const guard = createCgroupMemoryGuard({
       ratio: 0.9,
       intervalMs: 60_000,
+      sustainedSamples: 3,
       readMemory: () => ({ current, workingSet, max: 100 }),
       onLimit: async (details) => {
         tripped += 1;
@@ -200,6 +201,40 @@ describe("cloud runner lifecycle boundary", () => {
     guard.stop();
     assert.equal(tripped, 1);
     assert.equal(reason, "working_set_sustained");
+  });
+
+  it("uses a 95% working-set soft threshold for ten samples by default", async () => {
+    let tripped = 0;
+    let workingSet = 94;
+    let details;
+    const guard = createCgroupMemoryGuard({
+      intervalMs: 60_000,
+      readMemory: () => ({
+        current: 100,
+        workingSet,
+        max: 100,
+        inactiveFile: 1,
+        activeFile: 2,
+        stat: { anon: 3 },
+        events: { max: 4, oom: 5, oomKill: 6 },
+      }),
+      onLimit: async (value) => {
+        tripped += 1;
+        details = value;
+      },
+    });
+    for (let sample = 0; sample < 10; sample += 1) await guard.check();
+    assert.equal(tripped, 0);
+    workingSet = 96;
+    for (let sample = 0; sample < 9; sample += 1) await guard.check();
+    assert.equal(tripped, 0);
+    await guard.check();
+    guard.stop();
+    assert.equal(tripped, 1);
+    assert.equal(details.reason, "working_set_sustained");
+    assert.equal(details.events.max, 4);
+    assert.equal(details.events.oom, 5);
+    assert.equal(details.events.oomKill, 6);
   });
 
   it("ignores reclaimable cache and requires two working-set hard-limit samples", async () => {

@@ -82,6 +82,7 @@ export function readCgroupMemoryLimits() {
     activeFile: stat.active_file ?? null,
     slabReclaimable: stat.slab_reclaimable ?? null,
     slabUnreclaimable: stat.slab_unreclaimable ?? null,
+    events: cgroupMemoryEvents(),
     stat,
   };
 }
@@ -248,7 +249,7 @@ export function memorySnapshot(stage) {
     collectProcessMemory(pids);
   const cgroup = cgroupMemory();
   const stat = cgroupMemoryStat(cgroup.stat);
-  const events = cgroupMemoryEvents();
+  const events = cgroup.events ?? cgroupMemoryEvents();
   const toMb = (value) => (value == null ? null : +(value / BYTES_PER_MB).toFixed(1));
   return {
     stage,
