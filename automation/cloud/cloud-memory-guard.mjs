@@ -5,7 +5,7 @@ export function createCgroupMemoryGuard({
   intervalMs = 500,
   readMemory = readCgroupMemoryLimits,
   onLimit = async () => {},
-  hardRatio = 0.998,
+  hardRatio = 0.98,
   sustainedSamples = 3,
   hardSamples = 2,
 } = {}) {
@@ -17,7 +17,7 @@ export function createCgroupMemoryGuard({
     const { current, max, workingSet = current } = readMemory();
     if (current == null || max == null || max <= 0) return false;
     const softPressure = workingSet >= max * ratio;
-    const hardPressure = current >= max * hardRatio;
+    const hardPressure = workingSet >= max * hardRatio;
     softPressureSamples = softPressure ? softPressureSamples + 1 : 0;
     hardPressureSamples = hardPressure ? hardPressureSamples + 1 : 0;
     const reason =

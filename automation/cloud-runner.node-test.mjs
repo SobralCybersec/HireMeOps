@@ -199,20 +199,25 @@ describe("cloud runner lifecycle boundary", () => {
     assert.equal(reason, "working_set_sustained");
   });
 
-  it("requires two hard-limit samples even when cache is reclaimable", async () => {
+  it("ignores reclaimable cache and requires two working-set hard-limit samples", async () => {
     let tripped = 0;
     let reason;
+    let workingSet = 40;
     const guard = createCgroupMemoryGuard({
       ratio: 0.9,
-      hardRatio: 0.998,
       intervalMs: 60_000,
-      readMemory: () => ({ current: 100, workingSet: 40, max: 100 }),
+      readMemory: () => ({ current: 100, workingSet, max: 100 }),
       sustainedSamples: 99,
       onLimit: async (details) => {
         tripped += 1;
         reason = details.reason;
       },
     });
+    await guard.check();
+    assert.equal(tripped, 0);
+    await guard.check();
+    assert.equal(tripped, 0);
+    workingSet = 99;
     await guard.check();
     assert.equal(tripped, 0);
     await guard.check();
