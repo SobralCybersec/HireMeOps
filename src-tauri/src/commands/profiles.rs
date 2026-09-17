@@ -139,3 +139,7 @@ pub async fn save_profile_facts(
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/commands_profiles_tests.rs"]
+mod tests;

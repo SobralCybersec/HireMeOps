@@ -67,4 +67,85 @@ describe("CloudSessionPanel profile bridge", () => {
     expect(screen.getByRole("button", { name: "Sync to cloud" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Validate cloud" })).toHaveProperty("disabled", true);
   });
+
+  it("renders global and per-platform status labels", async () => {
+    mockSafeInvoke.mockResolvedValue({
+      ...metadata,
+      updatedAt: "not-a-date",
+      status: "revoked",
+      platformStatus: {
+        linkedin: "valid",
+        indeed: "login_required",
+        gupy: "challenged",
+        catho: "expired",
+      },
+    });
+
+    render(<CloudSessionPanel />);
+
+    await waitFor(() => expect(screen.getByText("Challenge")).toBeTruthy());
+    expect(screen.getByText("Revoked")).toBeTruthy();
+    expect(screen.getByText("Login required")).toBeTruthy();
+    expect(screen.getByText("Expired")).toBeTruthy();
+    expect(screen.getAllByText("Connected").length).toBeGreaterThan(0);
+  });
+
+  it("maps check login booleans into local platform statuses", async () => {
+    mockInvokeStrict.mockResolvedValue({
+      status: { linkedin: true, indeed: false },
+    });
+
+    render(<CloudSessionPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Check sessions" }));
+
+    await waitFor(() => expect(screen.getByText("Login required")).toBeTruthy());
+    expect(screen.getAllByText("Connected").length).toBeGreaterThan(0);
+    expect(mockInvokeStrict).toHaveBeenCalledWith("check_all_logins", {
+      profileId: "default",
+    });
+  });
+
+  it("validates and revokes an existing cloud session", async () => {
+    mockSafeInvoke.mockResolvedValue(metadata);
+    mockInvokeStrict.mockImplementation(async (command: string) => {
+      if (command === "validate_browser_session") return metadata;
+      if (command === "revoke_browser_session") return null;
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    render(<CloudSessionPanel />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Validate cloud" }));
+    await waitFor(() =>
+      expect(mockInvokeStrict).toHaveBeenCalledWith("validate_browser_session", {
+        profileId: "default",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() =>
+      expect(mockInvokeStrict).toHaveBeenCalledWith("revoke_browser_session", {
+        profileId: "default",
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
+  });
+
+  it("surfaces action errors and missing post-sync metadata", async () => {
+    mockInvokeStrict.mockRejectedValueOnce(new Error("check failed"));
+    render(<CloudSessionPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Check sessions" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("check failed"));
+
+    mockInvokeStrict.mockReset();
+    mockInvokeStrict.mockResolvedValueOnce(metadata).mockResolvedValueOnce(null);
+    fireEvent.click(screen.getByRole("button", { name: "Sync to cloud" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Cloud session metadata was not returned after sync.",
+      ),
+    );
+  });
 });

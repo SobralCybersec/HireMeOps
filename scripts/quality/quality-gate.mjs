@@ -255,10 +255,15 @@ async function finalizeSummary(context) {
 
 async function runFull(options) {
   const steps = [];
-  const add = async (name, command, args, config) =>
-    steps.push(await runStep(name, command, args, config));
+  const add = async (name, command, args, config) => {
+    const step = await runStep(name, command, args, config);
+    steps.push(step);
+    process.stdout.write(`[quality] ${name}: ${step.status} (${step.duration_ms} ms)\n`);
+  };
   await add("coverage", "bun", ["run", "test:coverage"]);
   await add("tests", "bun", ["run", "test"]);
+  await add("typecheck", "bun", ["run", "typecheck"]);
+  await add("lint", "bun", ["run", "lint"]);
   await add("strict-tests", "bun", ["run", "test:strict-tests"]);
   await add("quality-review", "bun", ["run", "quality:review"]);
   await add("quality-evidence", "node", [
@@ -266,6 +271,9 @@ async function runFull(options) {
     "src",
     ...COVERAGE_ARGS,
   ]);
+  if (process.env.QUALITY_RUN_STRICT === "1") {
+    await add("strict-quality", "bun", ["run", "quality:strict"]);
+  }
   const strictSummary = await loadStrictSummary();
   await writeJson("strict-summary.json", strictSummary);
   await add("frontend-build", "bun", ["run", "build"]);
@@ -283,8 +291,10 @@ async function runFull(options) {
   await add("rust-tests", "cargo", ["test", "--all-features"], {
     cwd: path.join(REPO_ROOT, "src-tauri"),
   });
-  await add("cloud-memory", "bun", ["run", "benchmark:cloud-memory"]);
-  await add("benchmark", "bun", ["run", "benchmark:changes", "--", "--create-clone"]);
+  if (process.env.QUALITY_RUN_RUNTIME_BENCHMARKS !== "0") {
+    await add("cloud-memory", "bun", ["run", "benchmark:cloud-memory"]);
+    await add("benchmark", "bun", ["run", "benchmark:changes", "--", "--create-clone"]);
+  }
   if (!process.env.QUALITY_SKIP_DOCKER) {
     await add("docker-cloud-build", "docker", [
       "build",
@@ -303,8 +313,14 @@ async function runFull(options) {
   if (process.env.QUALITY_RUN_MUTATION === "1") {
     await add("mutation", "bun", ["run", "quality:mutation"]);
   }
+  if (process.env.QUALITY_RUN_MUTATION_RUST === "1") {
+    await add("mutation-rust", "bun", ["run", "quality:mutation:rust"]);
+  }
   const flaky = await flakyReport(options.flakyRuns);
   const tools = await optionalToolReports();
+  for (const tool of tools) {
+    process.stdout.write(`[quality-tool] ${tool.name}: ${tool.status} (${tool.duration_ms} ms)\n`);
+  }
   const testQuality = await testQualityReport();
   const architecture = await architectureReport();
   const debt = await technicalDebtReport();

@@ -991,5 +991,5 @@ fn strip_research_artifacts(s: &str) -> String {
 mod rewrite_decode;
 
 #[cfg(test)]
-#[path = "prompt_tests.rs"]
+#[path = "../tests/ai_prompt_tests.rs"]
 mod tests;

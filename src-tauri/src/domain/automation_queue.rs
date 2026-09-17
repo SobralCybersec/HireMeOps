@@ -140,3 +140,7 @@ where
     }
     Ok(summary)
 }
+
+#[cfg(test)]
+#[path = "../tests/domain_automation_queue_tests.rs"]
+mod tests;

@@ -107,3 +107,7 @@ pub async fn set_docker_worker(state: State<'_, AppState>, enabled: bool) -> Res
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/commands_docker_tests.rs"]
+mod tests;

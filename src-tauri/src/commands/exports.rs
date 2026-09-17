@@ -59,3 +59,7 @@ pub async fn restore_backup(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "../tests/commands_exports_tests.rs"]
+mod tests;

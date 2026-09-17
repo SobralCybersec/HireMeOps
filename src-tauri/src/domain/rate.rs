@@ -105,32 +105,5 @@ pub async fn rate_check(db: &SqlitePool, platform: &str) -> RateDecision {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_are_sane() {
-        assert_eq!(default_caps("linkedin"), (30, 8));
-        assert_eq!(default_caps("LinkedIn"), (30, 8)); // case-insensitive
-        assert_eq!(default_caps("unknown"), (40, 12));
-        // hour cap must be below the day cap on every board or the hour gate is dead.
-        for p in [
-            "linkedin", "indeed", "upwork", "gupy", "catho", "infojobs", "x",
-        ] {
-            let (d, h) = default_caps(p);
-            assert!(h < d, "{p}: hour cap {h} should be < day cap {d}");
-        }
-    }
-
-    #[test]
-    fn env_override_wins() {
-        std::env::set_var("HIREMEOPS_RATE_TESTBOARD_DAY", "5");
-        std::env::set_var("HIREMEOPS_RATE_TESTBOARD_HOUR", "2");
-        assert_eq!(caps_for("testboard"), (5, 2));
-        assert_eq!(caps_for("TestBoard"), (5, 2)); // env key uppercased
-        std::env::remove_var("HIREMEOPS_RATE_TESTBOARD_DAY");
-        std::env::remove_var("HIREMEOPS_RATE_TESTBOARD_HOUR");
-        // Falls back to defaults when unset.
-        assert_eq!(caps_for("indeed"), (40, 12));
-    }
-}
+#[path = "../tests/domain_rate_tests.rs"]
+mod tests;

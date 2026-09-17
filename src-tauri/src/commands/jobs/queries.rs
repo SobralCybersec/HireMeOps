@@ -645,3 +645,7 @@ pub async fn list_job_matches(
     .map(|rows| rows.into_iter().map(Into::into).collect())
     .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "../../tests/commands_jobs_queries_tests.rs"]
+mod tests;

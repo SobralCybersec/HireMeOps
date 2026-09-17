@@ -84,3 +84,7 @@ fn locate_worker_script() -> PathBuf {
 
     PathBuf::from("automation/worker.js")
 }
+
+#[cfg(test)]
+#[path = "../tests/browser_playwright_tests.rs"]
+pub(crate) mod tests;

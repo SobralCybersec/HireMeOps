@@ -6,7 +6,7 @@
 //! Key: `EVENT_CHANNEL` — the single Tauri channel name shared with the frontend.
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::util::{new_id, now_iso};
 
@@ -87,11 +87,11 @@ impl AppEvent {
     }
 }
 
-pub trait EventEmitter {
+pub trait EventEmitter: Send + Sync {
     fn emit_app_event(&self, event: AppEvent);
 }
 
-impl EventEmitter for AppHandle {
+impl<R: Runtime> EventEmitter for AppHandle<R> {
     fn emit_app_event(&self, event: AppEvent) {
         if let Err(e) = self.emit(EVENT_CHANNEL, &event) {
             tracing::warn!("failed to emit app event: {e}");

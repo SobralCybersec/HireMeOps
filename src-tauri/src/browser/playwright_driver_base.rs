@@ -75,7 +75,8 @@ impl PlaywrightDriver {
     }
 
     pub async fn open_login_session(&self, spec: &SessionSpec) -> DomainResult<String> {
-        if let Some(prev) = self.login_session.lock().await.take() {
+        let previous = { self.login_session.lock().await.take() };
+        if let Some(prev) = previous {
             self.close_session(&prev).await;
         }
         let handle = self.open(spec).await?;
@@ -201,3 +202,7 @@ impl PlaywrightDriver {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/browser_playwright_driver_base_tests.rs"]
+mod tests;

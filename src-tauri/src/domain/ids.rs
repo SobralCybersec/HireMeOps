@@ -50,3 +50,7 @@ string_id!(
     /** A `profiles.id`. */
     ProfileId
 );
+
+#[cfg(test)]
+#[path = "../tests/domain_ids_tests.rs"]
+mod tests;

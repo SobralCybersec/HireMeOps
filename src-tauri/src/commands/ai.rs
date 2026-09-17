@@ -396,31 +396,5 @@ pub fn has_api_key(kind: String) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{chat_prompt, content_text, text_chunks, ChatModelMessage};
-    use serde_json::json;
-
-    #[test]
-    fn model_message_parts_become_prompt_text() {
-        let message = ChatModelMessage {
-            role: "user".into(),
-            content: json!([
-                {"type": "text", "text": " Find"},
-                {"type": "text", "text": " roles "},
-                {"type": "image", "image": "ignored"}
-            ]),
-        };
-
-        assert_eq!(content_text(&message.content), " Find roles ");
-        assert_eq!(chat_prompt(&[message]), "USER: Find roles");
-    }
-
-    #[test]
-    fn response_chunks_preserve_unicode_and_text() {
-        let text = "one two 你好";
-        let chunks = text_chunks(text, 4);
-
-        assert_eq!(chunks.join(""), text);
-        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 5));
-    }
-}
+#[path = "../tests/commands_ai_tests.rs"]
+mod tests;

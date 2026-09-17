@@ -214,3 +214,7 @@ impl PlaywrightDriver {
         .await
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/browser_playwright_driver_search_tests.rs"]
+mod tests;

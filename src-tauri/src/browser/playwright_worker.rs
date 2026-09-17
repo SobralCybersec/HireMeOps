@@ -288,3 +288,7 @@ fn route_reply(value: Value, pending: &PendingMap) {
         Err(error) => tracing::warn!("patchright worker: unparseable reply: {error}"),
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/browser_playwright_worker_tests.rs"]
+mod tests;

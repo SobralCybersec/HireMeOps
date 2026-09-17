@@ -351,44 +351,5 @@ impl BrowserDriver for ChromiumDriver {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::extension_args;
-
-    fn v(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn no_paths_returns_empty() {
-        assert!(extension_args(&[]).is_empty());
-    }
-
-    #[test]
-    fn blank_and_empty_paths_are_dropped() {
-        assert!(extension_args(&v(&["", "   ", "\t"])).is_empty());
-    }
-
-    #[test]
-    fn single_path_emits_two_flags() {
-        let args = extension_args(&v(&["/ext/one"]));
-        assert_eq!(
-            args,
-            vec![
-                "--disable-extensions-except=/ext/one".to_string(),
-                "--load-extension=/ext/one".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn multiple_paths_are_comma_joined_and_trimmed() {
-        let args = extension_args(&v(&["  /ext/a ", "", "/ext/b"]));
-        assert_eq!(
-            args,
-            vec![
-                "--disable-extensions-except=/ext/a,/ext/b".to_string(),
-                "--load-extension=/ext/a,/ext/b".to_string(),
-            ]
-        );
-    }
-}
+#[path = "../tests/browser_mod_tests.rs"]
+mod tests;

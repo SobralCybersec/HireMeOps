@@ -119,3 +119,7 @@ pub(super) fn map_answers(form_answers_json: Option<&str>) -> serde_json::Value 
         .collect();
     serde_json::Value::Array(mapped)
 }
+
+#[cfg(test)]
+#[path = "../tests/domain_applications_answers_tests.rs"]
+mod tests;

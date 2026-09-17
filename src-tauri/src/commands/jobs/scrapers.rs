@@ -18,7 +18,12 @@ use uuid::Uuid;
 the row so the payload matches `list_job_posts` exactly; best-effort (a failed
 emit must never abort a scrape). */
 #[cfg(feature = "real-browser")]
-async fn emit_job_found(app: &AppHandle, db: &sqlx::SqlitePool, profile_id: &str, job_id: &str) {
+async fn emit_job_found(
+    app: &dyn EventEmitter,
+    db: &sqlx::SqlitePool,
+    profile_id: &str,
+    job_id: &str,
+) {
     let row = sqlx::query_as::<_, JobRow>(
         "SELECT id, profile_id, platform, external_id,
                 url, canonical_url, title, company,
@@ -107,7 +112,7 @@ async fn search_runtime(state: &AppState, profile_id: &str, operation: &str) -> 
 
 #[cfg(feature = "real-browser")]
 struct IngestContext<'a> {
-    app: &'a AppHandle,
+    app: &'a dyn EventEmitter,
     db: &'a sqlx::SqlitePool,
     profile_id: &'a str,
     search_query_id: &'a Option<String>,
@@ -225,6 +230,10 @@ fn card_remote_mode(card: &JobCard, platform: &str, fallback: bool) -> Option<St
         .map(str::to_string)
         .or_else(|| fallback.then_some("remote".to_string()))
 }
+
+#[cfg(all(test, feature = "real-browser"))]
+#[path = "../../tests/commands_jobs_scrapers_tests.rs"]
+mod tests;
 
 #[path = "scrapers_apply.rs"]
 mod scrapers_apply;

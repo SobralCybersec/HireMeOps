@@ -35,6 +35,7 @@ export default defineConfig(async () => ({
       "**/.git/**",
       "**/.stryker-tmp/**",
       "reports/todo-performance/**",
+      "src-tauri/resources/playwright-bridge/*.test.mjs",
     ],
   },
 

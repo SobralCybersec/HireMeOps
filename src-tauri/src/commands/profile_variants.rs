@@ -746,5 +746,5 @@ pub async fn open_gmail(state: State<'_, AppState>, profile_id: String) -> Resul
 }
 
 #[cfg(all(test, feature = "real-browser"))]
-#[path = "profile_variants_tests.rs"]
+#[path = "../tests/commands_profile_variants_tests.rs"]
 mod tests;

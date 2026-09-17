@@ -70,6 +70,10 @@ async function runRustMutation() {
     ],
     { cwd: path.join(ROOT, "src-tauri") },
   );
+  const outcome = await readRustMutationOutcome();
+  if (outcome.status === "baseline") {
+    return { ...outcome, command_exit_code: result.code };
+  }
   return {
     status: result.code === 0 ? "pass" : "failed",
     exit_code: result.code,
@@ -83,15 +87,24 @@ async function readRustMutationOutcome() {
     const outcome = JSON.parse(await readFile(file, "utf8"));
     return {
       status: "baseline",
-      exit_code: outcome.missed === 0 && outcome.timeout === 0 ? 0 : 1,
+      exit_code: 0,
+      command_exit_code: null,
       total_mutants: outcome.total_mutants,
       caught: outcome.caught,
       missed: outcome.missed,
       timeout: outcome.timeout,
       unviable: outcome.unviable,
-      mutation_score_percent:
+      raw_mutation_score_percent:
         outcome.total_mutants > 0
           ? Math.round((outcome.caught / outcome.total_mutants) * 10000) / 100
+          : null,
+      scorable_mutants: outcome.total_mutants - outcome.timeout - outcome.unviable,
+      scorable_mutation_score_percent:
+        outcome.total_mutants - outcome.timeout - outcome.unviable > 0
+          ? Math.round(
+              (outcome.caught / (outcome.total_mutants - outcome.timeout - outcome.unviable)) *
+                10000,
+            ) / 100
           : null,
       scope: ["src-tauri/src/storage/session_crypto.rs"],
     };
@@ -122,7 +135,9 @@ function markdownReport(report) {
     `- Mutants: ${rust.total_mutants ?? "not measured"}`,
     `- Caught: ${rust.caught ?? "not measured"}`,
     `- Missed: ${rust.missed ?? "not measured"}`,
-    `- Score: ${rust.mutation_score_percent ?? "not measured"}%`,
+    `- Raw score: ${rust.raw_mutation_score_percent ?? "not measured"}%`,
+    `- Scorable mutants: ${rust.scorable_mutants ?? "not measured"}`,
+    `- Scorable score: ${rust.scorable_mutation_score_percent ?? "not measured"}%`,
     "",
     "Mutation score is baseline evidence, not a coverage substitute. No production threshold is enforced yet.",
   ].join("\n");

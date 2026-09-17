@@ -382,3 +382,7 @@ pub(crate) async fn generate_form_answers(
     }
     Ok((out, human))
 }
+
+#[cfg(test)]
+#[path = "../tests/domain_automation_answers_tests.rs"]
+mod tests;

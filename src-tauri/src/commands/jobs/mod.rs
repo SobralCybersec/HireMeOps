@@ -367,3 +367,7 @@ pub mod scrapers;
 
 pub use queries::*;
 pub use scrapers::*;
+
+#[cfg(test)]
+#[path = "../../tests/commands_jobs_mod_tests.rs"]
+mod tests;

@@ -226,3 +226,7 @@ impl ProfileSessionLock {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/storage_postgres_browser_sessions_tests.rs"]
+mod tests;

@@ -141,7 +141,7 @@ export function CloudSessionPanel() {
   const { profileId, metadata, localStatus, busy, error, check, sync, validate, revoke } =
     useCloudSession();
   const currentMetadata = metadata?.profileId === profileId ? metadata : null;
-  const currentLocalStatus = metadata?.profileId === profileId ? localStatus : {};
+  const currentLocalStatus = !metadata || metadata.profileId === profileId ? localStatus : {};
 
   const status = currentLocalStatus;
   return (

@@ -987,5 +987,5 @@ fn analysis_fingerprint(analysis: Option<&CvAnalysis>) -> String {
 }
 
 #[cfg(test)]
-#[path = "cv_tests.rs"]
+#[path = "../tests/domain_cv_tests.rs"]
 mod tests;

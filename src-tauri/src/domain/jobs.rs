@@ -507,5 +507,5 @@ impl JobSearchService for JobSearchServiceImpl {
 }
 
 #[cfg(test)]
-#[path = "jobs_tests.rs"]
+#[path = "../tests/domain_jobs_tests.rs"]
 mod tests;

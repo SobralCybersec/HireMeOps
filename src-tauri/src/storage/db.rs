@@ -103,3 +103,7 @@ pub async fn maintain(pool: &SqlitePool, db_path: &std::path::Path) -> Result<()
     sqlx::query("PRAGMA optimize").execute(pool).await?;
     observe_wal(pool, db_path).await
 }
+
+#[cfg(test)]
+#[path = "../tests/storage_db_tests.rs"]
+mod tests;

@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(feature = "real-browser")]
+use crate::events::EventEmitter;
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedInSearchInput {
@@ -57,7 +60,7 @@ pub async fn run_linkedin_search(
 #[cfg(feature = "real-browser")]
 struct LinkedInPageContext<'a> {
     state: &'a AppState,
-    app: &'a AppHandle,
+    app: &'a dyn EventEmitter,
     handle: &'a str,
     profile_id: &'a str,
     search_query_id: &'a Option<String>,
@@ -157,7 +160,7 @@ async fn scrape_linkedin_pages(
 #[cfg(feature = "real-browser")]
 async fn run_linkedin_search_real(
     state: &AppState,
-    app: &AppHandle,
+    app: &dyn EventEmitter,
     input: LinkedInSearchInput,
 ) -> Result<LinkedInSearchResult, String> {
     use crate::domain::automation::{BrowserDriver, SessionSpec};
@@ -254,7 +257,7 @@ pub async fn run_google_search(
 #[cfg(feature = "real-browser")]
 struct GooglePageContext<'a> {
     state: &'a AppState,
-    app: &'a AppHandle,
+    app: &'a dyn EventEmitter,
     handle: &'a str,
     profile_id: &'a str,
     search_query_id: &'a Option<String>,
@@ -371,7 +374,7 @@ async fn scrape_google_pages(ctx: &GooglePageContext<'_>) -> Result<LinkedInSear
 #[cfg(feature = "real-browser")]
 async fn run_google_search_real(
     state: &AppState,
-    app: &AppHandle,
+    app: &dyn EventEmitter,
     input: GoogleSearchInput,
 ) -> Result<LinkedInSearchResult, String> {
     use crate::domain::automation::{BrowserDriver, SessionSpec};
@@ -445,7 +448,7 @@ pub async fn run_linkedin_posts_search(
 #[cfg(feature = "real-browser")]
 struct LinkedInPostsPageContext<'a> {
     state: &'a AppState,
-    app: &'a AppHandle,
+    app: &'a dyn EventEmitter,
     handle: &'a str,
     profile_id: &'a str,
     search_query_id: &'a Option<String>,
@@ -619,7 +622,7 @@ async fn scrape_linkedin_posts_pages(
 #[cfg(feature = "real-browser")]
 async fn run_linkedin_posts_search_real(
     state: &AppState,
-    app: &AppHandle,
+    app: &dyn EventEmitter,
     input: LinkedInPostsSearchInput,
 ) -> Result<LinkedInSearchResult, String> {
     use crate::domain::automation::{BrowserDriver, SessionSpec};
@@ -657,3 +660,7 @@ async fn run_linkedin_posts_search_real(
     state.playwright.close_session(&handle).await;
     result
 }
+
+#[cfg(all(test, feature = "real-browser"))]
+#[path = "../../tests/commands_jobs_scrapers_network_tests.rs"]
+mod tests;

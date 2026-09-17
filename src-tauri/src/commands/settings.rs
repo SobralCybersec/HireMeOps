@@ -23,3 +23,7 @@ pub async fn update_settings(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "../tests/commands_settings_tests.rs"]
+mod tests;

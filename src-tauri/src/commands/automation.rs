@@ -502,30 +502,8 @@ fn format_desired_salary(min: i64, currency: &str) -> String {
 }
 
 #[cfg(all(test, feature = "real-browser"))]
-mod indeed_answer_tests {
-    use super::{format_desired_salary, split_contact_name};
-
-    #[test]
-    fn split_name_handles_single_double_and_multi() {
-        assert_eq!(split_contact_name("Jane"), ("Jane".into(), None));
-        assert_eq!(
-            split_contact_name("Jane Doe"),
-            ("Jane".into(), Some("Doe".into()))
-        );
-        assert_eq!(
-            split_contact_name("  Ana Paula Souza  "),
-            ("Ana".into(), Some("Paula Souza".into()))
-        );
-        assert_eq!(split_contact_name(""), (String::new(), None));
-    }
-
-    #[test]
-    fn salary_appends_currency_only_when_present() {
-        assert_eq!(format_desired_salary(8000, "BRL"), "8000 BRL");
-        assert_eq!(format_desired_salary(8000, "  "), "8000");
-        assert_eq!(format_desired_salary(12000, ""), "12000");
-    }
-}
+#[path = "../tests/commands_automation_indeed_answer_tests.rs"]
+mod indeed_answer_tests;
 
 #[tauri::command]
 pub async fn indeed_login(state: State<'_, AppState>, profile_id: String) -> Result<(), String> {

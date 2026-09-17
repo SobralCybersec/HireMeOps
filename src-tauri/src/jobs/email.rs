@@ -49,22 +49,5 @@ fn is_domain_char(b: u8) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extracts_brazilian_email() {
-        assert_eq!(
-            extract_email("Assunto: Vaga Dev. Envie para vagas@empresa.com.br"),
-            Some("vagas@empresa.com.br".to_owned()),
-        );
-    }
-
-    #[test]
-    fn returns_none_when_no_email() {
-        assert_eq!(
-            extract_email("Nenhum email aqui, apenas texto normal."),
-            None,
-        );
-    }
-}
+#[path = "../tests/jobs_email_tests.rs"]
+mod tests;

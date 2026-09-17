@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 #[cfg(test)]
-#[path = "cv_tests.rs"]
+#[path = "../tests/commands_cv_tests.rs"]
 mod tests;
 
 use tauri::{Manager, State};

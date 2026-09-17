@@ -89,6 +89,10 @@ fn configure_linux_display() {
 #[cfg(not(target_os = "linux"))]
 fn configure_linux_display() {}
 
+#[cfg(test)]
+#[path = "tests/lib_test_support.rs"]
+pub(crate) mod test_support;
+
 /// Open the dedicated Settings webview window (its own React entry, `settings.html`).
 /// Mirrors the terax-ai pattern: reuse the window if it already exists (show + focus,
 /// re-emit the tab), otherwise build it hidden and let the JS entry `show()` it after

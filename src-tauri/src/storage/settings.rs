@@ -288,3 +288,7 @@ pub async fn read_active_profile_id(pool: &SqlitePool) -> Option<String> {
     .flatten()
     .filter(|s| !s.trim().is_empty())
 }
+
+#[cfg(test)]
+#[path = "../tests/storage_settings_tests.rs"]
+mod tests;

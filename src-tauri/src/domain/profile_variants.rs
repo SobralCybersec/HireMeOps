@@ -464,3 +464,7 @@ impl ProfileVariantService for ProfileVariantServiceImpl {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/domain_profile_variants_tests.rs"]
+mod tests;
