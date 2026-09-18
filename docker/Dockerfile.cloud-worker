@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATCHRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     HIREMEOPS_CLOUD=1 \
     HIREMEOPS_DISABLE_CAPTURE=1 \
-    HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES=1
+    HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium-headless-shell \

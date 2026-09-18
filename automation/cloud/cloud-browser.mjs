@@ -12,7 +12,7 @@ function executablePath() {
 }
 
 function blocksHeavyResources() {
-  return !/^(0|false|no)$/i.test(process.env.HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES ?? "1");
+  return !/^(0|false|no)$/i.test(process.env.HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES ?? "0");
 }
 
 export function cloudResourcePolicyEnabled() {
