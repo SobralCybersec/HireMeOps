@@ -19,6 +19,48 @@ function request(url, type, failure) {
 }
 
 describe("cloud navigation telemetry", () => {
+  it("keeps requests pending after headers until the download finishes", () => {
+    const page = fakePage();
+    const telemetry = createNavigationTelemetry(page);
+    const script = request("https://static.licdn.com/app.js?token=secret", "script");
+    page.emit("request", script);
+    expect(telemetry.snapshot().oldestPending.phase).toBe("awaiting_headers");
+    page.emit("response", { request: () => script, status: () => 200 });
+    expect(telemetry.snapshot()).toMatchObject({
+      scriptResponses2xx: 1,
+      pendingRequestsTotal: 1,
+      pendingByType: { script: 1 },
+      oldestPending: { phase: "downloading" },
+      finishedRequestsByType: { script: 0 },
+    });
+    page.emit("requestfinished", script);
+    expect(telemetry.snapshot()).toMatchObject({
+      pendingRequestsTotal: 0,
+      oldestPending: null,
+      finishedRequestsByType: { script: 1 },
+    });
+    telemetry.detach();
+  });
+
+  it("removes a request failing after headers without counting it as finished", () => {
+    const page = fakePage();
+    const telemetry = createNavigationTelemetry(page);
+    const script = request(
+      "https://static.licdn.com/app.js",
+      "script",
+      "net::ERR_CONNECTION_RESET",
+    );
+    page.emit("request", script);
+    page.emit("response", { request: () => script, status: () => 200 });
+    page.emit("requestfailed", script);
+    expect(telemetry.snapshot()).toMatchObject({
+      pendingRequestsTotal: 0,
+      scriptFailures: 1,
+      finishedRequestsByType: { script: 0 },
+    });
+    telemetry.detach();
+  });
+
   it("reports pending requests by type and host without retaining URLs", () => {
     const page = fakePage();
     const telemetry = createNavigationTelemetry(page);
@@ -68,6 +110,6 @@ describe("cloud navigation telemetry", () => {
     });
     expect(JSON.stringify(snapshot)).not.toMatch(/linkedin\.com|token|secret|body/i);
     telemetry.detach();
-    expect(page.off).toHaveBeenCalledTimes(5);
+    expect(page.off).toHaveBeenCalledTimes(6);
   });
 });

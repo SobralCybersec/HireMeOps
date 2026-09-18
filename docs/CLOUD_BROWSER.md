@@ -43,6 +43,38 @@ with synthetic browser responses. `bun run test:cloud` remains a compatibility
 alias. Neither replaces a repeated Northflank canary with the real session,
 network and resource limits.
 
+### Verify local CPU enforcement before comparing with Northflank
+
+Docker's `--cpus` and `cpu.max` describe the configured quota, not proof that
+the host scheduler enforces it. Both Docker benchmark drivers first run a
+five-second CPU-bound calibration in a separate container. They stop if the
+fractional CPU quota is not exercised and enforced. The calibration supports
+quotas below one CPU; a single-thread probe cannot validate larger quotas.
+
+```bash
+node scripts/benchmark/cloud-cpu-calibration.mjs hiremeops-cloud-worker:latest 0.2 512000000
+```
+
+At 0.2 CPU, expect approximately one second of process CPU time over five
+seconds wall time, with progressing `nr_periods` and `nr_throttled`. Reading
+`20000 100000` alone is insufficient. Some sched_ext/BPF schedulers may ignore
+CPU controller settings; see the [kernel documentation](https://docs.kernel.org/scheduler/sched-ext.html#scheduler-dependent-knobs).
+Use a host/VM with verified enforcement for resource acceptance; do not silently
+change the desktop scheduler. Synthetic selector tests can still run directly
+via `automation/cloud-viewport-benchmark.mjs`, but are not production acceptance.
+
+Benchmark memory defaults are `512000000` bytes (488.28125 MiB), matching the
+observed Northflank limit. `512m` is 512 MiB; `488300k` is approximately 476.9 MiB.
+
+### Network diagnostic semantics
+
+`scriptResponses2xx` counts response **headers**, not completed downloads or
+executed scripts. Pending requests remain tracked through `requestfinished`
+or `requestfailed`. `finishedRequestsByType` counts completed downloads;
+`oldestPending.phase` distinguishes `awaiting_headers` from `downloading`.
+Neither status 200 nor a completed download proves successful JS execution.
+URLs, headers, cookies and bodies are not included in these diagnostics.
+
 ## Environment
 
 Required by desktop sync / PostgreSQL:
@@ -79,6 +111,9 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-headless-shell
 keep the default `0` unless a Northflank comparison justifies changing it.
 `HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING=1` is a diagnostic A/B switch;
 keep the default `0` to preserve the current launch profile.
+The switch removes `--disable-background-networking` from both custom args
+and Patchright defaults via `ignoreDefaultArgs`, on both cloud launch paths.
+Verify the actual Chromium `/proc/<pid>/cmdline`, not only the options object.
 
 The Manual Job receives only:
 

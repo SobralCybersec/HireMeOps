@@ -66,12 +66,21 @@ function cloudRendererArgs() {
     : ["--renderer-process-limit=1"];
 }
 
+function cloudBackgroundNetworkingEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING ?? "");
+}
+
 function cloudBaseArgs() {
-  return /^(1|true|yes)$/i.test(
-    process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING ?? "",
-  )
+  return cloudBackgroundNetworkingEnabled()
     ? BASE_STEALTH_ARGS.filter((arg) => arg !== "--disable-background-networking")
     : BASE_STEALTH_ARGS;
+}
+
+function cloudIgnoredDefaultArgs() {
+  // Patchright supplies this flag even when it is absent from our custom args.
+  return cloudBackgroundNetworkingEnabled()
+    ? ["--enable-automation", "--disable-background-networking"]
+    : ["--enable-automation"];
 }
 
 export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
@@ -85,7 +94,7 @@ export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
       ...cloudRendererArgs(),
       ...extraArgs,
     ],
-    ignoreDefaultArgs: ["--enable-automation"],
+    ignoreDefaultArgs: cloudIgnoredDefaultArgs(),
     channel: executablePath ? undefined : "chrome",
     executablePath,
   };
@@ -124,7 +133,9 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
       ...cloudArgs,
       ...extraArgs,
     ],
-    ignoreDefaultArgs: ["--enable-automation"],
+    ignoreDefaultArgs: process.env.HIREMEOPS_CLOUD
+      ? cloudIgnoredDefaultArgs()
+      : ["--enable-automation"],
     channel: executablePath ? undefined : "chrome",
     executablePath,
   };

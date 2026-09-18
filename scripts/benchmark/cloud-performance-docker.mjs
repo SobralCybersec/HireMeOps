@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { calibrateDockerCpu } from "./cloud-cpu-calibration.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const DEFAULTS = {
@@ -9,7 +10,7 @@ const DEFAULTS = {
   output: "reports/quality/cloud-performance.json",
   iterations: 5,
   viewport: "800x600",
-  memory: "512m",
+  memory: "512000000",
   cpus: "0.2",
   shmSize: "64m",
 };
@@ -72,6 +73,7 @@ function dockerArgs(options, outputDir) {
 
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
+  const calibration = calibrateDockerCpu(options);
   const output = path.resolve(ROOT, options.output);
   const outputDir = path.dirname(output);
   await mkdir(outputDir, { recursive: true });
@@ -83,6 +85,7 @@ export async function main(argv = process.argv.slice(2)) {
   });
   const report = JSON.parse(await readFile(output, "utf8"));
   report.runtime = {
+    calibration,
     image: options.image,
     memory: options.memory,
     cpus: options.cpus,

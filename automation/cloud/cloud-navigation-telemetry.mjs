@@ -32,10 +32,7 @@ function hostBucket(value) {
 
 function pathnameHash(value) {
   try {
-    return createHash("sha256")
-      .update(new URL(value).pathname)
-      .digest("hex")
-      .slice(0, 12);
+    return createHash("sha256").update(new URL(value).pathname).digest("hex").slice(0, 12);
   } catch {
     return null;
   }
@@ -78,6 +75,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
   const responsesByType = emptyResponseCounts();
   const responsesByClass = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, other: 0 };
   const failedRequestsByType = emptyCounts();
+  const finishedRequestsByType = emptyCounts();
   const failedReasons = { blocked_by_policy: 0, timeout: 0, connection: 0, other: 0 };
   const hostBuckets = { linkedin: 0, licdn: 0, other: 0 };
   const pendingRequests = new Map();
@@ -96,15 +94,21 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
       host,
       pathnameHash: pathnameHash(request.url?.()),
       startedAt: Date.now(),
+      phase: "awaiting_headers",
     });
   };
   const onResponse = (response) => {
     const request = response.request?.();
-    pendingRequests.delete(request);
+    const pending = pendingRequests.get(request);
+    if (pending) pending.phase = "downloading";
     const type = resourceType(request);
     const group = statusClass(response.status?.());
     responsesByType[type][group] += 1;
     responsesByClass[group] += 1;
+  };
+  const onRequestFinished = (request) => {
+    pendingRequests.delete(request);
+    finishedRequestsByType[resourceType(request)] += 1;
   };
   const onRequestFailed = (request) => {
     pendingRequests.delete(request);
@@ -126,6 +130,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
   if (add) {
     add("request", onRequest);
     add("response", onResponse);
+    add("requestfinished", onRequestFinished);
     add("requestfailed", onRequestFailed);
     add("pageerror", onPageError);
     add("console", onConsole);
@@ -154,6 +159,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
             type: pending.type,
             host: pending.host,
             pathnameHash: pending.pathnameHash,
+            phase: pending.phase,
             ageMs,
           };
         }
@@ -167,6 +173,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
           RESOURCE_TYPES.map((type) => [type, { ...responsesByType[type] }]),
         ),
         failedRequestsByType: { ...failedRequestsByType },
+        finishedRequestsByType: { ...finishedRequestsByType },
         failedReasons: { ...failedReasons },
         hostBuckets: { ...hostBuckets },
         pendingRequestsTotal: pendingRequests.size,
@@ -193,6 +200,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
       if (!remove) return;
       remove("request", onRequest);
       remove("response", onResponse);
+      remove("requestfinished", onRequestFinished);
       remove("requestfailed", onRequestFailed);
       remove("pageerror", onPageError);
       remove("console", onConsole);

@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
+import { calibrateDockerCpu } from "./cloud-cpu-calibration.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const DEFAULT_VIEWPORTS = ["1024x768", "900x675", "800x600"];
@@ -23,7 +24,7 @@ const DEFAULTS = {
   image: "hiremeops-cloud-worker:quality",
   output: "reports/quality/viewport-benchmark.json",
   timeoutMs: 120_000,
-  memory: "512m",
+  memory: "512000000",
   cpus: "0.2",
   shmSize: "64m",
 };
@@ -210,6 +211,7 @@ async function writeReport(report) {
 
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
+  const calibration = calibrateDockerCpu(options);
   const runs = [];
   for (const platform of options.platforms) {
     for (const viewport of options.viewports) {
@@ -220,6 +222,7 @@ export async function main(argv = process.argv.slice(2)) {
   const report = {
     generatedAt: new Date().toISOString(),
     workload: "synthetic browser fixture; no real credentials",
+    calibration,
     options,
     runs,
     summary: summarizeViewportRuns(runs, options),
@@ -230,7 +233,13 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().then((code) => {
-    process.exitCode = code;
-  });
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      process.stderr.write(`[viewport-matrix] ${error.message}\n`);
+      process.exitCode = 2;
+    },
+  );
 }

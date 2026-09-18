@@ -1,7 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BASE_STEALTH_ARGS, baseLaunchOptions, cloudLaunchOptions } from "./browser-launch.js";
 
 describe("cloud browser launch", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([cloudLaunchOptions, baseLaunchOptions])(
+    "removes the networking flag from both custom and browser default args",
+    (launchOptions) => {
+      vi.stubEnv("HIREMEOPS_CLOUD", "1");
+      vi.stubEnv("HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING", "0");
+      const baseline = launchOptions({ executablePath: "/usr/bin/chromium" });
+      vi.stubEnv("HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING", "1");
+      expect(launchOptions({ executablePath: "/usr/bin/chromium" })).toEqual({
+        ...baseline,
+        args: baseline.args.filter((arg) => arg !== "--disable-background-networking"),
+        ignoreDefaultArgs: [...baseline.ignoreDefaultArgs, "--disable-background-networking"],
+      });
+    },
+  );
+
+  it("does not apply the cloud networking experiment to local launch", () => {
+    vi.stubEnv("HIREMEOPS_CLOUD", "");
+    vi.stubEnv("HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING", "0");
+    const baseline = baseLaunchOptions();
+    vi.stubEnv("HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING", "1");
+    expect(baseLaunchOptions()).toEqual(baseline);
+  });
+
   it("uses browser-level Mozilla UA aligned with cloud Chromium", () => {
     const options = cloudLaunchOptions({
       executablePath: "/usr/bin/chromium-headless-shell",
@@ -69,7 +94,8 @@ describe("cloud browser launch", () => {
     } finally {
       if (previousCloud === undefined) delete process.env.HIREMEOPS_CLOUD;
       else process.env.HIREMEOPS_CLOUD = previousCloud;
-      if (previousNetworking === undefined) delete process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+      if (previousNetworking === undefined)
+        delete process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
       else process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING = previousNetworking;
     }
   });

@@ -10,7 +10,7 @@ describe("cloud viewport matrix", () => {
   it("keeps hard-limit and viewport defaults reproducible", () => {
     const options = parseArgs([]);
     assert.equal(options.image, "hiremeops-cloud-worker:quality");
-    assert.equal(options.memory, "512m");
+    assert.equal(options.memory, "512000000");
     assert.equal(options.cpus, "0.2");
     assert.deepEqual(options.viewports, ["1024x768", "900x675", "800x600"]);
   });
