@@ -29,6 +29,11 @@ describe("cloud navigation telemetry", () => {
       pendingRequestsTotal: 1,
       pendingByType: { script: 1 },
       pendingByHostBucket: { licdn: 1 },
+      oldestPending: {
+        type: "script",
+        host: "licdn",
+        pathnameHash: expect.stringMatching(/^[a-f0-9]{12}$/),
+      },
     });
     expect(JSON.stringify(snapshot)).not.toMatch(/licdn\.com|token|secret/i);
     telemetry.detach();

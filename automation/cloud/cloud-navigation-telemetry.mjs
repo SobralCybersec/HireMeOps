@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const RESOURCE_TYPES = [
   "document",
   "script",
@@ -26,6 +28,17 @@ function hostBucket(value) {
     if (hostname === "licdn.com" || hostname.endsWith(".licdn.com")) return "licdn";
   } catch {}
   return "other";
+}
+
+function pathnameHash(value) {
+  try {
+    return createHash("sha256")
+      .update(new URL(value).pathname)
+      .digest("hex")
+      .slice(0, 12);
+  } catch {
+    return null;
+  }
 }
 
 function statusClass(status) {
@@ -78,7 +91,12 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
     requestsByType[type] += 1;
     const host = hostBucket(request.url?.());
     hostBuckets[host] += 1;
-    pendingRequests.set(request, { type, host, startedAt: Date.now() });
+    pendingRequests.set(request, {
+      type,
+      host,
+      pathnameHash: pathnameHash(request.url?.()),
+      startedAt: Date.now(),
+    });
   };
   const onResponse = (response) => {
     const request = response.request?.();
@@ -124,11 +142,21 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
       const pendingByType = emptyCounts();
       const pendingByHostBucket = { linkedin: 0, licdn: 0, other: 0 };
       let oldestPendingAgeMs = null;
+      let oldestPending = null;
       const now = Date.now();
       for (const pending of pendingRequests.values()) {
+        const ageMs = now - pending.startedAt;
         pendingByType[pending.type] += 1;
         pendingByHostBucket[pending.host] += 1;
-        oldestPendingAgeMs = Math.max(oldestPendingAgeMs ?? 0, now - pending.startedAt);
+        if (oldestPendingAgeMs == null || ageMs > oldestPendingAgeMs) {
+          oldestPendingAgeMs = ageMs;
+          oldestPending = {
+            type: pending.type,
+            host: pending.host,
+            pathnameHash: pending.pathnameHash,
+            ageMs,
+          };
+        }
       }
       return {
         resourcePolicyEnabled,
@@ -145,6 +173,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
         pendingByType,
         pendingByHostBucket,
         oldestPendingAgeMs,
+        oldestPending,
         scriptRequests: requestsByType.script,
         scriptResponses2xx: responsesByType.script["2xx"],
         scriptResponses4xx: responsesByType.script["4xx"],
