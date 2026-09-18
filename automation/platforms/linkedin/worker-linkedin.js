@@ -16,28 +16,24 @@ import {
 export async function cmdSearchJobs(config, hooks = {}) {
   const { handle, keywords = "", location = "", page_index = 0, filters = {} } = config;
   const sess = session(handle);
-  const { page } = sess;
+  let { page } = sess;
   const url = buildLinkedInSearchUrl({ keywords, location, pageIndex: page_index, filters });
-  let cloudExtraction = null;
-  const searchState = await openLinkedInSearch(
-    page,
-    url,
-    process.env.HIREMEOPS_CLOUD === "1"
-      ? {
-          onResultsReady: async ({ state, diagnostics }) => {
-            const jobs = state === "empty" ? [] : await readLinkedInCards(page);
-            if (state !== "empty" && jobs.length === 0) throw linkedInSearchError(diagnostics);
-            const hasNextPage =
-              state === "empty" ? false : await readLinkedInNextPage(page, diagnostics);
-            await closeCloudSearchPage(page);
-            await hooks.onPhase?.("linkedin-results-ready");
-            await hooks.onPhase?.("linkedin-cards-extracted");
-            await hooks.onPhase?.("linkedin-page-closed");
-            cloudExtraction = { jobs, hasNextPage };
-          },
-        }
-      : undefined,
-  );
+  const cloud = process.env.HIREMEOPS_CLOUD === "1";
+  let result;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      result = await runLinkedInSearchAttempt({ page, url, hooks, cloud, attempt });
+      break;
+    } catch (error) {
+      if (!cloud || attempt >= 2 || !isLinkedInBootstrapStalled(error.diagnostics, error.code)) {
+        throw error;
+      }
+      logBootstrapRetry(attempt, error.diagnostics);
+      await closeCloudSearchPage(page);
+      page = await replaceCloudSearchPage(sess);
+    }
+  }
+  const { searchState, cloudExtraction } = result;
   if (searchState.state === "empty") {
     const extraction = cloudExtraction ?? { jobs: [], hasNextPage: false };
     return {
@@ -66,11 +62,53 @@ export async function cmdSearchJobs(config, hooks = {}) {
   };
 }
 
+async function runLinkedInSearchAttempt({ page, url, hooks, cloud, attempt }) {
+  let cloudExtraction = null;
+  const searchState = await openLinkedInSearch(
+    page,
+    url,
+    cloud
+      ? {
+          attempt,
+          onResultsReady: async ({ state, diagnostics }) => {
+            const jobs = state === "empty" ? [] : await readLinkedInCards(page);
+            if (state !== "empty" && jobs.length === 0) throw linkedInSearchError(diagnostics);
+            const hasNextPage =
+              state === "empty" ? false : await readLinkedInNextPage(page, diagnostics);
+            await closeCloudSearchPage(page);
+            await hooks.onPhase?.("linkedin-results-ready");
+            await hooks.onPhase?.("linkedin-cards-extracted");
+            await hooks.onPhase?.("linkedin-page-closed");
+            cloudExtraction = { jobs, hasNextPage };
+          },
+        }
+      : undefined,
+  );
+  return { searchState, cloudExtraction };
+}
+
 async function closeCloudSearchPage(page) {
   if (process.env.HIREMEOPS_CLOUD !== "1") return;
+  const close = Promise.resolve()
+    .then(() => page.close?.())
+    .catch(() => {});
+  let timer;
   try {
-    await page.close?.();
-  } catch {}
+    await Promise.race([
+      close,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, 3_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function replaceCloudSearchPage(sess) {
+  const page = await sess.browser.newPage();
+  sess.page = page;
+  return page;
 }
 
 async function readLinkedInNextPage(page, diagnostics) {
@@ -90,31 +128,60 @@ async function readLinkedInNextPage(page, diagnostics) {
     .catch(() => false);
 }
 
-export async function waitForLinkedInSearchState(page, { timeout = 15_000, pollInterval } = {}) {
+export async function waitForLinkedInSearchState(
+  page,
+  { timeout = 15_000, pollInterval, inspectorTimeoutMs, navigationStatus, getNetwork } = {},
+) {
   const startedAt = Date.now();
   const deadline = Date.now() + Math.max(0, timeout);
   const interval = pollInterval ?? linkedInReadinessPollInterval();
   const dcl = observeDomContentLoaded(page, deadline);
+  let stateDiagnostics = {};
   try {
-    let stateDiagnostics = await readLinkedInSearchState(page);
+    stateDiagnostics = await readLinkedInSearchState(page, inspectorTimeoutMs);
     let state = classifyLinkedInSearchState(stateDiagnostics);
     dcl.markReady(["interactive", "complete"].includes(stateDiagnostics.readyState));
+    throwIfBootstrapStalled();
     while (state === "not_loaded" && Date.now() < deadline) {
       await page.waitForTimeout(Math.min(interval, deadline - Date.now()));
-      stateDiagnostics = await readLinkedInSearchState(page);
+      stateDiagnostics = await readLinkedInSearchState(page, inspectorTimeoutMs);
       dcl.markReady(["interactive", "complete"].includes(stateDiagnostics.readyState));
       state = classifyLinkedInSearchState(stateDiagnostics);
+      throwIfBootstrapStalled();
     }
     const diagnostics =
-      state === "results" ? stateDiagnostics : await readLinkedInSearchDiagnostics(page, stateDiagnostics);
+      state === "results"
+        ? stateDiagnostics
+        : await readLinkedInSearchDiagnostics(page, stateDiagnostics, inspectorTimeoutMs);
     return {
       state,
       diagnostics: { ...stateDiagnostics, ...diagnostics },
       dcl: dcl.snapshot(),
       semanticElapsedMs: Date.now() - startedAt,
     };
+  } catch (error) {
+    if (error?.code === "linkedin_renderer_unresponsive") {
+      error.diagnostics = {
+        ...stateDiagnostics,
+        rendererUnresponsive: true,
+        semanticElapsedMs: Date.now() - startedAt,
+      };
+    }
+    throw error;
   } finally {
     dcl.stop();
+  }
+
+  function throwIfBootstrapStalled() {
+    const network = getNetwork?.();
+    if (stateDiagnostics.readyState !== "loading" || !network) return;
+    const diagnostics = { ...stateDiagnostics, navigationStatus, network };
+    if (isLinkedInBootstrapStalled(diagnostics)) {
+      throw linkedInSearchError(
+        { ...diagnostics, semanticElapsedMs: Date.now() - startedAt },
+        "linkedin_bootstrap_stalled",
+      );
+    }
   }
 }
 
@@ -157,19 +224,46 @@ function observeDomContentLoaded(page, deadline) {
   };
 }
 
-async function readLinkedInSearchState(page) {
-  return page.evaluate(inspectLinkedInSearchState);
+async function readLinkedInSearchState(page, timeoutMs = linkedInInspectorTimeout()) {
+  return evaluateLinkedInInspector(page, inspectLinkedInSearchState, timeoutMs);
 }
 
-async function readLinkedInSearchDiagnostics(page, fallback = {}) {
+async function readLinkedInSearchDiagnostics(
+  page,
+  fallback = {},
+  timeoutMs = linkedInInspectorTimeout(),
+) {
   try {
-    return await page.evaluate(inspectLinkedInSearchDocument);
+    return await evaluateLinkedInInspector(page, inspectLinkedInSearchDocument, timeoutMs);
   } catch (error) {
     return {
       ...fallback,
       diagnosticError: sanitizeProbeError(error),
     };
   }
+}
+
+async function evaluateLinkedInInspector(page, inspector, timeoutMs) {
+  const evaluation = Promise.resolve().then(() => page.evaluate(inspector));
+  let timer;
+  try {
+    return await Promise.race([
+      evaluation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error("linkedin_renderer_unresponsive");
+          error.code = "linkedin_renderer_unresponsive";
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function linkedInInspectorTimeout() {
+  return process.env.HIREMEOPS_CLOUD === "1" ? 3_000 : 10_000;
 }
 
 function linkedInSearchError(diagnostics, code = "linkedin_results_not_loaded") {
@@ -208,7 +302,7 @@ function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
   return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
 }
 
-async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
+async function openLinkedInSearch(page, url, { onResultsReady, attempt = 1 } = {}) {
   const telemetry =
     process.env.HIREMEOPS_CLOUD === "1"
       ? createNavigationTelemetry(page, {
@@ -223,8 +317,12 @@ async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
     if (urlStatus !== "valid") throw linkedInSearchError({ url: currentUrl }, urlStatus);
     const readiness = await waitForLinkedInSearchState(page, {
       timeout: linkedInNavigationTimeout(),
+      navigationStatus: response?.status?.() ?? null,
+      getNetwork: telemetry?.snapshot,
     });
     const diagnostics = {
+      attempt,
+      retryCount: attempt - 1,
       url: currentUrl,
       ...readiness.diagnostics,
       dcl: readiness.dcl,
@@ -244,7 +342,10 @@ async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
       throw linkedInSearchError(diagnostics, readiness.state);
     }
     if (authStatus !== "valid") {
-      throw linkedInSearchError(diagnostics, authStatus === "unknown" ? "linkedin_auth_unknown" : authStatus);
+      throw linkedInSearchError(
+        diagnostics,
+        authStatus === "unknown" ? "linkedin_auth_unknown" : authStatus,
+      );
     }
     await onResultsReady?.({ state: readiness.state, diagnostics });
     if (!page.isClosed?.()) {
@@ -263,7 +364,11 @@ async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
     return { ...readiness, diagnostics, authStatus };
   } catch (error) {
     const diagnostics = {
-      ...(error.diagnostics ?? { url: page.url() }),
+      attempt,
+      retryCount: attempt - 1,
+      ...navigationMetadata(response),
+      ...(error.diagnostics ?? {}),
+      url: error.diagnostics?.url ?? page.url(),
       errorName: error?.name ?? "Error",
       errorMessage: sanitizeProbeError(error),
       ...(telemetry
@@ -279,6 +384,39 @@ async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
   } finally {
     telemetry?.detach();
   }
+}
+
+export function isLinkedInBootstrapStalled(diagnostics, errorCode = null) {
+  const network = diagnostics?.network ?? {};
+  const noAuthSignal =
+    Number(diagnostics?.loginMarkers ?? 0) === 0 &&
+    Number(diagnostics?.challengeMarkers ?? 0) === 0;
+  const noResults =
+    Number(diagnostics?.occludableCards ?? 0) === 0 && Number(diagnostics?.jobViewLinks ?? 0) === 0;
+  const pendingScript = Number(network.pendingByType?.script ?? 0) > 0;
+  const noApiProgress = Number(network.xhrFetchRequests ?? 0) === 0;
+  const oldPendingRequest = Number(network.oldestPendingAgeMs ?? 0) >= 10_000;
+  const rendererTimedOut = errorCode === "linkedin_renderer_unresponsive";
+  return (
+    Number(diagnostics?.navigationStatus) === 200 &&
+    diagnostics?.readyState === "loading" &&
+    noAuthSignal &&
+    noResults &&
+    pendingScript &&
+    noApiProgress &&
+    (oldPendingRequest || rendererTimedOut)
+  );
+}
+
+function logBootstrapRetry(attempt, diagnostics = {}) {
+  const network = diagnostics.network ?? {};
+  process.stderr.write(
+    `[linkedin-bootstrap-retry] attempt=${attempt} reason=stalled_script ` +
+      `pendingScripts=${network.pendingByType?.script ?? 0} ` +
+      `oldestPendingAgeMs=${network.oldestPendingAgeMs ?? "unknown"} ` +
+      `xhrFetch=${network.xhrFetchRequests ?? 0} ` +
+      `elapsedMs=${diagnostics.semanticElapsedMs ?? "unknown"}\n`,
+  );
 }
 
 function cloudResourcePolicyEnabled() {
@@ -381,7 +519,9 @@ async function enrichLinkedInJobs(page, browser, jobs, onJobUpdated) {
   const runPool = async () => {
     while (cursor < jobs.length) {
       const job = jobs[cursor++];
-      const detail = job.job_id ? await fetchLinkedInJobDetail(browser.request, csrf, job.job_id) : null;
+      const detail = job.job_id
+        ? await fetchLinkedInJobDetail(browser.request, csrf, job.job_id)
+        : null;
       job.description = detail?.description ?? null;
       if (!job.title && detail?.title) job.title = detail.title;
       if (detail?.location) job.location = detail.location;

@@ -4,6 +4,7 @@ import {
   cmdSearchJobs,
   classifyLinkedInReadinessError,
   fetchLinkedInJobDetail,
+  isLinkedInBootstrapStalled,
   waitForLinkedInSearchState,
 } from "./worker-linkedin.js";
 import { sessions } from "../../core/worker/worker-context.js";
@@ -81,7 +82,10 @@ describe("LinkedIn cloud renderer lifecycle", () => {
       }),
     });
     const page = {
-      goto: vi.fn(async () => ({ status: () => 200, headers: () => ({ "content-type": "text/html" }) })),
+      goto: vi.fn(async () => ({
+        status: () => 200,
+        headers: () => ({ "content-type": "text/html" }),
+      })),
       url: () => "https://www.linkedin.com/jobs/search/",
       once: vi.fn(),
       off: vi.fn(),
@@ -159,9 +163,174 @@ describe("LinkedIn cloud renderer lifecycle", () => {
       else process.env.HIREMEOPS_CLOUD = previousCloud;
     }
   });
+
+  it("retries one stalled bootstrap with a fresh page", async () => {
+    const previousCloud = process.env.HIREMEOPS_CLOUD;
+    process.env.HIREMEOPS_CLOUD = "1";
+    const handlers = new Map();
+    const pageUrl = "https://www.linkedin.com/jobs/search/";
+    const request = {
+      resourceType: () => "script",
+      url: () => "https://static.licdn.com/bootstrap.js",
+    };
+    const firstPage = {
+      goto: vi.fn(async () => {
+        handlers.get("request")?.(request);
+        return { status: () => 200, headers: () => ({ "content-type": "text/html" }) };
+      }),
+      url: () => pageUrl,
+      on: vi.fn((event, listener) => handlers.set(event, listener)),
+      off: vi.fn((event) => handlers.delete(event)),
+      once: vi.fn(),
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce({
+          readyState: "loading",
+          occludableCards: 0,
+          jobViewLinks: 0,
+          noResultsBanners: 0,
+          loginMarkers: 0,
+          challengeMarkers: 0,
+        })
+        .mockImplementationOnce(() => new Promise(() => {})),
+      waitForTimeout: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      isClosed: () => false,
+    };
+    const secondPage = {
+      goto: vi.fn(async () => ({
+        status: () => 200,
+        headers: () => ({ "content-type": "text/html" }),
+      })),
+      url: () => pageUrl,
+      on: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+      evaluate: vi.fn(async (inspector) => {
+        if (inspector === inspectLinkedInSearchState) {
+          return {
+            readyState: "interactive",
+            occludableCards: 1,
+            jobViewLinks: 1,
+            noResultsBanners: 0,
+            loginMarkers: 0,
+            challengeMarkers: 0,
+            authenticatedMarkers: 1,
+            authenticatedNavDestinations: 3,
+          };
+        }
+        if (inspector === extractLinkedInCardsFromDocument) {
+          return [{ job_id: null, title: "Recovered role" }];
+        }
+        throw new Error("unexpected inspector");
+      }),
+      close: vi.fn(async () => {}),
+      isClosed: () => true,
+      locator: vi.fn(),
+    };
+    const browser = {
+      newPage: vi.fn(async () => secondPage),
+      cookies: vi.fn(async () => []),
+      request: { get: vi.fn() },
+    };
+    const discovered = [];
+    sessions.set("linkedin-bootstrap-retry", { page: firstPage, browser });
+    try {
+      const result = await cmdSearchJobs(
+        { handle: "linkedin-bootstrap-retry", keywords: "backend", location: "Rio" },
+        { onJobsDiscovered: async (jobs) => discovered.push(...jobs) },
+      );
+      expect(result.auth_status).toBe("valid");
+      expect(browser.newPage).toHaveBeenCalledOnce();
+      expect(firstPage.close).toHaveBeenCalledOnce();
+      expect(secondPage.close).toHaveBeenCalledOnce();
+      expect(discovered).toEqual([{ job_id: null, title: "Recovered role", description: null }]);
+    } finally {
+      sessions.delete("linkedin-bootstrap-retry");
+      if (previousCloud == null) delete process.env.HIREMEOPS_CLOUD;
+      else process.env.HIREMEOPS_CLOUD = previousCloud;
+    }
+  });
+
+  it("does not retry a login-required page", async () => {
+    const previousCloud = process.env.HIREMEOPS_CLOUD;
+    process.env.HIREMEOPS_CLOUD = "1";
+    const page = {
+      goto: vi.fn(async () => ({
+        status: () => 200,
+        headers: () => ({ "content-type": "text/html" }),
+      })),
+      url: () => "https://www.linkedin.com/login",
+      once: vi.fn(),
+      off: vi.fn(),
+      evaluate: vi.fn(async () => ({
+        readyState: "complete",
+        occludableCards: 0,
+        jobViewLinks: 0,
+        noResultsBanners: 0,
+        loginMarkers: 1,
+        challengeMarkers: 0,
+      })),
+      close: vi.fn(async () => {}),
+    };
+    const browser = { newPage: vi.fn(), cookies: vi.fn(), request: {} };
+    sessions.set("linkedin-login-terminal", { page, browser });
+    try {
+      await expect(
+        cmdSearchJobs({ handle: "linkedin-login-terminal", keywords: "backend" }),
+      ).rejects.toMatchObject({ code: "login_required" });
+      expect(browser.newPage).not.toHaveBeenCalled();
+    } finally {
+      sessions.delete("linkedin-login-terminal");
+      if (previousCloud == null) delete process.env.HIREMEOPS_CLOUD;
+      else process.env.HIREMEOPS_CLOUD = previousCloud;
+    }
+  });
 });
 
 describe("LinkedIn search readiness", () => {
+  it("detects only the stalled bootstrap signature", () => {
+    const diagnostics = {
+      navigationStatus: 200,
+      readyState: "loading",
+      occludableCards: 0,
+      jobViewLinks: 0,
+      loginMarkers: 0,
+      challengeMarkers: 0,
+      network: {
+        xhrFetchRequests: 0,
+        pendingByType: { script: 1 },
+        oldestPendingAgeMs: 10_001,
+      },
+    };
+    expect(isLinkedInBootstrapStalled(diagnostics)).toBe(true);
+    expect(isLinkedInBootstrapStalled({ ...diagnostics, loginMarkers: 1 })).toBe(false);
+    expect(
+      isLinkedInBootstrapStalled({
+        ...diagnostics,
+        network: { ...diagnostics.network, xhrFetchRequests: 1 },
+      }),
+    ).toBe(false);
+  });
+
+  it("bounds a stuck renderer evaluation", async () => {
+    const previousCloud = process.env.HIREMEOPS_CLOUD;
+    process.env.HIREMEOPS_CLOUD = "1";
+    const page = {
+      evaluate: () => new Promise(() => {}),
+      once: vi.fn(),
+      off: vi.fn(),
+    };
+    try {
+      await expect(
+        waitForLinkedInSearchState(page, { timeout: 0, inspectorTimeoutMs: 10 }),
+      ).rejects.toMatchObject({ code: "linkedin_renderer_unresponsive" });
+    } finally {
+      if (previousCloud == null) delete process.env.HIREMEOPS_CLOUD;
+      else process.env.HIREMEOPS_CLOUD = previousCloud;
+    }
+  });
+
   it("keeps the hot-path inspector free of heavy DOM reads", () => {
     const previousDocument = globalThis.document;
     const documentElement = {};

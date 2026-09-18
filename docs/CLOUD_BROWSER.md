@@ -36,6 +36,13 @@ No password, MFA code or browser profile directory is copied to cloud.
 The key is read only from the process environment. It is never in React,
 localStorage, Docker build args, Git, PostgreSQL or logs.
 
+## Validation layers
+
+`bun run test:cloud-contract` runs deterministic cloud-runner contract tests
+with synthetic browser responses. `bun run test:cloud` remains a compatibility
+alias. Neither replaces a repeated Northflank canary with the real session,
+network and resource limits.
+
 ## Environment
 
 Required by desktop sync / PostgreSQL:
