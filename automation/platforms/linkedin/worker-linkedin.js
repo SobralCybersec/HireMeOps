@@ -443,6 +443,7 @@ function logLinkedInSearchDiagnostics(state, response, diagnostics) {
       `[linkedin-network-summary] requests=${network.requestsTotal} ` +
         `scripts=${network.scriptRequests} ` +
         `script2xx=${network.scriptResponses2xx} ` +
+        `scriptFinished=${network.finishedRequestsByType?.script ?? 0} ` +
         `scriptPending=${network.pendingByType?.script ?? 0} ` +
         `styles=${network.requestsByType?.stylesheet ?? 0} ` +
         `xhrFetch=${network.xhrFetchRequests} ` +

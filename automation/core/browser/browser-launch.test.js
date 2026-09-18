@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BASE_STEALTH_ARGS, baseLaunchOptions, cloudLaunchOptions } from "./browser-launch.js";
 
-describe("cloud browser launch", () => {
+describe("cloud background networking defaults", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([cloudLaunchOptions, baseLaunchOptions])(
@@ -26,7 +26,9 @@ describe("cloud browser launch", () => {
     vi.stubEnv("HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING", "1");
     expect(baseLaunchOptions()).toEqual(baseline);
   });
+});
 
+describe("cloud browser launch", () => {
   it("uses browser-level Mozilla UA aligned with cloud Chromium", () => {
     const options = cloudLaunchOptions({
       executablePath: "/usr/bin/chromium-headless-shell",

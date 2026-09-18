@@ -1,0 +1,346 @@
+diff --git c/automation/cloud/cloud-navigation-telemetry.mjs w/automation/cloud/cloud-navigation-telemetry.mjs
+index 593a2e3..8c86975 100644
+--- c/automation/cloud/cloud-navigation-telemetry.mjs
++++ w/automation/cloud/cloud-navigation-telemetry.mjs
+@@ -32,10 +32,7 @@ function hostBucket(value) {
+ 
+ function pathnameHash(value) {
+   try {
+-    return createHash("sha256")
+-      .update(new URL(value).pathname)
+-      .digest("hex")
+-      .slice(0, 12);
++    return createHash("sha256").update(new URL(value).pathname).digest("hex").slice(0, 12);
+   } catch {
+     return null;
+   }
+@@ -78,6 +75,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+   const responsesByType = emptyResponseCounts();
+   const responsesByClass = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, other: 0 };
+   const failedRequestsByType = emptyCounts();
++  const finishedRequestsByType = emptyCounts();
+   const failedReasons = { blocked_by_policy: 0, timeout: 0, connection: 0, other: 0 };
+   const hostBuckets = { linkedin: 0, licdn: 0, other: 0 };
+   const pendingRequests = new Map();
+@@ -96,16 +94,22 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+       host,
+       pathnameHash: pathnameHash(request.url?.()),
+       startedAt: Date.now(),
++      phase: "awaiting_headers",
+     });
+   };
+   const onResponse = (response) => {
+     const request = response.request?.();
+-    pendingRequests.delete(request);
++    const pending = pendingRequests.get(request);
++    if (pending) pending.phase = "downloading";
+     const type = resourceType(request);
+     const group = statusClass(response.status?.());
+     responsesByType[type][group] += 1;
+     responsesByClass[group] += 1;
+   };
++  const onRequestFinished = (request) => {
++    pendingRequests.delete(request);
++    finishedRequestsByType[resourceType(request)] += 1;
++  };
+   const onRequestFailed = (request) => {
+     pendingRequests.delete(request);
+     const type = resourceType(request);
+@@ -126,6 +130,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+   if (add) {
+     add("request", onRequest);
+     add("response", onResponse);
++    add("requestfinished", onRequestFinished);
+     add("requestfailed", onRequestFailed);
+     add("pageerror", onPageError);
+     add("console", onConsole);
+@@ -154,6 +159,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+             type: pending.type,
+             host: pending.host,
+             pathnameHash: pending.pathnameHash,
++            phase: pending.phase,
+             ageMs,
+           };
+         }
+@@ -167,6 +173,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+           RESOURCE_TYPES.map((type) => [type, { ...responsesByType[type] }]),
+         ),
+         failedRequestsByType: { ...failedRequestsByType },
++        finishedRequestsByType: { ...finishedRequestsByType },
+         failedReasons: { ...failedReasons },
+         hostBuckets: { ...hostBuckets },
+         pendingRequestsTotal: pendingRequests.size,
+@@ -193,6 +200,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false
+       if (!remove) return;
+       remove("request", onRequest);
+       remove("response", onResponse);
++      remove("requestfinished", onRequestFinished);
+       remove("requestfailed", onRequestFailed);
+       remove("pageerror", onPageError);
+       remove("console", onConsole);
+diff --git c/automation/core/browser/browser-launch.js w/automation/core/browser/browser-launch.js
+index df03be3..c3dfc93 100644
+--- c/automation/core/browser/browser-launch.js
++++ w/automation/core/browser/browser-launch.js
+@@ -66,14 +66,23 @@ function cloudRendererArgs() {
+     : ["--renderer-process-limit=1"];
+ }
+ 
++function cloudBackgroundNetworkingEnabled() {
++  return /^(1|true|yes)$/i.test(process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING ?? "");
++}
++
+ function cloudBaseArgs() {
+-  return /^(1|true|yes)$/i.test(
+-    process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING ?? "",
+-  )
++  return cloudBackgroundNetworkingEnabled()
+     ? BASE_STEALTH_ARGS.filter((arg) => arg !== "--disable-background-networking")
+     : BASE_STEALTH_ARGS;
+ }
+ 
++function cloudIgnoredDefaultArgs() {
++  // Patchright supplies this flag even when it is absent from our custom args.
++  return cloudBackgroundNetworkingEnabled()
++    ? ["--enable-automation", "--disable-background-networking"]
++    : ["--enable-automation"];
++}
++
+ export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
+   const cloudHeadlessUA = cloudHeadlessUserAgent(executablePath);
+   return {
+@@ -85,7 +94,7 @@ export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
+       ...cloudRendererArgs(),
+       ...extraArgs,
+     ],
+-    ignoreDefaultArgs: ["--enable-automation"],
++    ignoreDefaultArgs: cloudIgnoredDefaultArgs(),
+     channel: executablePath ? undefined : "chrome",
+     executablePath,
+   };
+@@ -124,7 +133,9 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
+       ...cloudArgs,
+       ...extraArgs,
+     ],
+-    ignoreDefaultArgs: ["--enable-automation"],
++    ignoreDefaultArgs: process.env.HIREMEOPS_CLOUD
++      ? cloudIgnoredDefaultArgs()
++      : ["--enable-automation"],
+     channel: executablePath ? undefined : "chrome",
+     executablePath,
+   };
+diff --git c/scripts/benchmark/cloud-cpu-calibration.mjs w/scripts/benchmark/cloud-cpu-calibration.mjs
+new file mode 100644
+index 0000000..3c2af83
+--- /dev/null
++++ w/scripts/benchmark/cloud-cpu-calibration.mjs
+@@ -0,0 +1,118 @@
++import { spawnSync } from "node:child_process";
++
++// Executed inside an otherwise idle container, not alongside the browser.
++function measureCpu() {
++  const fs = require("node:fs");
++  const stat = () =>
++    Object.fromEntries(
++      fs
++        .readFileSync("/sys/fs/cgroup/cpu.stat", "utf8")
++        .trim()
++        .split("\n")
++        .map((line) => {
++          const [key, value] = line.split(/\s+/);
++          return [key, Number(value)];
++        }),
++    );
++  const cpuMax = fs.readFileSync("/sys/fs/cgroup/cpu.max", "utf8").trim();
++  const memoryMax = fs.readFileSync("/sys/fs/cgroup/memory.max", "utf8").trim();
++  const before = stat();
++  const start = performance.now();
++  const usage = process.cpuUsage();
++  while (performance.now() - start < 5000) {
++    /* CPU-bound calibration */
++  }
++  const cpu = process.cpuUsage(usage);
++  const wallMs = performance.now() - start;
++  const after = stat();
++  console.log(
++    JSON.stringify({
++      cpuMax,
++      memoryMax,
++      wallMs,
++      processCpuMs: (cpu.user + cpu.system) / 1000,
++      cgroupUsageMs: (after.usage_usec - before.usage_usec) / 1000,
++      periods: after.nr_periods - before.nr_periods,
++      throttled: after.nr_throttled - before.nr_throttled,
++    }),
++  );
++}
++
++function quotaWasExercised(sample, cpus) {
++  return (
++    sample.wallMs >= 4000 &&
++    sample.periods >= 10 &&
++    sample.throttled >= 1 &&
++    sample.processCpuMs / sample.wallMs >= cpus * 0.7
++  );
++}
++
++export function classifyCpuCalibration(sample, requestedCpus) {
++  const [quota, period] = String(sample.cpuMax).split(/\s+/).map(Number);
++  const cpus = Number(requestedCpus);
++  const observedCpus = sample.processCpuMs / sample.wallMs;
++  const configuredCpus = quota / period;
++  const measurements = [
++    cpus,
++    observedCpus,
++    configuredCpus,
++    sample.wallMs,
++    sample.periods,
++    sample.throttled,
++  ];
++  if (!measurements.every(Number.isFinite)) return "inconclusive";
++  if (cpus <= 0 || cpus >= 1 || sample.wallMs < 4000) return "inconclusive";
++  if (Math.abs(configuredCpus - cpus) > 0.001) return "quota_mismatch";
++  // Allow two quota periods of burst plus 10% measurement margin.
++  const upperBound = cpus * 1.1 + (2 * period) / 1000 / sample.wallMs;
++  if (observedCpus > upperBound) return "quota_not_enforced";
++  return quotaWasExercised(sample, cpus) ? "verified" : "inconclusive";
++}
++
++export function calibrateDockerCpu({ image, cpus, memory }) {
++  const child = spawnSync(
++    "docker",
++    [
++      "run",
++      "--rm",
++      "-i",
++      "--cpus",
++      String(cpus),
++      "--memory",
++      memory,
++      "--memory-swap",
++      memory,
++      "--entrypoint",
++      "node",
++      image,
++      "-",
++    ],
++    {
++      input: `(${measureCpu.toString()})();`,
++      encoding: "utf8",
++      timeout: 60_000,
++      maxBuffer: 100_000,
++    },
++  );
++  if (child.error || child.status !== 0) throw new Error("cpu_calibration_container_failed");
++  const sample = JSON.parse(child.stdout.trim());
++  const result = {
++    ...sample,
++    requestedCpus: Number(cpus),
++    status: classifyCpuCalibration(sample, cpus),
++  };
++  process.stdout.write(`[cloud-cpu-calibration] ${JSON.stringify(result)}\n`);
++  if (result.status !== "verified") throw new Error(`cpu_calibration_${result.status}`);
++  return result;
++}
++
++if (import.meta.url === `file://${process.argv[1]}`) {
++  const [image = "hiremeops-cloud-worker:quality", cpus = "0.2", memory = "512000000"] =
++    process.argv.slice(2);
++  try {
++    calibrateDockerCpu({ image, cpus, memory });
++  } catch (error) {
++    process.stderr.write(`${error.message}\n`);
++    process.exitCode = 2;
++  }
++}
+diff --git c/scripts/benchmark/cloud-performance-docker.mjs w/scripts/benchmark/cloud-performance-docker.mjs
+index e199d18..d26d855 100644
+--- c/scripts/benchmark/cloud-performance-docker.mjs
++++ w/scripts/benchmark/cloud-performance-docker.mjs
+@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+ import { spawnSync } from "node:child_process";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
++import { calibrateDockerCpu } from "./cloud-cpu-calibration.mjs";
+ 
+ const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
+ const DEFAULTS = {
+@@ -9,7 +10,7 @@ const DEFAULTS = {
+   output: "reports/quality/cloud-performance.json",
+   iterations: 5,
+   viewport: "800x600",
+-  memory: "512m",
++  memory: "512000000",
+   cpus: "0.2",
+   shmSize: "64m",
+ };
+@@ -72,6 +73,7 @@ function dockerArgs(options, outputDir) {
+ 
+ export async function main(argv = process.argv.slice(2)) {
+   const options = parseArgs(argv);
++  const calibration = calibrateDockerCpu(options);
+   const output = path.resolve(ROOT, options.output);
+   const outputDir = path.dirname(output);
+   await mkdir(outputDir, { recursive: true });
+@@ -83,6 +85,7 @@ export async function main(argv = process.argv.slice(2)) {
+   });
+   const report = JSON.parse(await readFile(output, "utf8"));
+   report.runtime = {
++    calibration,
+     image: options.image,
+     memory: options.memory,
+     cpus: options.cpus,
+diff --git c/scripts/benchmark/cloud-viewport-matrix.mjs w/scripts/benchmark/cloud-viewport-matrix.mjs
+index 2d7fc25..51e6893 100644
+--- c/scripts/benchmark/cloud-viewport-matrix.mjs
++++ w/scripts/benchmark/cloud-viewport-matrix.mjs
+@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { performance } from "node:perf_hooks";
++import { calibrateDockerCpu } from "./cloud-cpu-calibration.mjs";
+ 
+ const ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
+ const DEFAULT_VIEWPORTS = ["1024x768", "900x675", "800x600"];
+@@ -23,7 +24,7 @@ const DEFAULTS = {
+   image: "hiremeops-cloud-worker:quality",
+   output: "reports/quality/viewport-benchmark.json",
+   timeoutMs: 120_000,
+-  memory: "512m",
++  memory: "512000000",
+   cpus: "0.2",
+   shmSize: "64m",
+ };
+@@ -210,6 +211,7 @@ async function writeReport(report) {
+ 
+ export async function main(argv = process.argv.slice(2)) {
+   const options = parseArgs(argv);
++  const calibration = calibrateDockerCpu(options);
+   const runs = [];
+   for (const platform of options.platforms) {
+     for (const viewport of options.viewports) {
+@@ -220,6 +222,7 @@ export async function main(argv = process.argv.slice(2)) {
+   const report = {
+     generatedAt: new Date().toISOString(),
+     workload: "synthetic browser fixture; no real credentials",
++    calibration,
+     options,
+     runs,
+     summary: summarizeViewportRuns(runs, options),
+@@ -230,7 +233,13 @@ export async function main(argv = process.argv.slice(2)) {
+ }
+ 
+ if (import.meta.url === `file://${process.argv[1]}`) {
+-  main().then((code) => {
+-    process.exitCode = code;
+-  });
++  main().then(
++    (code) => {
++      process.exitCode = code;
++    },
++    (error) => {
++      process.stderr.write(`[viewport-matrix] ${error.message}\n`);
++      process.exitCode = 2;
++    },
++  );
+ }

@@ -7,7 +7,7 @@ const job=`${base}/projects/${process.env.NORTHFLANK_PROJECT_ID}/jobs/${process.
 const root='reports/smoke/runtime-audit';
 async function api(path='',body) {
  const r=await fetch(job+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${process.env.NORTHFLANK_API_TOKEN}`,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(30000)});
- if (!r.ok) throw new Error(`northflank_http_${r.status}`);
+ if (!r.ok) { const detail=await r.json(); writeFileSync(`${root}/nf-api-error.json`,JSON.stringify(detail)); throw new Error(`northflank_http_${r.status}`); }
  return (await r.json()).data;
 }
 const pool=new pg.Pool({connectionString:process.env.HIREMEOPS_DATABASE_URL,max:1});
@@ -25,7 +25,13 @@ try {
   if(source.linkedin!=='valid') throw new Error('local_revalidation_required');
   const id=randomUUID();
   const files={};
-  for(const path of ['core/browser/browser-launch.js','cloud/cloud-navigation-telemetry.mjs']) files[`/app/automation/${path}`]={data:readFileSync(`automation/${path}`,'utf8'),encoding:'utf-8'};
+  for(const path of ['core/browser/browser-launch.js','cloud/cloud-navigation-telemetry.mjs']) files[`/app/automation/${path}`]={data:readFileSync(`automation/${path}`).toString('base64'),encoding:'utf-8'};
+  if(process.argv.includes('--deadline-experiment')) {
+   let worker=readFileSync('automation/platforms/linkedin/worker-linkedin.js','utf8');
+   worker=worker.replaceAll('readLinkedInSearchState(page, inspectorTimeoutMs)', 'readLinkedInSearchState(page, Math.max(1, deadline - Date.now()))');
+   worker=worker.replace('await readLinkedInSearchDiagnostics(page, stateDiagnostics, inspectorTimeoutMs)', '(Date.now() < deadline ? await readLinkedInSearchDiagnostics(page, stateDiagnostics, Math.max(1, deadline - Date.now())) : stateDiagnostics)');
+   files['/app/automation/platforms/linkedin/worker-linkedin.js']={data:Buffer.from(worker).toString('base64'),encoding:'utf-8'};
+  }
   let browser=readFileSync('automation/cloud/cloud-browser.mjs','utf8');
   browser=browser.replace('import { existsSync }','import { readFileSync, readdirSync, existsSync }');
   browser=browser.replace('const page = await context.newPage();', `const page = await context.newPage();
@@ -38,7 +44,7 @@ try {
     });
     console.error('[runtime-audit] '+JSON.stringify({version:browser.version(),viewport:actualViewport,processes}));
     if(!processes.length || processes.some(p=>p.backgroundNetworkingDisabled)) throw new Error('networking_switch_ineffective');`);
-  files['/app/automation/cloud/cloud-browser.mjs']={data:browser,encoding:'utf-8'};
+  files['/app/automation/cloud/cloud-browser.mjs']={data:Buffer.from(browser).toString('base64'),encoding:'utf-8'};
   await pool.query(`INSERT INTO search_runs(id,profile_id,intent,query_plan,status) VALUES($1,$2,$3,$4::jsonb,'started')`,[id,source.profile_id,source.intent,JSON.stringify(source.query_plan)]);
   try {
    const run=await api('/runs',{runtimeEnvironment:{HIREMEOPS_RUN_ID:id,HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING:'1',HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES:'0'},runtimeFiles:files});
@@ -48,10 +54,16 @@ try {
    await pool.query(`UPDATE search_runs SET status='failed',phase='failed',error=$2,finished_at=now(),updated_at=now() WHERE id=$1`,[id,e.message]); throw e;
   }
  }
+ if(process.argv[2]==='logs') {
+  const run=JSON.parse(readFileSync(`${root}/active-run.json`));
+  const logs=await api(`/logs?runId=${run.id}&type=runtime&lineLimit=1000&direction=forward`);
+  writeFileSync(`${root}/nf-logs.json`,JSON.stringify(logs));
+  console.log(JSON.stringify({type:typeof logs,keys:Object.keys(logs)}));
+ }
  if(process.argv[2]==='status') {
   const run=JSON.parse(readFileSync(`${root}/active-run.json`));
   const state=await api(`/runs/${run.id}`);
   const q=await pool.query(`SELECT id,status,phase,error,result_count,persisted_count FROM search_runs WHERE id=$1`,[run.searchRunId]);
-  console.log(JSON.stringify({state,db:q.rows}));
+  console.log(JSON.stringify({state:{id:state.id,status:state.status,active:state.active,concluded:state.concluded},db:q.rows}));
  }
 } catch(e) { console.error(e.message);process.exitCode=1; } finally { await pool.end(); }
