@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 // Single source of truth for the stealth launch config shared by the real
 // worker (`worker.js` cmdOpen) and the headless diagnostic harness
 // (`headless-test.mjs`). Keeping them identical is the whole point: the harness
@@ -36,17 +38,35 @@ export const BASE_STEALTH_ARGS = [
 const HEADLESS_UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
-// The cloud image pins chromium-headless-shell 152. Keep its browser-level
-// UA aligned with that binary; Client Hints must not advertise another major.
-const CLOUD_HEADLESS_UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+const CLOUD_CHROMIUM_MAJOR_FALLBACK = "152";
+
+function cloudChromiumMajor(executablePath) {
+  const override = process.env.HIREMEOPS_CLOUD_CHROMIUM_MAJOR?.trim();
+  if (override && /^\d+$/.test(override)) return override;
+  if (!executablePath) return CLOUD_CHROMIUM_MAJOR_FALLBACK;
+  try {
+    const version = execFileSync(executablePath, ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+    });
+    return version.match(/(?:Chromium|Chrome)[ /](\d+)/i)?.[1] ?? CLOUD_CHROMIUM_MAJOR_FALLBACK;
+  } catch {
+    return CLOUD_CHROMIUM_MAJOR_FALLBACK;
+  }
+}
+
+function cloudHeadlessUserAgent(executablePath) {
+  return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${cloudChromiumMajor(executablePath)}.0.0.0 Safari/537.36`;
+}
 
 export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
+  const cloudHeadlessUA = cloudHeadlessUserAgent(executablePath);
   return {
     headless: true,
     args: [
       ...BASE_STEALTH_ARGS,
-      `--user-agent=${CLOUD_HEADLESS_UA}`,
+      `--user-agent=${cloudHeadlessUA}`,
       "--window-size=1024,768",
       "--renderer-process-limit=1",
       ...extraArgs,
@@ -72,7 +92,9 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
   // forced here: on a headless box it needs specific hardware/Vulkan and did not
   // move the needle on the IP-reputation-gated sites (Indeed/Upwork) in testing —
   // that path lives in the headed + Xvfb "hidden" mode where a real GPU exists.
-  const headlessUA = process.env.HIREMEOPS_CLOUD ? CLOUD_HEADLESS_UA : HEADLESS_UA;
+  const headlessUA = process.env.HIREMEOPS_CLOUD
+    ? cloudHeadlessUserAgent(executablePath)
+    : HEADLESS_UA;
   const uaArgs = headless ? [`--user-agent=${headlessUA}`, "--window-size=1920,1080"] : [];
   // Cloud uses one page/profile per job; cap renderer fan-out and use a smaller
   // desktop viewport only there. Local headed/headless behavior stays unchanged.

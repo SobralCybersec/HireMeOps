@@ -9,8 +9,8 @@ describe("cloud browser launch", () => {
     const userAgent = options.args.find((arg) => arg.startsWith("--user-agent="));
 
     expect(options.args.slice(0, BASE_STEALTH_ARGS.length)).toEqual(BASE_STEALTH_ARGS);
-    expect(userAgent).toBe(
-      "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    expect(userAgent).toMatch(
+      /^--user-agent=Mozilla\/5\.0 \(X11; Linux x86_64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/\d+\.0\.0\.0 Safari\/537\.36$/,
     );
     expect(userAgent).not.toMatch(/HeadlessChrome/i);
     expect(options).not.toHaveProperty("userAgent");
