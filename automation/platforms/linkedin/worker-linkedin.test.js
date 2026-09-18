@@ -167,20 +167,15 @@ describe("LinkedIn cloud renderer lifecycle", () => {
   it("retries one stalled bootstrap with a fresh page", async () => {
     const previousCloud = process.env.HIREMEOPS_CLOUD;
     process.env.HIREMEOPS_CLOUD = "1";
-    const handlers = new Map();
     const pageUrl = "https://www.linkedin.com/jobs/search/";
-    const request = {
-      resourceType: () => "script",
-      url: () => "https://static.licdn.com/bootstrap.js",
-    };
     const firstPage = {
-      goto: vi.fn(async () => {
-        handlers.get("request")?.(request);
-        return { status: () => 200, headers: () => ({ "content-type": "text/html" }) };
-      }),
+      goto: vi.fn(async () => ({
+        status: () => 200,
+        headers: () => ({ "content-type": "text/html" }),
+      })),
       url: () => pageUrl,
-      on: vi.fn((event, listener) => handlers.set(event, listener)),
-      off: vi.fn((event) => handlers.delete(event)),
+      on: vi.fn(),
+      off: vi.fn(),
       once: vi.fn(),
       evaluate: vi
         .fn()
@@ -311,6 +306,19 @@ describe("LinkedIn search readiness", () => {
         network: { ...diagnostics.network, xhrFetchRequests: 1 },
       }),
     ).toBe(false);
+    expect(
+      isLinkedInBootstrapStalled(
+        {
+          ...diagnostics,
+          network: {
+            ...diagnostics.network,
+            pendingByType: { script: 0 },
+            oldestPendingAgeMs: null,
+          },
+        },
+        "linkedin_renderer_unresponsive",
+      ),
+    ).toBe(true);
   });
 
   it("bounds a stuck renderer evaluation", async () => {

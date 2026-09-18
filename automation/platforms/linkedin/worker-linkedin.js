@@ -28,7 +28,7 @@ export async function cmdSearchJobs(config, hooks = {}) {
       if (!cloud || attempt >= 2 || !isLinkedInBootstrapStalled(error.diagnostics, error.code)) {
         throw error;
       }
-      logBootstrapRetry(attempt, error.diagnostics);
+      logBootstrapRetry(attempt, error.code, error.diagnostics);
       await closeCloudSearchPage(page);
       page = await replaceCloudSearchPage(sess);
     }
@@ -393,8 +393,8 @@ export function isLinkedInBootstrapStalled(diagnostics, errorCode = null) {
     Number(diagnostics?.challengeMarkers ?? 0) === 0;
   const noResults =
     Number(diagnostics?.occludableCards ?? 0) === 0 && Number(diagnostics?.jobViewLinks ?? 0) === 0;
-  const pendingScript = Number(network.pendingByType?.script ?? 0) > 0;
   const noApiProgress = Number(network.xhrFetchRequests ?? 0) === 0;
+  const pendingScript = Number(network.pendingByType?.script ?? 0) > 0;
   const oldPendingRequest = Number(network.oldestPendingAgeMs ?? 0) >= 10_000;
   const rendererTimedOut = errorCode === "linkedin_renderer_unresponsive";
   return (
@@ -402,16 +402,17 @@ export function isLinkedInBootstrapStalled(diagnostics, errorCode = null) {
     diagnostics?.readyState === "loading" &&
     noAuthSignal &&
     noResults &&
-    pendingScript &&
     noApiProgress &&
-    (oldPendingRequest || rendererTimedOut)
+    (rendererTimedOut || (pendingScript && oldPendingRequest))
   );
 }
 
-function logBootstrapRetry(attempt, diagnostics = {}) {
+function logBootstrapRetry(attempt, errorCode, diagnostics = {}) {
   const network = diagnostics.network ?? {};
+  const reason =
+    errorCode === "linkedin_renderer_unresponsive" ? "renderer_unresponsive" : "stalled_script";
   process.stderr.write(
-    `[linkedin-bootstrap-retry] attempt=${attempt} reason=stalled_script ` +
+    `[linkedin-bootstrap-retry] attempt=${attempt} reason=${reason} ` +
       `pendingScripts=${network.pendingByType?.script ?? 0} ` +
       `oldestPendingAgeMs=${network.oldestPendingAgeMs ?? "unknown"} ` +
       `xhrFetch=${network.xhrFetchRequests ?? 0} ` +

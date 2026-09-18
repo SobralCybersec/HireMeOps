@@ -763,7 +763,7 @@ async function executeCloudRun(context) {
   };
 }
 
-function cloudErrorCode(error) {
+export function cloudErrorCode(error) {
   if (error instanceof CloudRunnerError) return error.code;
   const code = error?.code;
   return [
@@ -773,6 +773,8 @@ function cloudErrorCode(error) {
     "linkedin_document_not_ready",
     "linkedin_results_not_loaded",
     "linkedin_auth_unknown",
+    "linkedin_renderer_unresponsive",
+    "linkedin_bootstrap_stalled",
     "cloud_results_invalid",
   ].includes(code)
     ? code
@@ -789,6 +791,8 @@ const RECORDED_AUTH_FAILURES = new Set([
   "memory_budget_exceeded",
   "linkedin_document_not_ready",
   "linkedin_results_not_loaded",
+  "linkedin_renderer_unresponsive",
+  "linkedin_bootstrap_stalled",
 ]);
 
 export function shouldRefreshInvalidStatus(code) {

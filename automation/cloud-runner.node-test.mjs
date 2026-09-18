@@ -9,6 +9,7 @@ import {
   CloudRunnerError,
   buildOperationRequest,
   cloudResultCount,
+  cloudErrorCode,
   decryptSessionState,
   encryptSessionState,
   mergePlatformStatus,
@@ -67,6 +68,19 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(shouldRefreshInvalidStatus("session_revision_conflict"), false);
     assert.equal(shouldRefreshInvalidStatus("linkedin_document_not_ready"), false);
     assert.equal(shouldRefreshInvalidStatus("linkedin_results_not_loaded"), false);
+    assert.equal(shouldRefreshInvalidStatus("linkedin_renderer_unresponsive"), false);
+    assert.equal(shouldRefreshInvalidStatus("linkedin_bootstrap_stalled"), false);
+  });
+
+  it("preserves LinkedIn bootstrap failure codes", () => {
+    assert.equal(
+      cloudErrorCode({ code: "linkedin_renderer_unresponsive" }),
+      "linkedin_renderer_unresponsive",
+    );
+    assert.equal(
+      cloudErrorCode({ code: "linkedin_bootstrap_stalled" }),
+      "linkedin_bootstrap_stalled",
+    );
   });
 
   it("does not persist inconclusive auth status", () => {
