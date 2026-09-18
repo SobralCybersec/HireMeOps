@@ -152,6 +152,7 @@ describe("LinkedIn cloud renderer lifecycle", () => {
       expect(discovered).toHaveLength(1);
       expect(updated).toHaveLength(1);
       expect(phases).toEqual([
+        "linkedin-attempt-1-start",
         "linkedin-results-ready",
         "linkedin-cards-extracted",
         "linkedin-page-closed",

@@ -30,4 +30,16 @@ describe("cloud browser launch", () => {
       else process.env.HIREMEOPS_CLOUD = previous;
     }
   });
+
+  it("supports an explicit renderer-limit A/B override", () => {
+    const previous = process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT;
+    process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT = "1";
+    try {
+      const options = cloudLaunchOptions({ executablePath: "/usr/bin/chromium" });
+      expect(options.args).not.toContain("--renderer-process-limit=1");
+    } finally {
+      if (previous === undefined) delete process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT;
+      else process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT = previous;
+    }
+  });
 });

@@ -21,15 +21,18 @@ export async function cmdSearchJobs(config, hooks = {}) {
   const cloud = process.env.HIREMEOPS_CLOUD === "1";
   let result;
   for (let attempt = 1; ; attempt += 1) {
+    await hooks.onPhase?.(`linkedin-attempt-${attempt}-start`);
     try {
       result = await runLinkedInSearchAttempt({ page, url, hooks, cloud, attempt });
       break;
     } catch (error) {
+      await hooks.onPhase?.(`linkedin-attempt-${attempt}-failed`);
       if (!cloud || attempt >= 2 || !isLinkedInBootstrapStalled(error.diagnostics, error.code)) {
         throw error;
       }
       logBootstrapRetry(attempt, error.code, error.diagnostics);
       await closeCloudSearchPage(page);
+      await hooks.onPhase?.(`linkedin-attempt-${attempt}-page-closed`);
       page = await replaceCloudSearchPage(sess);
     }
   }

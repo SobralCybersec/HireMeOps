@@ -298,6 +298,7 @@ function collectProcessMemory(pids) {
   let otherPss = 0;
   let chromiumProcesses = 0;
   const chromiumByType = {};
+  const chromiumPidsByType = {};
   for (const pid of pids) {
     if (isZombie(pid)) continue;
     const name = processName(pid);
@@ -312,11 +313,12 @@ function collectProcessMemory(pids) {
       chromiumPss += pss;
       chromiumProcesses += 1;
       chromiumByType[type] = (chromiumByType[type] ?? 0) + pss;
+      (chromiumPidsByType[type] ??= []).push(pid);
     } else {
       otherPss += pss;
     }
   }
-  return { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType };
+  return { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType, chromiumPidsByType };
 }
 
 export function chromiumProcessCount() {
@@ -332,7 +334,7 @@ function mb(value) {
 
 export function memorySnapshot(stage) {
   const pids = [process.pid, ...processTree(process.pid)];
-  const { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType } =
+  const { nodePss, chromiumPss, otherPss, chromiumProcesses, chromiumByType, chromiumPidsByType } =
     collectProcessMemory(pids);
   const cgroup = cgroupMemory();
   const cpu = cpuSnapshot();
@@ -353,6 +355,8 @@ export function memorySnapshot(stage) {
     chromiumPssByTypeMb: Object.fromEntries(
       Object.entries(chromiumByType).map(([type, value]) => [type, mb(value)]),
     ),
+    chromiumPidsByType,
+    rendererPids: chromiumPidsByType.renderer ?? [],
     otherProcessPssMb: mb(otherPss),
     cgroupCurrentMb: cgroup.current == null ? null : +(cgroup.current / BYTES_PER_MB).toFixed(1),
     cgroupWorkingSetMb: toMb(cgroup.workingSet),

@@ -60,6 +60,12 @@ function cloudHeadlessUserAgent(executablePath) {
   return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${cloudChromiumMajor(executablePath)}.0.0.0 Safari/537.36`;
 }
 
+function cloudRendererArgs() {
+  return /^(1|true|yes)$/i.test(process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT ?? "")
+    ? []
+    : ["--renderer-process-limit=1"];
+}
+
 export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
   const cloudHeadlessUA = cloudHeadlessUserAgent(executablePath);
   return {
@@ -68,7 +74,7 @@ export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
       ...BASE_STEALTH_ARGS,
       `--user-agent=${cloudHeadlessUA}`,
       "--window-size=1024,768",
-      "--renderer-process-limit=1",
+      ...cloudRendererArgs(),
       ...extraArgs,
     ],
     ignoreDefaultArgs: ["--enable-automation"],
@@ -99,7 +105,7 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
   // Cloud uses one page/profile per job; cap renderer fan-out and use a smaller
   // desktop viewport only there. Local headed/headless behavior stays unchanged.
   const cloudArgs = process.env.HIREMEOPS_CLOUD
-    ? ["--renderer-process-limit=1", "--window-size=1024,768"]
+    ? [...cloudRendererArgs(), "--window-size=1024,768"]
     : [];
   return {
     headless,
