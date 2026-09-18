@@ -66,12 +66,20 @@ function cloudRendererArgs() {
     : ["--renderer-process-limit=1"];
 }
 
+function cloudBaseArgs() {
+  return /^(1|true|yes)$/i.test(
+    process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING ?? "",
+  )
+    ? BASE_STEALTH_ARGS.filter((arg) => arg !== "--disable-background-networking")
+    : BASE_STEALTH_ARGS;
+}
+
 export function cloudLaunchOptions({ executablePath, extraArgs = [] } = {}) {
   const cloudHeadlessUA = cloudHeadlessUserAgent(executablePath);
   return {
     headless: true,
     args: [
-      ...BASE_STEALTH_ARGS,
+      ...cloudBaseArgs(),
       `--user-agent=${cloudHeadlessUA}`,
       "--window-size=1024,768",
       ...cloudRendererArgs(),
@@ -110,7 +118,12 @@ export function baseLaunchOptions({ headless = true, executablePath, extraArgs =
   return {
     headless,
     viewport: null,
-    args: [...BASE_STEALTH_ARGS, ...uaArgs, ...cloudArgs, ...extraArgs],
+    args: [
+      ...(process.env.HIREMEOPS_CLOUD ? cloudBaseArgs() : BASE_STEALTH_ARGS),
+      ...uaArgs,
+      ...cloudArgs,
+      ...extraArgs,
+    ],
     ignoreDefaultArgs: ["--enable-automation"],
     channel: executablePath ? undefined : "chrome",
     executablePath,

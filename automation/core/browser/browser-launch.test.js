@@ -42,4 +42,35 @@ describe("cloud browser launch", () => {
       else process.env.HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT = previous;
     }
   });
+
+  it("removes only background networking when explicitly enabled", () => {
+    const previous = process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+    process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING = "1";
+    try {
+      const options = cloudLaunchOptions({ executablePath: "/usr/bin/chromium" });
+      expect(options.args).not.toContain("--disable-background-networking");
+      expect(options.args).toContain("--disable-background-timer-throttling");
+      expect(options.args).toContain("--disable-dev-shm-usage");
+      expect(options.args).toContain("--renderer-process-limit=1");
+    } finally {
+      if (previous === undefined) delete process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+      else process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING = previous;
+    }
+  });
+
+  it("keeps background networking disabled by default in shared cloud launch", () => {
+    const previousCloud = process.env.HIREMEOPS_CLOUD;
+    const previousNetworking = process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+    process.env.HIREMEOPS_CLOUD = "1";
+    delete process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+    try {
+      const options = baseLaunchOptions({ headless: true, executablePath: "/usr/bin/chromium" });
+      expect(options.args).toContain("--disable-background-networking");
+    } finally {
+      if (previousCloud === undefined) delete process.env.HIREMEOPS_CLOUD;
+      else process.env.HIREMEOPS_CLOUD = previousCloud;
+      if (previousNetworking === undefined) delete process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING;
+      else process.env.HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING = previousNetworking;
+    }
+  });
 });

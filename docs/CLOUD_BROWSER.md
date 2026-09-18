@@ -71,11 +71,14 @@ HIREMEOPS_MEMORY_SOFT_LIMIT_RATIO=0.90
 HIREMEOPS_CLOUD_OPERATION_TIMEOUT_MS=480000
 HIREMEOPS_CLOUD_BLOCK_HEAVY_RESOURCES=0
 HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT=0
+HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING=0
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-headless-shell
 ```
 
 `HIREMEOPS_CLOUD_DISABLE_RENDERER_PROCESS_LIMIT=1` is a diagnostic A/B switch;
 keep the default `0` unless a Northflank comparison justifies changing it.
+`HIREMEOPS_CLOUD_ENABLE_BACKGROUND_NETWORKING=1` is a diagnostic A/B switch;
+keep the default `0` to preserve the current launch profile.
 
 The Manual Job receives only:
 
