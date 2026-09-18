@@ -14,6 +14,7 @@ mod domain;
 mod events;
 mod jobs;
 mod matching;
+mod realtime;
 mod storage;
 mod util;
 
@@ -298,11 +299,16 @@ pub fn run() {
                 e.to_string()
             })?;
             let data_dir = state.paths.data_dir.clone();
+            let realtime_db = state.db.clone();
+            let realtime_shared_db = state.shared_db.clone();
             let maintenance_db = state.db.clone();
             let maintenance_path = state.paths.db_path.clone();
             #[cfg(feature = "real-browser")]
             let playwright = state.playwright.clone();
             app.manage(state);
+            if let Some(shared_db) = realtime_shared_db {
+                realtime::start(handle.clone(), shared_db, realtime_db);
+            }
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
                 loop {

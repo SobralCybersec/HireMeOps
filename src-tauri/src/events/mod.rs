@@ -22,8 +22,20 @@ pub enum AppEventType {
     CvAnalysisDone,
     #[serde(rename = "job.search.started")]
     JobSearchStarted,
+    #[serde(rename = "job.search.phase")]
+    JobSearchPhase,
+    #[serde(rename = "job.search.progress")]
+    JobSearchProgress,
     #[serde(rename = "job.search.item_found")]
     JobSearchItemFound,
+    #[serde(rename = "job.search.item_updated")]
+    JobSearchItemUpdated,
+    #[serde(rename = "job.search.completed")]
+    JobSearchCompleted,
+    #[serde(rename = "job.search.failed")]
+    JobSearchFailed,
+    #[serde(rename = "browser.session.status")]
+    BrowserSessionStatus,
     #[serde(rename = "job.match.done")]
     JobMatchDone,
     #[serde(rename = "ai.progress")]

@@ -143,7 +143,7 @@ async fn sync_locked_for_sites(
     sites: &[&str],
 ) -> Result<BrowserSessionMetadata, String> {
     let handle = login_handle(state, profile_id).await?;
-    let (status, platforms) = validated_platforms_for_sites(state, user_data_dir, sites).await?;
+    let (_, platforms) = validated_platforms_for_sites(state, user_data_dir, sites).await?;
     let (state_version, storage_state) = exported_state(state, &handle).await?;
     let encrypted =
         session_crypto::encrypt_json(&storage_state).map_err(|error| error.to_string())?;
@@ -385,6 +385,7 @@ async fn sync_cloud_session_for_platform(
     release_lock(lock, result).await
 }
 
+#[cfg(feature = "real-browser")]
 fn cloud_auth_platform(platform: Option<&str>) -> Option<&'static str> {
     match platform {
         Some("linkedin_posts") | Some("linkedin") => Some("linkedin"),
@@ -490,8 +491,9 @@ impl NorthflankConfig {
 async fn create_search_run(pool: &sqlx::PgPool, input: &CloudRunInput) -> Result<String, String> {
     let search_run_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO search_runs (id, profile_id, intent, query_plan, status)
-         VALUES ($1, $2, $3, $4, 'started')",
+        "INSERT INTO search_runs
+            (id, profile_id, intent, query_plan, status, phase, updated_at)
+         VALUES ($1, $2, $3, $4, 'started', 'queued', now())",
     )
     .bind(&search_run_id)
     .bind(&input.profile_id)
@@ -500,6 +502,21 @@ async fn create_search_run(pool: &sqlx::PgPool, input: &CloudRunInput) -> Result
     .execute(pool)
     .await
     .map_err(|error| format!("create search run: {error}"))?;
+    postgres::emit_search_run_event(
+        pool,
+        &search_run_id,
+        Some(input.profile_id.as_str()),
+        "job.search.started",
+        &json!({
+            "runId": search_run_id,
+            "profileId": input.profile_id,
+            "platform": input.query_plan.get("platform"),
+            "origin": "cloud",
+            "phase": "queued",
+        }),
+    )
+    .await
+    .map_err(|error| format!("create search run event: {error}"))?;
     Ok(search_run_id)
 }
 
@@ -558,13 +575,27 @@ fn required_env(name: &str) -> Result<String, String> {
 }
 
 async fn mark_run_failed(pool: &sqlx::PgPool, run_id: &str, error: &str) {
-    let _ = sqlx::query(
-        "UPDATE search_runs SET status = 'failed', finished_at = now(), error = $2 WHERE id = $1",
+    let row = sqlx::query_as::<_, (Option<String>,)>(
+        "UPDATE search_runs
+            SET status = 'failed', phase = 'failed', finished_at = now(),
+                updated_at = now(), error = $2
+          WHERE id = $1
+        RETURNING profile_id",
     )
     .bind(run_id)
     .bind(error)
-    .execute(pool)
+    .fetch_optional(pool)
     .await;
+    if let Ok(Some((profile_id,))) = row {
+        let _ = postgres::emit_search_run_event(
+            pool,
+            run_id,
+            profile_id.as_deref(),
+            "job.search.failed",
+            &json!({ "runId": run_id, "profileId": profile_id, "origin": "cloud", "status": "failed", "error": error }),
+        )
+        .await;
+    }
 }
 
 #[cfg(test)]

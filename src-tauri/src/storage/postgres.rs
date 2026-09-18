@@ -8,9 +8,9 @@
 use std::{env, time::Duration};
 
 use anyhow::{Context, Result};
+use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 
-#[cfg(test)]
 use uuid::Uuid;
 
 pub use super::postgres_browser_sessions::{
@@ -99,6 +99,37 @@ pub async fn run_migrations(pool: &PgPool) -> Result<()> {
         .await
         .context("run PostgreSQL migrations")?;
     Ok(())
+}
+
+pub async fn emit_search_run_event(
+    pool: &PgPool,
+    run_id: &str,
+    profile_id: Option<&str>,
+    kind: &str,
+    payload: &Value,
+) -> Result<i64> {
+    let mut tx = pool.begin().await.context("begin search run event")?;
+    let seq: i64 = sqlx::query_scalar(
+        "INSERT INTO search_run_events
+            (id, search_run_id, profile_id, kind, payload)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING seq",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(run_id)
+    .bind(profile_id)
+    .bind(kind)
+    .bind(sqlx::types::Json(payload.clone()))
+    .fetch_one(&mut *tx)
+    .await
+    .context("insert search run event")?;
+    sqlx::query("SELECT pg_notify('hiremeops_realtime', $1)")
+        .bind(serde_json::json!({ "runId": run_id }).to_string())
+        .execute(&mut *tx)
+        .await
+        .context("notify search run event")?;
+    tx.commit().await.context("commit search run event")?;
+    Ok(seq)
 }
 
 #[derive(Debug, Clone, serde::Serialize, FromRow)]

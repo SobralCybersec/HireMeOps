@@ -33,6 +33,22 @@ export {
 } from "./cloud-runner-contract.mjs";
 
 const { Pool } = pg;
+const SEARCH_JOB_COMMANDS = new Set([
+  "search_jobs",
+  "search_indeed_jobs",
+  "catho_search_jobs",
+  "search_gupy_jobs",
+  "infojobs_search_jobs",
+  "upwork_search_jobs",
+  "freelas99_search_jobs",
+  "programathor_search_jobs",
+  "geekhunter_search_jobs",
+]);
+
+function isSearchJobCommand(command) {
+  return SEARCH_JOB_COMMANDS.has(command);
+}
+
 export function platformStatuses(reply) {
   const raw =
     reply?.platform_status && typeof reply.platform_status === "object"
@@ -78,6 +94,12 @@ async function persistInvalidSessionStatus(pool, row, platform, status) {
     ],
   );
   if (rowCount !== 1) throw new CloudRunnerError("session_revision_conflict");
+  await emitSearchRunEvent(pool, row, "browser.session.status", {
+    platform,
+    status,
+    revision: row.revision + 1,
+    source: "cloud_probe",
+  });
 }
 
 async function loadRun(pool, runId) {
@@ -91,6 +113,57 @@ async function loadRun(pool, runId) {
     [runId],
   );
   return validateRunRow(rows[0]);
+}
+
+function eventPayload(row, payload = {}) {
+  return {
+    runId: row?.id,
+    profileId: row?.profile_id,
+    origin: "cloud",
+    ...payload,
+  };
+}
+
+async function emitSearchRunEvent(pool, row, kind, payload = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `INSERT INTO search_run_events
+        (id, search_run_id, profile_id, kind, payload)
+       VALUES ($1, $2, $3, $4, $5::jsonb)
+       RETURNING seq`,
+      [
+        randomUUID(),
+        row?.id,
+        row?.profile_id ?? null,
+        kind,
+        JSON.stringify(eventPayload(row, payload)),
+      ],
+    );
+    await client.query("SELECT pg_notify('hiremeops_realtime', $1)", [
+      JSON.stringify({ runId: row?.id }),
+    ]);
+    await client.query("COMMIT");
+    return rows[0]?.seq ?? null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordRunPhase(context, phase, extra = {}) {
+  if (!context.row) return;
+  await context.pool.query("UPDATE search_runs SET phase = $2, updated_at = now() WHERE id = $1", [
+    context.row.id,
+    phase,
+  ]);
+  await emitSearchRunEvent(context.pool, context.row, "job.search.phase", {
+    phase,
+    ...extra,
+  });
 }
 
 function validateRunRow(row) {
@@ -147,10 +220,23 @@ async function releaseProfileLock(client, profileId) {
   }
 }
 
-async function updateRun(pool, runId, status, error = null) {
+async function updateRun(pool, runId, status, error = null, profileId = null, metrics = {}) {
   await pool.query(
-    "UPDATE search_runs SET status = $2, finished_at = now(), error = $3 WHERE id = $1",
-    [runId, status, error],
+    `UPDATE search_runs
+        SET status = $2,
+            phase = CASE $2 WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed' WHEN 'cancelled' THEN 'cancelled' ELSE phase END,
+            finished_at = now(), error = $3,
+            result_count = COALESCE($4, result_count),
+            persisted_count = COALESCE($5, persisted_count),
+            updated_at = now()
+      WHERE id = $1`,
+    [runId, status, error, metrics.resultCount ?? null, metrics.persistedCount ?? null],
+  );
+  await emitSearchRunEvent(
+    pool,
+    { id: runId, profile_id: profileId },
+    status === "completed" ? "job.search.completed" : "job.search.failed",
+    { status, error, ...metrics },
   );
 }
 
@@ -222,8 +308,116 @@ async function persistResults(pool, row, result, platform) {
   return count;
 }
 
+async function persistCloudJobsBatch(context, jobs, platform, kind) {
+  if (!Array.isArray(jobs) || jobs.length === 0) return [];
+  const client = await context.pool.connect();
+  const ids = [];
+  try {
+    await client.query("BEGIN");
+    for (const job of jobs) {
+      if (!isResultJob(job)) continue;
+      const [id, site, title, company, location, remoteMode, description, url, contentHash] =
+        resultRow(job, platform);
+      await client.query(
+        `INSERT INTO shared_jobs
+          (id, search_run_id, profile_id, platform, canonical_url, title, company, location,
+           remote_mode, description, content_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           search_run_id = EXCLUDED.search_run_id,
+           title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE shared_jobs.title END,
+           company = CASE WHEN EXCLUDED.company <> '' THEN EXCLUDED.company ELSE shared_jobs.company END,
+           location = COALESCE(EXCLUDED.location, shared_jobs.location),
+           remote_mode = COALESCE(EXCLUDED.remote_mode, shared_jobs.remote_mode),
+           description = COALESCE(NULLIF(EXCLUDED.description, ''), shared_jobs.description),
+           content_hash = EXCLUDED.content_hash`,
+        [
+          id,
+          context.row.id,
+          context.row.profile_id,
+          site,
+          url,
+          title,
+          company,
+          location,
+          remoteMode,
+          description,
+          contentHash,
+        ],
+      );
+      ids.push(id);
+      context.discoveredJobIds.add(id);
+      await client.query(
+        `INSERT INTO search_run_events
+          (id, search_run_id, profile_id, kind, payload)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [
+          randomUUID(),
+          context.row.id,
+          context.row.profile_id,
+          kind,
+          JSON.stringify(eventPayload(context.row, { jobId: id, platform })),
+        ],
+      );
+    }
+    context.report.discoveredCount = context.discoveredJobIds.size;
+    const persistedCount = new Set([...(context.persistedJobIds ?? []), ...ids]).size;
+    await client.query(
+      `UPDATE search_runs
+          SET phase = 'persisting',
+              result_count = GREATEST(result_count, $2),
+              persisted_count = $3,
+              updated_at = now()
+        WHERE id = $1`,
+      [
+        context.row.id,
+        context.report.resultCount ?? context.report.discoveredCount,
+        persistedCount,
+      ],
+    );
+    await client.query(
+      `INSERT INTO search_run_events
+        (id, search_run_id, profile_id, kind, payload)
+       VALUES ($1, $2, $3, 'job.search.progress', $4::jsonb)`,
+      [
+        randomUUID(),
+        context.row.id,
+        context.row.profile_id,
+        JSON.stringify(
+          eventPayload(context.row, {
+            phase: "persisting",
+            discovered: context.report.discoveredCount,
+            persisted: persistedCount,
+            enriched: context.report.enrichedCount ?? 0,
+          }),
+        ),
+      ],
+    );
+    await client.query("SELECT pg_notify('hiremeops_realtime', $1)", [
+      JSON.stringify({ runId: context.row.id }),
+    ]);
+    await client.query("COMMIT");
+    return ids;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function streamCloudJobs(context, jobs, platform, kind) {
+  context.streamedJobs = true;
+  const ids = await persistCloudJobsBatch(context, jobs, platform, kind);
+  context.report.discoveredCount = context.discoveredJobIds.size;
+  context.persistedJobIds ??= new Set();
+  ids.forEach((id) => context.persistedJobIds.add(id));
+  context.report.persistedCount = context.persistedJobIds.size;
+  return ids;
+}
+
 export function cloudResultCount(command, result) {
-  if (command !== "search_jobs") return null;
+  if (!isSearchJobCommand(command)) return null;
   if (!Array.isArray(result?.jobs)) throw new CloudRunnerError("cloud_results_invalid");
   return result.jobs.length;
 }
@@ -247,6 +441,15 @@ export async function persistRefreshedState(pool, row, encrypted, platformStatus
     ],
   );
   if (rowCount !== 1) throw new CloudRunnerError("session_revision_conflict");
+  const platform = Object.keys(platformStatus)[0] ?? null;
+  if (platform) {
+    await emitSearchRunEvent(pool, row, "browser.session.status", {
+      platform,
+      status: platformStatus[platform],
+      revision: row.revision + 1,
+      source: "cloud_probe",
+    });
+  }
 }
 
 function cloudConfig(runId) {
@@ -276,6 +479,8 @@ function cloudContext(config, pool) {
     guardReason: null,
     pressureSamples: 0,
     resultCount: null,
+    discoveredCount: 0,
+    enrichedCount: 0,
     persistedCount: null,
   };
   return {
@@ -290,6 +495,9 @@ function cloudContext(config, pool) {
     page: null,
     memoryGuard: null,
     memoryBudgetExceeded: false,
+    streamedJobs: false,
+    discoveredJobIds: new Set(),
+    persistedJobIds: new Set(),
   };
 }
 
@@ -435,11 +643,24 @@ async function persistOperationAuthFailure(context, platform) {
 
 async function executeCloudOperation(context, request, platform) {
   context.record("operation-start");
+  await recordRunPhase(context, "discovering", { platform });
   try {
-    const result = await withCloudDeadline(() => dispatchCloudOperation(request), {
-      timeoutMs: operationTimeoutMs(),
-      onTimeout: () => closeCloudRuntime(context),
-    });
+    const result = await withCloudDeadline(
+      () =>
+        dispatchCloudOperation(request, {
+          onJobsDiscovered: (jobs) =>
+            streamCloudJobs(context, jobs, platform, "job.search.item_found"),
+          onJobUpdated: async (job) => {
+            await recordRunPhase(context, "enriching", { platform });
+            context.report.enrichedCount = (context.report.enrichedCount ?? 0) + 1;
+            return streamCloudJobs(context, [job], platform, "job.search.item_updated");
+          },
+        }),
+      {
+        timeoutMs: operationTimeoutMs(),
+        onTimeout: () => closeCloudRuntime(context),
+      },
+    );
     if (context.memoryBudgetExceeded) throw new CloudRunnerError("memory_budget_exceeded");
     return result;
   } catch (error) {
@@ -468,9 +689,15 @@ async function executeCloudRun(context) {
   const { pool, runId, encodedKey } = context;
   context.row = await loadRun(pool, runId);
   context.report.encryptedStateBytes = context.row.encrypted_state.byteLength;
+  await recordRunPhase(context, "validating_session", {
+    platform: context.row.query_plan?.platform,
+  });
   context.lock = await acquireProfileLock(pool, context.row.profile_id);
   let storageState = decryptSessionState(context.row.encrypted_state, encodedKey);
   context.report.storageStateBytes = Buffer.byteLength(JSON.stringify(storageState));
+  await recordRunPhase(context, "launching_browser", {
+    platform: context.row.query_plan?.platform,
+  });
   await openCloudBrowser(context, storageState);
   storageState = null;
   context.row.encrypted_state = null;
@@ -483,7 +710,12 @@ async function executeCloudRun(context) {
   assertMemoryBudget(context);
   await recordOperationStatus(context, platform);
   context.record("post-navigation");
-  const persistedCount = await persistResults(pool, context.row, result, platform ?? "unknown");
+  await recordRunPhase(context, "persisting", { platform });
+  const isSearchOperation = isSearchJobCommand(request.cmd);
+  const persistedCount =
+    isSearchOperation && context.streamedJobs
+      ? context.persistedJobIds.size
+      : await persistResults(pool, context.row, result, platform ?? "unknown");
   context.report.persistedCount = persistedCount;
   process.stderr.write(
     `[cloud-results] ${JSON.stringify({
@@ -492,7 +724,7 @@ async function executeCloudRun(context) {
       persistedCount,
     })}\n`,
   );
-  if (request.cmd === "search_jobs" && resultCount > 0 && persistedCount === 0) {
+  if (isSearchOperation && resultCount > 0 && persistedCount === 0) {
     throw new CloudRunnerError("cloud_results_not_persisted");
   }
   context.record("scraping-peak");
@@ -506,10 +738,15 @@ async function executeCloudRun(context) {
   context.report.refreshedEncryptedStateBytes = encrypted.byteLength;
   refreshedState = null;
   const authPlatform = authStatusPlatform(platform);
+  await recordRunPhase(context, "syncing_session", { platform });
   await persistRefreshedState(pool, context.row, encrypted, {
     ...(authPlatform ? { [authPlatform]: "valid" } : {}),
   });
-  await updateRun(pool, runId, "completed");
+  await updateRun(pool, runId, "completed", null, context.row.profile_id, {
+    resultCount,
+    persistedCount,
+    enriched: context.report.enrichedCount ?? 0,
+  });
   return {
     runId,
     status: "completed",
@@ -553,7 +790,9 @@ export function shouldRefreshInvalidStatus(code) {
 
 async function failCloudRun(context, error) {
   const code = cloudErrorCode(error);
-  await updateRun(context.pool, context.runId, "failed", code).catch(() => {});
+  await updateRun(context.pool, context.runId, "failed", code, context.row?.profile_id).catch(
+    () => {},
+  );
   throw error instanceof CloudRunnerError ? error : new CloudRunnerError(code);
 }
 

@@ -72,7 +72,7 @@ flowchart TD
     E -->|unique| F[(job_posts · SQLite)]
     E -->|duplicate| SK[skip: skipped_duplicate_url]
     F --> EMIT{{emit job.search.item_found}}
-    EMIT -->|SSE| UI[Live Vagas feed]
+    EMIT -->|Tauri event bus| UI[Live Vagas feed]
     F --> G[score_job vs preferences]
     G --> H{recommendation}
     H -->|matched| Q[queue application]
@@ -93,7 +93,7 @@ flowchart TD
 </h1>
 
 * **Nine-board scraping**: LinkedIn, Indeed, Catho, Gupy, InfoJobs, Upwork, 99freelas, LinkedIn hiring posts, and a Google-dork board-discovery pass — one search fans out per role × skill × work-model
-* **Live scrape streaming (SSE)**: every ingested job pushes a `job.search.item_found` event over a single Tauri channel — the Vagas list grows in real time, zero polling
+* **Realtime search events**: local ingestion and cloud jobs push `job.search.*` events over the Tauri event bus; cloud events use PostgreSQL `LISTEN/NOTIFY` as a durable wake-up path — zero UI polling
 * **CV-aware scoring**: `score_job` ranks each posting against your calibration (roles, skills, seniority, location, salary, work-model); excluded keywords + blocked companies hard-skip before scoring
 * **Easy Apply automation**: LinkedIn Easy Apply and Indeed SmartApply are driven end-to-end; unknown form questions are answered from your CV via the AI bridge, and anything it can't answer parks for human review
 * **CV push**: Catho, Gupy, and InfoJobs résumé fields are auto-filled from a selected profile variant
@@ -102,7 +102,7 @@ flowchart TD
 * **Keyless captcha handling**: local evasion + wait auto-pass (no paid solver); default is to pause for a human unless `HIREMEOPS_AUTO_CAPTCHA` is set
 * **Focus-safe**: automation windows stay visible so you can watch, but never steal focus (WM rule + CDP input that never moves your real mouse)
 * **Live Evidence Viewer**: one shared preview pane watchable from any page; every run drops a screenshot + DOM + network bundle to `automation/captures/` on failure so ENI can self-diagnose
-* **Local-first**: SQLite (with FTS5 full-text search) on disk; OAuth tokens in the OS keyring; nothing leaves the machine
+* **Local-first**: SQLite (with FTS5 full-text search) on disk; OAuth tokens in the OS keyring. Cloud Sessions is opt-in and syncs encrypted `storageState` to PostgreSQL for Northflank execution.
 * **Lean by default**: the heavy Chromium/CDP dependency is an opt-in Cargo feature — frontend/domain work compiles fast with no browser engine at all
 
 ---
@@ -348,7 +348,7 @@ flowchart LR
     W --> CH[(Chromium · per-profile jar)]
 ```
 
-### Real-time event bus (SSE-style)
+### Real-time event bus (Tauri Events)
 
 Every backend feature emits `AppEvent`s through `EventEmitter::emit_app_event` onto the single Tauri channel `hiremeops://event`. The frontend subscribes **once** in `lib/eventBridge.ts` and fans out to Zustand stores — there is no polling anywhere in the UI.
 
@@ -512,7 +512,7 @@ mindmap
         useEventStore
       lib
         tauriInvoke
-        eventBridge · SSE fanout
+        eventBridge · Tauri event fanout
       types · IPC DTOs
     src-tauri · Rust
       commands

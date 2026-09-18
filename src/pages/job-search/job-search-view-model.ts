@@ -125,6 +125,7 @@ export function createJobSearchViewModel(context: ViewContext): JobSearchViewMod
     handleRunAll: actions.handleRunAll,
     handleRunCloud: actions.handleRunCloud,
     cloudRunning: actions.cloudRunning,
+    cloudRun: actions.cloudRun,
     cloudReady: actions.cloudReady,
     showManual: state.showManual,
     toggleManual: () => state.setShowManual((value) => !value),

@@ -180,15 +180,15 @@ function scrapeGupyPage(page) {
   });
 }
 
-export async function gupySearchJobs(page, { query = "", remoteOnly = false, maxPages = 3 } = {}) {
+export async function gupySearchJobs(page, { query = "", remoteOnly = false, maxPages = 3, onJobsDiscovered } = {}) {
   const base = GUPY_SEARCH_BASE + encodeURIComponent(query) + (remoteOnly ? "&workplaceTypes[]=remote" : "");
   await page.goto(base, { waitUntil: "domcontentloaded", timeout: 30_000 });
   const cap = Math.max(1, Math.min(30, Number(maxPages) || 1));
-  const result = await collectGupyPages(page, cap);
+  const result = await collectGupyPages(page, cap, onJobsDiscovered);
   return { jobs: result.jobs, has_next_page: result.hasNext };
 }
 
-async function collectGupyPages(page, cap) {
+async function collectGupyPages(page, cap, onJobsDiscovered) {
   const seen = new Set();
   const jobs = [];
   let hasNext = false;
@@ -196,21 +196,22 @@ async function collectGupyPages(page, cap) {
     await page.waitForSelector("#job-listing-results li a[href*='/job/']", { timeout: 12_000 }).catch(() => {});
     const pageJobs = await scrapeGupyPage(page);
     const added = addGupyJobs(jobs, seen, pageJobs);
+    await onJobsDiscovered?.(added);
     const next = await gupyNextPage(page, pageNumber);
     hasNext = next.hasNext;
-    if (pageNumber === cap || !hasNext || added === 0) break;
+    if (pageNumber === cap || !hasNext || added.length === 0) break;
     await advanceGupyPage(page, next.button);
   }
   return { jobs, hasNext };
 }
 
 function addGupyJobs(jobs, seen, pageJobs) {
-  let added = 0;
+  const added = [];
   for (const job of pageJobs) {
     if (job.job_id && seen.has(job.job_id)) continue;
     if (job.job_id) seen.add(job.job_id);
     jobs.push(job);
-    added += 1;
+    added.push(job);
   }
   return added;
 }

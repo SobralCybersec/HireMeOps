@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui";
 import { errMessage, invokeStrict, safeInvoke } from "../../lib/tauri/tauriInvoke";
 import { useProfileStore } from "../../stores/profiles/useProfileStore";
+import { useBrowserSessionStore } from "../../stores/sessions/useBrowserSessionStore";
 import type { BrowserSessionMetadata, BrowserSessionStatus } from "../../types/domain";
 import { assertCloudSessionMetadata } from "./cloud-session-metadata";
 
@@ -11,6 +12,7 @@ const PLATFORMS = [
   ["gupy", "Gupy"],
   ["catho", "Catho"],
 ] as const;
+const EMPTY_REALTIME_STATUS: Record<string, BrowserSessionStatus> = {};
 
 type LoginCheck = {
   status?: Record<string, boolean>;
@@ -140,10 +142,13 @@ function useCloudSession() {
 export function CloudSessionPanel() {
   const { profileId, metadata, localStatus, busy, error, check, sync, validate, revoke } =
     useCloudSession();
+  const realtimeStatus = useBrowserSessionStore((state) =>
+    profileId ? (state.statuses[profileId] ?? EMPTY_REALTIME_STATUS) : EMPTY_REALTIME_STATUS,
+  );
   const currentMetadata = metadata?.profileId === profileId ? metadata : null;
   const currentLocalStatus = !metadata || metadata.profileId === profileId ? localStatus : {};
 
-  const status = currentLocalStatus;
+  const status = { ...currentLocalStatus, ...realtimeStatus };
   return (
     <section className="cc-session-panel" aria-labelledby="cloud-session-title">
       <SessionHeader metadata={currentMetadata} />

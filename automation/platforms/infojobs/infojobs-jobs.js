@@ -132,14 +132,17 @@ async function enrichInfojobsJobs(page, jobs) {
 }
 
 function addInfojobsJobs(jobs, seen, cards) {
+  const added = [];
   for (const card of cards) {
     if (seen.has(card.job_id)) continue;
     seen.add(card.job_id);
     jobs.push(card);
+    added.push(card);
   }
+  return added;
 }
 
-async function collectInfojobsPages(page, { base, lastPage, jobs, seen }) {
+async function collectInfojobsPages(page, { base, lastPage, jobs, seen, onJobsDiscovered }) {
   let eof = jobs.length === 0;
   for (let p = 2; p <= lastPage && !eof; p++) {
     const sep = base.includes("?") ? "&" : "?";
@@ -150,14 +153,15 @@ async function collectInfojobsPages(page, { base, lastPage, jobs, seen }) {
     );
     if (!fragment) break;
     const cards = await extractInfojobsCards(page, fragment.html);
-    addInfojobsJobs(jobs, seen, cards);
+    const added = addInfojobsJobs(jobs, seen, cards);
+    await onJobsDiscovered?.(added);
     eof = fragment.eof || cards.length === 0;
   }
   return eof;
 }
 
 export async function infojobsSearchJobs(page, opts = {}) {
-  const { maxPages = 3, enrichDescriptions = true, ...urlOpts } = opts;
+  const { maxPages = 3, enrichDescriptions = true, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(20, Number(maxPages) || 1));
 
   await page.goto(buildInfojobsSearchUrl(urlOpts), {
@@ -169,12 +173,13 @@ export async function infojobsSearchJobs(page, opts = {}) {
     .catch(() => {});
 
   const jobs = await extractInfojobsCards(page);
+  await onJobsDiscovered?.(jobs);
   const seen = new Set(jobs.map((job) => job.job_id));
   const totalText = await page.locator("#resumeVacancies .text-medium, #resumeVacancies span").first().textContent().catch(() => "");
   const total = parseInt(String(totalText || "").replace(/\D/g, ""), 10) || 0;
   const lastPage = total ? Math.min(cap, Math.ceil(total / 20)) : cap;
   const base = page.url().replace(/([?&])page=\d+/i, "$1").replace(/[?&]$/, "");
-  const eof = await collectInfojobsPages(page, { base, lastPage, jobs, seen });
+  const eof = await collectInfojobsPages(page, { base, lastPage, jobs, seen, onJobsDiscovered });
   if (enrichDescriptions && jobs.length) await enrichInfojobsJobs(page, jobs);
 
   return { jobs, has_next_page: !eof };

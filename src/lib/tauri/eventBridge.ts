@@ -2,6 +2,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEventStore } from "../../stores/system/useEventStore";
 import { useAutomationStore } from "../../stores/automation/useAutomationStore";
 import { useJobStore } from "../../stores/jobs/useJobStore";
+import { useSearchRunStore } from "../../stores/jobs/useSearchRunStore";
+import { useBrowserSessionStore } from "../../stores/sessions/useBrowserSessionStore";
 import { useAiStatusStore, type AiPhase } from "../../stores/system/useAiStatusStore";
 import type { AppEvent } from "../../types/events";
 import type { AutomationState, JobPostDto } from "../../types/domain";
@@ -128,8 +130,22 @@ async function subscribe(attempt: number, expectedGeneration: number): Promise<v
         useEventStore.getState().addEvent(payload);
         if (payload.type === "automation.state") {
           dispatchAutomationState(payload);
-        } else if (payload.type === "job.search.item_found") {
+        } else if (
+          payload.type === "job.search.started" ||
+          payload.type === "job.search.phase" ||
+          payload.type === "job.search.progress" ||
+          payload.type === "job.search.completed" ||
+          payload.type === "job.search.failed"
+        ) {
+          useSearchRunStore.getState().applyEvent(payload);
+        } else if (
+          payload.type === "job.search.item_found" ||
+          payload.type === "job.search.item_updated"
+        ) {
           dispatchJobFound(payload);
+          useSearchRunStore.getState().applyEvent(payload);
+        } else if (payload.type === "browser.session.status") {
+          useBrowserSessionStore.getState().applyEvent(payload);
         } else if (payload.type === "ai.progress") {
           dispatchAiProgress(payload);
         }

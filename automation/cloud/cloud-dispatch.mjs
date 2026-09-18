@@ -14,11 +14,11 @@ const DISPATCHERS = {
     const { cmdSearchGoogle } = await import("../platforms/linkedin/worker-linkedin.js");
     return cmdSearchGoogle(request);
   },
-  search_indeed_jobs: async (request) => {
+  search_indeed_jobs: async (request, hooks) => {
     const { cmdSearchIndeedJobs } = await import("../platforms/indeed/worker-indeed.js");
-    return cmdSearchIndeedJobs(request);
+    return cmdSearchIndeedJobs(request, hooks);
   },
-  catho_search_jobs: async (request) => {
+  catho_search_jobs: async (request, hooks) => {
     const { cathoSearchJobs } = await import("../platforms/catho/catho-jobs.js");
     return cathoSearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
@@ -26,17 +26,19 @@ const DISPATCHERS = {
       workModels: request.work_models ?? [],
       lastDays: request.last_days,
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  search_gupy_jobs: async (request) => {
+  search_gupy_jobs: async (request, hooks) => {
     const { gupySearchJobs } = await import("../platforms/gupy/gupy.js");
     return gupySearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
       remoteOnly: request.remote_only ?? false,
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  infojobs_search_jobs: async (request) => {
+  infojobs_search_jobs: async (request, hooks) => {
     const { infojobsSearchJobs } = await import("../platforms/infojobs/infojobs-jobs.js");
     return infojobsSearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
@@ -44,9 +46,10 @@ const DISPATCHERS = {
       workModels: request.work_models ?? [],
       lastDays: request.last_days,
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  upwork_search_jobs: async (request) => {
+  upwork_search_jobs: async (request, hooks) => {
     const { upworkSearchJobs } = await import("../platforms/upwork/upwork-jobs.js");
     return upworkSearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
@@ -54,29 +57,33 @@ const DISPATCHERS = {
       contractorTier: request.contractor_tier ?? [],
       jobType: request.job_type ?? [],
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  freelas99_search_jobs: async (request) => {
+  freelas99_search_jobs: async (request, hooks) => {
     const { freelas99SearchJobs } = await import("../platforms/freelas99/freelas99-jobs.js");
     return freelas99SearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  programathor_search_jobs: async (request) => {
+  programathor_search_jobs: async (request, hooks) => {
     const { programathorSearchJobs } =
       await import("../platforms/programathor/programathor-jobs.js");
     return programathorSearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
-  geekhunter_search_jobs: async (request) => {
+  geekhunter_search_jobs: async (request, hooks) => {
     const { geekhunterSearchJobs } = await import("../platforms/geekhunter/geekhunter-jobs.js");
     return geekhunterSearchJobs(await activePage(request.handle), {
       query: request.query ?? "",
       remoteOnly: !!request.remote_only,
       maxPages: request.max_pages,
+      onJobsDiscovered: hooks?.onJobsDiscovered,
     });
   },
   catho_apply: async (request) => {

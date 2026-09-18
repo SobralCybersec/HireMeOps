@@ -33,7 +33,7 @@ async function clickIndeedContinue(form) {
 }
 
 
-export async function cmdSearchIndeedJobs(config) {
+export async function cmdSearchIndeedJobs(config, hooks = {}) {
   const {
     handle,
     keywords = "",
@@ -53,7 +53,14 @@ export async function cmdSearchIndeedJobs(config) {
   let hasNextPage = false;
   for (const paramObj of passes) {
     const { jobs, hasNext } = await scrapeIndeedPass(page, paramObj);
-    for (const job of jobs) if (job.job_id && !byId.has(job.job_id)) byId.set(job.job_id, job);
+    const added = [];
+    for (const job of jobs) {
+      if (job.job_id && !byId.has(job.job_id)) {
+        byId.set(job.job_id, job);
+        added.push(job);
+      }
+    }
+    await hooks.onJobsDiscovered?.(added);
     hasNextPage ||= hasNext;
   }
   return { jobs: [...byId.values()], has_next_page: hasNextPage };

@@ -115,7 +115,7 @@ describe("cloud runner dispatch boundary", () => {
       },
     );
     assert.equal(cloudResultCount("search_jobs", { jobs: [] }), 0);
-    assert.equal(cloudResultCount("search_indeed_jobs", { jobs: [] }), null);
+    assert.equal(cloudResultCount("search_indeed_jobs", { jobs: [] }), 0);
     assert.throws(
       () => cloudResultCount("search_jobs", {}),
       (error) => error instanceof CloudRunnerError && error.code === "cloud_results_invalid",

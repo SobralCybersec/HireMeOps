@@ -130,15 +130,18 @@ async function scrapeProgramathorPageAt(page, urlOpts, pageNumber) {
 }
 
 function mergeProgramathorJobs(jobs, seen, pageJobs) {
+  const added = [];
   for (const job of pageJobs) {
     if (!job.job_id || seen.has(job.job_id)) continue;
     seen.add(job.job_id);
     jobs.push(job);
+    added.push(job);
   }
+  return added;
 }
 
 export async function programathorSearchJobs(page, opts = {}) {
-  const { maxPages = 5, ...urlOpts } = opts;
+  const { maxPages = 5, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(30, Number(maxPages) || 1));
 
   const jobs = [];
@@ -150,7 +153,8 @@ export async function programathorSearchJobs(page, opts = {}) {
     const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeProgramathorPageAt(page, urlOpts, p);
     if (p === 1 && detected && detected > 1) lastPage = Math.min(cap, detected);
 
-    mergeProgramathorJobs(jobs, seen, pageJobs);
+    const added = mergeProgramathorJobs(jobs, seen, pageJobs);
+    await onJobsDiscovered?.(added);
     hasNextAfterLast = hasNext;
     // Stop only on a genuinely empty page (real end / block), never on !hasNext.
     if (pageJobs.length === 0) break;

@@ -14,7 +14,7 @@ use crate::util::now_iso;
 #[cfg(feature = "real-browser")]
 use uuid::Uuid;
 
-/* Stream a just-ingested job to the frontend (SSE scrape streaming). Re-selects
+/* Stream a just-ingested job to the frontend (Tauri event bus). Re-selects
 the row so the payload matches `list_job_posts` exactly; best-effort (a failed
 emit must never abort a scrape). */
 #[cfg(feature = "real-browser")]

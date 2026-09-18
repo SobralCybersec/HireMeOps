@@ -6,6 +6,7 @@ import { type SearchPlatform } from "./search-runners";
 import { JobDetailPane, type JobDetailModel } from "./JobDetailPane";
 import { JobResultsPane, type JobResultsModel } from "./JobResultsPane";
 import type { ContactFilter, FilterStatus, WorkModeFilter } from "./job-search-types";
+import type { SearchRunView } from "../../stores/jobs/useSearchRunStore";
 import {
   Button,
   Checkbox,
@@ -348,6 +349,7 @@ export type JobSearchViewModel = {
   handleRunAll: () => Promise<void>;
   handleRunCloud: () => Promise<void>;
   cloudRunning: boolean;
+  cloudRun: SearchRunView | null;
   cloudReady: boolean;
   showManual: boolean;
   toggleManual: () => void;
@@ -463,6 +465,7 @@ function SearchToolbar({ model }: { model: JobSearchViewModel }) {
     handleRunAll,
     handleRunCloud,
     cloudRunning,
+    cloudRun,
     cloudReady,
     showPreferences,
     showManual,
@@ -509,7 +512,9 @@ function SearchToolbar({ model }: { model: JobSearchViewModel }) {
         }
         onClick={() => void handleRunCloud()}
       >
-        {cloudRunning ? "Starting cloud…" : "Run cloud"}
+        {cloudRunning
+          ? `${cloudRun?.phase.replace(/_/g, " ") ?? "running"} · ${cloudRun?.persisted ?? 0} saved`
+          : "Run cloud"}
       </Button>
       <Button size="sm" onClick={() => toggleManual()} title="Run one platform at a time">
         {showManual ? "Hide manual searches" : "Manual searches"}

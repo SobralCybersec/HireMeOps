@@ -90,15 +90,18 @@ async function scrapeFreelas99PageAt(page, urlOpts, pageNumber) {
 }
 
 function mergeFreelas99Jobs(jobs, seen, pageJobs) {
+  const added = [];
   for (const job of pageJobs) {
     if (!job.job_id || seen.has(job.job_id)) continue;
     seen.add(job.job_id);
     jobs.push(job);
+    added.push(job);
   }
+  return added;
 }
 
 export async function freelas99SearchJobs(page, opts = {}) {
-  const { maxPages = 30, ...urlOpts } = opts;
+  const { maxPages = 30, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(30, Number(maxPages) || 1));
 
   const jobs = [];
@@ -112,7 +115,8 @@ export async function freelas99SearchJobs(page, opts = {}) {
     // instead of stopping at a hardcoded few pages.
     if (p === 1 && detected && detected > 1) lastPage = Math.min(cap, detected);
 
-    mergeFreelas99Jobs(jobs, seen, pageJobs);
+    const added = mergeFreelas99Jobs(jobs, seen, pageJobs);
+    await onJobsDiscovered?.(added);
     hasNextAfterLast = hasNext;
     // March all the way to the detected last page (e.g. 12) even when the widget hides the middle
     // pages — we fetch each `page=N` by URL regardless of whether it's a clickable chip. Only stop

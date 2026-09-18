@@ -173,18 +173,18 @@ async function scrapeUpworkPageAt(page, urlOpts, pageNumber) {
 }
 
 function mergeUpworkJobs(jobs, seen, pageJobs) {
-  let added = 0;
+  const added = [];
   for (const job of pageJobs) {
     if (!job.job_id || seen.has(job.job_id)) continue;
     seen.add(job.job_id);
     jobs.push(job);
-    added += 1;
+    added.push(job);
   }
   return added;
 }
 
 export async function upworkSearchJobs(page, opts = {}) {
-  const { maxPages = 3, ...urlOpts } = opts;
+  const { maxPages = 3, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(20, Number(maxPages) || 1));
 
   const jobs = [];
@@ -194,8 +194,9 @@ export async function upworkSearchJobs(page, opts = {}) {
   for (let p = 1; p <= cap; p++) {
     const pageJobs = await scrapeUpworkPageAt(page, urlOpts, p);
     const added = mergeUpworkJobs(jobs, seen, pageJobs);
+    await onJobsDiscovered?.(added);
     hasNextAfterLast = pageJobs.length > 0;
-    if (added === 0) break;
+    if (added.length === 0) break;
   }
 
   return { jobs, has_next_page: hasNextAfterLast };

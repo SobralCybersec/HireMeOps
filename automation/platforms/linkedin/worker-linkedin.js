@@ -7,7 +7,7 @@ import {
   inspectLinkedInSearchDocument,
 } from "./linkedin-search-dom.js";
 
-export async function cmdSearchJobs(config) {
+export async function cmdSearchJobs(config, hooks = {}) {
   const { handle, keywords = "", location = "", page_index = 0, filters = {} } = config;
   const sess = session(handle);
   const { page } = sess;
@@ -18,7 +18,8 @@ export async function cmdSearchJobs(config) {
   await page.waitForTimeout(400 + Math.floor(Math.random() * 400));
   const jobs = await readLinkedInCards(page);
   if (jobs.length === 0) throw linkedInSearchError(searchState.diagnostics);
-  await enrichLinkedInJobs(page, sess.browser, jobs);
+  await hooks.onJobsDiscovered?.(jobs);
+  await enrichLinkedInJobs(page, sess.browser, jobs, hooks.onJobUpdated);
 
   const hasNextPage = await page
     .locator(
@@ -277,7 +278,7 @@ function detailValue(primary, fallback, field) {
   return primary?.[field] ?? fallback?.[field] ?? null;
 }
 
-async function enrichLinkedInJobs(page, browser, jobs) {
+async function enrichLinkedInJobs(page, browser, jobs, onJobUpdated) {
   const csrf = (
     (await browser.cookies("https://www.linkedin.com")).find((c) => c.name === "JSESSIONID")
       ?.value ?? ""
@@ -290,6 +291,7 @@ async function enrichLinkedInJobs(page, browser, jobs) {
       job.description = detail?.description ?? null;
       if (!job.title && detail?.title) job.title = detail.title;
       if (detail?.location) job.location = detail.location;
+      await onJobUpdated?.(job);
       await page.waitForTimeout(150 + Math.floor(Math.random() * 250));
     }
   };

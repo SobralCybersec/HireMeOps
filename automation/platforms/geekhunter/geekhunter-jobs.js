@@ -87,15 +87,18 @@ async function scrapeGeekhunterPageAt(page, urlOpts, pageNumber) {
 }
 
 function mergeGeekhunterJobs(jobs, seen, pageJobs) {
+  const added = [];
   for (const job of pageJobs) {
     if (!job.job_id || seen.has(job.job_id)) continue;
     seen.add(job.job_id);
     jobs.push(job);
+    added.push(job);
   }
+  return added;
 }
 
 export async function geekhunterSearchJobs(page, opts = {}) {
-  const { maxPages = 5, ...urlOpts } = opts;
+  const { maxPages = 5, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(30, Number(maxPages) || 1));
 
   const jobs = [];
@@ -107,7 +110,8 @@ export async function geekhunterSearchJobs(page, opts = {}) {
     const { jobs: pageJobs, hasNext, lastPage: detected } = await scrapeGeekhunterPageAt(page, urlOpts, p);
     if (p === 1 && detected && detected > 1) lastPage = Math.min(cap, detected);
 
-    mergeGeekhunterJobs(jobs, seen, pageJobs);
+    const added = mergeGeekhunterJobs(jobs, seen, pageJobs);
+    await onJobsDiscovered?.(added);
     hasNextAfterLast = hasNext;
     if (pageJobs.length === 0) break;
   }

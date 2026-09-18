@@ -75,14 +75,14 @@ function scrapeCathoPage(page) {
 }
 
 export async function cathoSearchJobs(page, opts = {}) {
-  const { maxPages = 3, enrichDescriptions = true, ...urlOpts } = opts;
+  const { maxPages = 3, enrichDescriptions = true, onJobsDiscovered, ...urlOpts } = opts;
   const cap = Math.max(1, Math.min(50, Number(maxPages) || 1));
-  const { jobs, hasNextAfterLast } = await collectCathoPages(page, urlOpts, cap);
+  const { jobs, hasNextAfterLast } = await collectCathoPages(page, urlOpts, cap, onJobsDiscovered);
   if (enrichDescriptions) await enrichCathoDescriptions(page, jobs);
   return { jobs, has_next_page: hasNextAfterLast };
 }
 
-async function collectCathoPages(page, urlOpts, cap) {
+async function collectCathoPages(page, urlOpts, cap, onJobsDiscovered) {
   const jobs = [];
   const seen = new Set();
   let hasNextAfterLast = false;
@@ -93,7 +93,8 @@ async function collectCathoPages(page, urlOpts, cap) {
     });
     await page.waitForSelector("article.offer, li[data-offer-item]", { timeout: 15_000 }).catch(() => {});
     const pageResult = await scrapeCathoPage(page);
-    addUniqueCathoJobs(jobs, seen, pageResult.jobs);
+    const added = addUniqueCathoJobs(jobs, seen, pageResult.jobs);
+    await onJobsDiscovered?.(added);
     hasNextAfterLast = pageResult.hasNext;
     if (!pageResult.hasNext || pageResult.jobs.length === 0) break;
   }
@@ -101,11 +102,14 @@ async function collectCathoPages(page, urlOpts, cap) {
 }
 
 function addUniqueCathoJobs(jobs, seen, pageJobs) {
+  const added = [];
   for (const job of pageJobs) {
     if (!job.job_id || seen.has(job.job_id)) continue;
     seen.add(job.job_id);
     jobs.push(job);
+    added.push(job);
   }
+  return added;
 }
 
 async function enrichCathoDescriptions(page, jobs) {
