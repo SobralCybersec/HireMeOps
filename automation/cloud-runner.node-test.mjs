@@ -14,6 +14,7 @@ import {
   persistRefreshedState,
   platformStatuses,
   runCloudJob,
+  shouldPersistAuthStatus,
   shouldRefreshInvalidStatus,
   summarizePlatformStatus,
   withCloudDeadline,
@@ -65,6 +66,12 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(shouldRefreshInvalidStatus("session_revision_conflict"), false);
     assert.equal(shouldRefreshInvalidStatus("linkedin_document_not_ready"), false);
     assert.equal(shouldRefreshInvalidStatus("linkedin_results_not_loaded"), false);
+  });
+
+  it("does not persist inconclusive auth status", () => {
+    assert.equal(shouldPersistAuthStatus("unknown"), false);
+    assert.equal(shouldPersistAuthStatus("login_required"), true);
+    assert.equal(shouldPersistAuthStatus("challenged"), true);
   });
 
   it("merges target status without deleting other platforms", () => {

@@ -131,12 +131,32 @@ async fn sync_locked(
     profile_id: &str,
     user_data_dir: &str,
 ) -> Result<BrowserSessionMetadata, String> {
+    sync_locked_for_sites(state, pool, profile_id, user_data_dir, &[]).await
+}
+
+#[cfg(feature = "real-browser")]
+async fn sync_locked_for_sites(
+    state: &crate::AppState,
+    pool: &sqlx::PgPool,
+    profile_id: &str,
+    user_data_dir: &str,
+    sites: &[&str],
+) -> Result<BrowserSessionMetadata, String> {
     let handle = login_handle(state, profile_id).await?;
-    let (status, platforms) = validated_platforms(state, user_data_dir).await?;
+    let (status, platforms) = validated_platforms_for_sites(state, user_data_dir, sites).await?;
     let (state_version, storage_state) = exported_state(state, &handle).await?;
     let encrypted =
         session_crypto::encrypt_json(&storage_state).map_err(|error| error.to_string())?;
-    let expected_revision = current_revision(pool, profile_id).await?;
+    let current = postgres::get_browser_session_metadata(pool, profile_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let expected_revision = current.as_ref().map(|value| value.revision);
+    let existing_platforms = current
+        .as_ref()
+        .map(|value| value.platform_status.clone())
+        .unwrap_or_else(|| json!({}));
+    let platforms = merge_platform_status(&existing_platforms, &platforms);
+    let status = summarize_status(&platforms);
     postgres::upsert_browser_session(
         pool,
         postgres::BrowserSessionWrite {
@@ -217,21 +237,47 @@ async fn login_handle(state: &crate::AppState, profile_id: &str) -> Result<Strin
 }
 
 #[cfg(feature = "real-browser")]
-async fn validated_platforms(
+async fn validated_platforms_for_sites(
     state: &crate::AppState,
     user_data_dir: &str,
+    sites: &[&str],
 ) -> Result<(&'static str, Value), String> {
-    let checked = state
-        .playwright
-        .check_logins_detailed(user_data_dir)
-        .await
-        .map_err(|error| error.to_string())?;
+    let checked = if sites.is_empty() {
+        state.playwright.check_logins_detailed(user_data_dir).await
+    } else {
+        state
+            .playwright
+            .check_logins_detailed_for_sites(user_data_dir, sites)
+            .await
+    }
+    .map_err(|error| error.to_string())?;
     let platforms = platform_status(&checked);
     let status = summarize_status(&platforms);
-    if status != "valid" {
+    let target_status = sites.iter().find_map(|site| {
+        platforms
+            .get(*site)
+            .and_then(Value::as_str)
+            .or(Some("unknown"))
+    });
+    if let Some(target_status) = target_status {
+        if target_status != "valid" {
+            return Err(format!(
+                "browser session validation status: {target_status}"
+            ));
+        }
+    } else if status != "valid" {
         return Err(format!("browser session validation status: {status}"));
     }
     Ok((status, platforms))
+}
+
+#[cfg(feature = "real-browser")]
+fn merge_platform_status(existing: &Value, incoming: &Value) -> Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    if let Some(incoming) = incoming.as_object() {
+        merged.extend(incoming.clone());
+    }
+    Value::Object(merged)
 }
 
 #[cfg(feature = "real-browser")]
@@ -247,14 +293,6 @@ async fn exported_state(state: &crate::AppState, handle: &str) -> Result<(i32, V
         ));
     }
     Ok((state_version, storage_state))
-}
-
-#[cfg(feature = "real-browser")]
-async fn current_revision(pool: &sqlx::PgPool, profile_id: &str) -> Result<Option<i64>, String> {
-    postgres::get_browser_session_metadata(pool, profile_id)
-        .await
-        .map(|metadata| metadata.map(|value| value.revision))
-        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -306,6 +344,8 @@ pub async fn trigger_cloud_run(
     input.profile_id = validated_profile_id(&input.profile_id)?.to_owned();
     let pool = shared_db(&state)?;
     let platform = input.query_plan.get("platform").and_then(Value::as_str);
+    #[cfg(feature = "real-browser")]
+    sync_cloud_session_for_platform(&state, pool, &input.profile_id, platform).await?;
     let session = ensure_cloud_session(pool, &input.profile_id, platform).await?;
     let config = NorthflankConfig::from_env()?;
     let search_run_id = create_search_run(pool, &input).await?;
@@ -318,6 +358,41 @@ pub async fn trigger_cloud_run(
         northflank_run_id,
         northflank_run_name,
     })
+}
+
+#[cfg(feature = "real-browser")]
+async fn sync_cloud_session_for_platform(
+    state: &crate::AppState,
+    pool: &sqlx::PgPool,
+    profile_id: &str,
+    platform: Option<&str>,
+) -> Result<BrowserSessionMetadata, String> {
+    use crate::storage::paths::automation_profile_dir;
+
+    let Some(lock) = postgres::try_lock_profile(pool, profile_id)
+        .await
+        .map_err(|error| error.to_string())?
+    else {
+        return Err("browser session is busy".to_owned());
+    };
+    let user_data_dir = automation_profile_dir(&state.paths.data_dir, profile_id)
+        .to_string_lossy()
+        .into_owned();
+    let result = match cloud_auth_platform(platform) {
+        Some(site) => sync_locked_for_sites(state, pool, profile_id, &user_data_dir, &[site]).await,
+        None => sync_locked(state, pool, profile_id, &user_data_dir).await,
+    };
+    release_lock(lock, result).await
+}
+
+fn cloud_auth_platform(platform: Option<&str>) -> Option<&'static str> {
+    match platform {
+        Some("linkedin_posts") | Some("linkedin") => Some("linkedin"),
+        Some("catho") => Some("catho"),
+        Some("indeed") => Some("indeed"),
+        Some("gupy") => Some("gupy"),
+        _ => None,
+    }
 }
 
 fn target_session_status<'a>(

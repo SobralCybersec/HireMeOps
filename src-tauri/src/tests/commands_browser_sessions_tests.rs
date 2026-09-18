@@ -136,6 +136,25 @@ fn cloud_run_receipt_includes_profile_and_session_revision() {
     assert_eq!(value["sessionRevision"], 8);
 }
 
+#[cfg(feature = "real-browser")]
+#[test]
+fn cloud_preflight_targets_requested_platform_and_preserves_other_statuses() {
+    assert_eq!(
+        cloud_auth_platform(Some("linkedin_posts")),
+        Some("linkedin")
+    );
+    assert_eq!(cloud_auth_platform(Some("linkedin")), Some("linkedin"));
+    assert_eq!(cloud_auth_platform(Some("gupy")), Some("gupy"));
+    assert_eq!(cloud_auth_platform(Some("unsupported")), None);
+    assert_eq!(
+        merge_platform_status(
+            &json!({ "gupy": "valid", "linkedin": "unknown" }),
+            &json!({ "linkedin": "valid" }),
+        ),
+        json!({ "gupy": "valid", "linkedin": "valid" })
+    );
+}
+
 #[test]
 fn profile_and_platform_helpers_reject_empty_or_malformed_input() {
     assert_eq!(

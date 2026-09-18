@@ -52,6 +52,10 @@ export function mergePlatformStatus(existing, platform, status) {
   return platform ? { ...current, [platform]: status } : current;
 }
 
+export function shouldPersistAuthStatus(status) {
+  return status === "login_required" || status === "challenged";
+}
+
 function mergePlatformStatuses(existing, incoming) {
   const current =
     existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
@@ -423,7 +427,9 @@ async function persistOperationAuthFailure(context, platform) {
   const { status } = await classifyPageAuth(platform, context.page);
   const code = authErrorCode(status) ?? (status === "unknown" ? "session_status_unknown" : null);
   if (!code) return null;
-  await persistInvalidSessionStatus(context.pool, context.row, authPlatform, status);
+  if (shouldPersistAuthStatus(status)) {
+    await persistInvalidSessionStatus(context.pool, context.row, authPlatform, status);
+  }
   return code;
 }
 
@@ -452,7 +458,9 @@ async function recordOperationStatus(context, platform) {
   const authPlatform = authStatusPlatform(platform);
   const { status } = await classifyPageAuth(platform, context.page);
   if (status === "valid") return status;
-  await persistInvalidSessionStatus(context.pool, context.row, authPlatform ?? platform, status);
+  if (shouldPersistAuthStatus(status)) {
+    await persistInvalidSessionStatus(context.pool, context.row, authPlatform ?? platform, status);
+  }
   throw new CloudRunnerError(status === "unknown" ? "session_status_unknown" : status);
 }
 

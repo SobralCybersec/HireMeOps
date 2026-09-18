@@ -170,6 +170,19 @@ impl PlaywrightDriver {
             .await
     }
 
+    pub async fn check_logins_detailed_for_sites(
+        &self,
+        user_data_dir: &str,
+        sites: &[&str],
+    ) -> DomainResult<Map<String, Value>> {
+        self.rpc(json!({
+            "cmd": "check_logins",
+            "user_data_dir": user_data_dir,
+            "sites": sites,
+        }))
+        .await
+    }
+
     pub async fn export_storage_state(&self, handle: &str) -> DomainResult<(i32, Value)> {
         let reply = self
             .rpc(json!({ "cmd": "export_storage_state", "handle": handle }))
