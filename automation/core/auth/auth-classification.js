@@ -32,6 +32,7 @@ export function classifyLogin(url, out) {
 export function classifyLinkedInAuth({
   url = "",
   authenticatedMarkers = 0,
+  authenticatedNavDestinations = 0,
   loginMarkers = 0,
   challengeMarkers = 0,
 } = {}) {
@@ -39,7 +40,9 @@ export function classifyLinkedInAuth({
   if (urlStatus !== "valid") return urlStatus;
   if (Number(challengeMarkers) > 0) return "challenged";
   if (Number(loginMarkers) > 0) return "login_required";
-  return Number(authenticatedMarkers) > 0 ? "valid" : "unknown";
+  return Number(authenticatedMarkers) > 0 || Number(authenticatedNavDestinations) >= 3
+    ? "valid"
+    : "unknown";
 }
 
 export function classifyPlatformUrl(platform, url) {

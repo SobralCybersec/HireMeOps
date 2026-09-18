@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyLinkedInAuth,
   classifyLogin,
@@ -6,8 +6,11 @@ import {
   selectLoginProbeSites,
   waitForLinkedInAuthState,
 } from "./worker-auth.js";
+import { inspectLinkedInAuthDocument } from "../../platforms/linkedin/linkedin-search-dom.js";
 
 const loginUrl = /\/login|\/signin/;
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("login probe classification", () => {
   it("distinguishes valid, login-required and challenged URLs", () => {
@@ -21,8 +24,24 @@ describe("login probe classification", () => {
       classifyLinkedInAuth({
         url: "https://www.linkedin.com/jobs/search/",
         authenticatedMarkers: 0,
+        authenticatedNavDestinations: 2,
       }),
     ).toBe("unknown");
+    expect(
+      classifyLinkedInAuth({
+        url: "https://www.linkedin.com/feed/",
+        authenticatedMarkers: 0,
+        authenticatedNavDestinations: 3,
+      }),
+    ).toBe("valid");
+    expect(
+      classifyLinkedInAuth({
+        url: "https://www.linkedin.com/feed/",
+        authenticatedMarkers: 0,
+        authenticatedNavDestinations: 5,
+        loginMarkers: 1,
+      }),
+    ).toBe("login_required");
     expect(
       classifyLinkedInAuth({
         url: "https://www.linkedin.com/feed/",
@@ -41,6 +60,36 @@ describe("login probe classification", () => {
         loginMarkers: 1,
       }),
     ).toBe("login_required");
+  });
+
+  it("counts distinct authenticated navigation destinations", () => {
+    const selectors = [
+      'a[href*="/feed/"]',
+      'a[href*="/mynetwork/"]',
+      'a[href*="/jobs/"]',
+      'a[href*="/messaging/"]',
+      'a[href*="/notifications/"]',
+    ];
+    const visibleNode = { getClientRects: () => [1] };
+    const nodes = new Map(selectors.map((selector) => [selector, [visibleNode]]));
+    const querySelectorAll = vi.fn((selector) => nodes.get(selector) ?? []);
+    vi.stubGlobal("window", {
+      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+    });
+    vi.stubGlobal("document", {
+      querySelectorAll,
+      title: "LinkedIn",
+      scripts: [],
+      body: { children: [], innerText: "authenticated" },
+      documentElement: { outerHTML: "<html></html>" },
+    });
+
+    expect(inspectLinkedInAuthDocument()).toMatchObject({
+      authenticatedMarkers: 0,
+      authenticatedNavDestinations: 5,
+      loginMarkers: 0,
+      challengeMarkers: 0,
+    });
   });
 
   it("waits for positive authentication evidence after commit", async () => {

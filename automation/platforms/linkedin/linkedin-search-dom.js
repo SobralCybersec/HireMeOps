@@ -24,6 +24,14 @@ export function inspectLinkedInAuthDocument() {
         Array.from(document.querySelectorAll(selector)).filter(visible),
       ),
     ).size;
+  const authenticatedNavigationDestinations = [
+    ["feed", 'a[href*="/feed/"]'],
+    ["mynetwork", 'a[href*="/mynetwork/"]'],
+    ["jobs", 'a[href*="/jobs/"]'],
+    ["messaging", 'a[href*="/messaging/"]'],
+    ["notifications", 'a[href*="/notifications/"]'],
+    ["profile", 'a[href*="/in/"]'],
+  ].filter(([, selector]) => Array.from(document.querySelectorAll(selector)).some(visible)).length;
   const authenticatedMarkers = count([
     "nav.global-nav",
     ".global-nav",
@@ -52,7 +60,12 @@ export function inspectLinkedInAuthDocument() {
     'form[action*="checkpoint"]',
     'iframe[src*="captcha" i]',
   ]);
-  return { authenticatedMarkers, loginMarkers, challengeMarkers };
+  return {
+    authenticatedMarkers,
+    authenticatedNavDestinations: authenticatedNavigationDestinations,
+    loginMarkers,
+    challengeMarkers,
+  };
 }
 
 export function inspectLinkedInSearchDocument() {
