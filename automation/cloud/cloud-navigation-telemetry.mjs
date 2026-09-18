@@ -67,6 +67,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
   const failedRequestsByType = emptyCounts();
   const failedReasons = { blocked_by_policy: 0, timeout: 0, connection: 0, other: 0 };
   const hostBuckets = { linkedin: 0, licdn: 0, other: 0 };
+  const pendingRequests = new Map();
   let requestsTotal = 0;
   let pageErrorCount = 0;
   let consoleErrorCount = 0;
@@ -75,15 +76,20 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
     const type = resourceType(request);
     requestsTotal += 1;
     requestsByType[type] += 1;
-    hostBuckets[hostBucket(request.url?.())] += 1;
+    const host = hostBucket(request.url?.());
+    hostBuckets[host] += 1;
+    pendingRequests.set(request, { type, host, startedAt: Date.now() });
   };
   const onResponse = (response) => {
-    const type = resourceType(response.request?.());
+    const request = response.request?.();
+    pendingRequests.delete(request);
+    const type = resourceType(request);
     const group = statusClass(response.status?.());
     responsesByType[type][group] += 1;
     responsesByClass[group] += 1;
   };
   const onRequestFailed = (request) => {
+    pendingRequests.delete(request);
     const type = resourceType(request);
     const reason = failedReason(request);
     failedRequestsByType[type] += 1;
@@ -115,6 +121,15 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
         types.reduce((total, type) => total + typesValue(values, type), 0);
       const xhrFetchResponses = (group) =>
         xhrFetch.reduce((total, type) => total + responsesByType[type][group], 0);
+      const pendingByType = emptyCounts();
+      const pendingByHostBucket = { linkedin: 0, licdn: 0, other: 0 };
+      let oldestPendingAgeMs = null;
+      const now = Date.now();
+      for (const pending of pendingRequests.values()) {
+        pendingByType[pending.type] += 1;
+        pendingByHostBucket[pending.host] += 1;
+        oldestPendingAgeMs = Math.max(oldestPendingAgeMs ?? 0, now - pending.startedAt);
+      }
       return {
         resourcePolicyEnabled,
         requestsTotal,
@@ -126,6 +141,10 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
         failedRequestsByType: { ...failedRequestsByType },
         failedReasons: { ...failedReasons },
         hostBuckets: { ...hostBuckets },
+        pendingRequestsTotal: pendingRequests.size,
+        pendingByType,
+        pendingByHostBucket,
+        oldestPendingAgeMs,
         scriptRequests: requestsByType.script,
         scriptResponses2xx: responsesByType.script["2xx"],
         scriptResponses4xx: responsesByType.script["4xx"],
@@ -141,6 +160,7 @@ export function createNavigationTelemetry(page, { resourcePolicyEnabled = false 
       };
     },
     detach() {
+      pendingRequests.clear();
       if (!remove) return;
       remove("request", onRequest);
       remove("response", onResponse);

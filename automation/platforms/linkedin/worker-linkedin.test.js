@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import {
+  cmdSearchJobs,
   classifyLinkedInReadinessError,
   fetchLinkedInJobDetail,
   waitForLinkedInSearchState,
 } from "./worker-linkedin.js";
+import { sessions } from "../../core/worker/worker-context.js";
 import {
   classifyLinkedInSearchState,
   extractLinkedInCardsFromDocument,
+  inspectLinkedInSearchState,
+  inspectLinkedInSearchDocument,
 } from "./linkedin-search-dom.js";
 
 function response({ ok = true, json = async () => ({ description: { text: "Role" } }) } = {}) {
@@ -64,7 +68,186 @@ describe("LinkedIn job detail response lifecycle", () => {
   });
 });
 
+describe("LinkedIn cloud renderer lifecycle", () => {
+  it("closes search page before cloud enrichment and uses context request", async () => {
+    const phases = [];
+    const discovered = [];
+    const updated = [];
+    const detailResponse = response({
+      json: async () => ({
+        title: "Backend Engineer",
+        description: { text: "Role" },
+        formattedLocation: "Rio de Janeiro",
+      }),
+    });
+    const page = {
+      goto: vi.fn(async () => ({ status: () => 200, headers: () => ({ "content-type": "text/html" }) })),
+      url: () => "https://www.linkedin.com/jobs/search/",
+      once: vi.fn(),
+      off: vi.fn(),
+      evaluate: vi.fn(async (inspector) => {
+        if (inspector === inspectLinkedInSearchState) {
+          return {
+            readyState: "interactive",
+            occludableCards: 1,
+            jobViewLinks: 1,
+            noResultsBanners: 0,
+            loginMarkers: 0,
+            challengeMarkers: 0,
+            jobsRootMarkers: 1,
+            authenticatedMarkers: 1,
+            authenticatedNavDestinations: 3,
+          };
+        }
+        if (inspector === inspectLinkedInSearchDocument) {
+          return {
+            readyState: "interactive",
+            occludableCards: 1,
+            jobViewLinks: 1,
+            noResultsBanners: 0,
+            loginMarkers: 0,
+            challengeMarkers: 0,
+            jobsRootMarkers: 1,
+            authenticatedMarkers: 1,
+            authenticatedNavDestinations: 3,
+          };
+        }
+        if (inspector === extractLinkedInCardsFromDocument) {
+          return [{ job_id: "job-1", title: "Backend Engineer", company: "Acme" }];
+        }
+        throw new Error("unexpected inspector");
+      }),
+      locator: () => ({
+        first: () => ({
+          click: vi.fn(async () => {}),
+          isVisible: vi.fn(async () => false),
+        }),
+      }),
+      close: vi.fn(async () => {}),
+      waitForTimeout: vi.fn(async () => {}),
+    };
+    const browser = {
+      cookies: vi.fn(async () => [{ name: "JSESSIONID", value: '"csrf"' }]),
+      request: { get: vi.fn(async () => detailResponse) },
+    };
+    sessions.set("linkedin-cloud-test", { page, browser });
+    const previousCloud = process.env.HIREMEOPS_CLOUD;
+    process.env.HIREMEOPS_CLOUD = "1";
+    try {
+      const result = await cmdSearchJobs(
+        { handle: "linkedin-cloud-test", keywords: "backend", location: "Rio" },
+        {
+          onPhase: async (phase) => phases.push(phase),
+          onJobsDiscovered: async (jobs) => discovered.push(...jobs),
+          onJobUpdated: async (job) => updated.push(job),
+        },
+      );
+      expect(result.auth_status).toBe("valid");
+      expect(page.close).toHaveBeenCalledOnce();
+      expect(browser.request.get).toHaveBeenCalled();
+      expect(discovered).toHaveLength(1);
+      expect(updated).toHaveLength(1);
+      expect(phases).toEqual([
+        "linkedin-results-ready",
+        "linkedin-cards-extracted",
+        "linkedin-page-closed",
+        "first-jobs-persisted",
+      ]);
+    } finally {
+      sessions.delete("linkedin-cloud-test");
+      if (previousCloud == null) delete process.env.HIREMEOPS_CLOUD;
+      else process.env.HIREMEOPS_CLOUD = previousCloud;
+    }
+  });
+});
+
 describe("LinkedIn search readiness", () => {
+  it("keeps the hot-path inspector free of heavy DOM reads", () => {
+    const previousDocument = globalThis.document;
+    const documentElement = {};
+    const body = {};
+    Object.defineProperty(documentElement, "outerHTML", {
+      get: () => {
+        throw new Error("outerHTML must stay out of readiness polling");
+      },
+    });
+    Object.defineProperty(body, "innerText", {
+      get: () => {
+        throw new Error("innerText must stay out of readiness polling");
+      },
+    });
+    globalThis.document = {
+      readyState: "loading",
+      documentElement,
+      body,
+      querySelectorAll: (selector) =>
+        selector.includes("/jobs/view/") ? [{ getClientRects: () => [1] }] : [],
+    };
+    try {
+      expect(inspectLinkedInSearchState()).toMatchObject({
+        readyState: "loading",
+        jobViewLinks: 1,
+        occludableCards: 0,
+      });
+    } finally {
+      globalThis.document = previousDocument;
+    }
+  });
+
+  it("skips heavy diagnostics after results become ready", async () => {
+    let lightCalls = 0;
+    let heavyCalls = 0;
+    const page = {
+      evaluate: async (inspector) => {
+        if (inspector === inspectLinkedInSearchState) {
+          lightCalls += 1;
+          return {
+            readyState: "loading",
+            occludableCards: lightCalls > 1 ? 1 : 0,
+            jobViewLinks: lightCalls > 1 ? 1 : 0,
+            noResultsBanners: 0,
+            loginMarkers: 0,
+            challengeMarkers: 0,
+          };
+        }
+        heavyCalls += 1;
+        return { readyState: "loading", occludableCards: 1, jobViewLinks: 1 };
+      },
+      waitForTimeout: vi.fn(async () => {}),
+    };
+
+    await expect(waitForLinkedInSearchState(page, { timeout: 100 })).resolves.toMatchObject({
+      state: "results",
+    });
+    expect(lightCalls).toBe(2);
+    expect(heavyCalls).toBe(0);
+  });
+
+  it("runs heavy diagnostics once on readiness timeout", async () => {
+    let heavyCalls = 0;
+    const page = {
+      evaluate: async (inspector) => {
+        if (inspector === inspectLinkedInSearchState) {
+          return {
+            readyState: "loading",
+            occludableCards: 0,
+            jobViewLinks: 0,
+            noResultsBanners: 0,
+            loginMarkers: 0,
+            challengeMarkers: 0,
+          };
+        }
+        expect(inspector).toBe(inspectLinkedInSearchDocument);
+        heavyCalls += 1;
+        return { readyState: "loading", occludableCards: 0, jobViewLinks: 0 };
+      },
+      waitForTimeout: vi.fn(async () => {}),
+    };
+
+    await waitForLinkedInSearchState(page, { timeout: 0 });
+    expect(heavyCalls).toBe(1);
+  });
+
   it("distinguishes results, confirmed empty, and unknown DOM", () => {
     expect(classifyLinkedInSearchState({ occludableCards: 1 })).toBe("results");
     expect(classifyLinkedInSearchState({ jobViewLinks: 2 })).toBe("results");

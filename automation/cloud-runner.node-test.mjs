@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 import { dispatchCloudOperation } from "./cloud/cloud-dispatch.mjs";
 import { createCgroupMemoryGuard } from "./cloud/cloud-memory-guard.mjs";
+import { authErrorCode } from "./cloud/cloud-auth.mjs";
 import { sessions } from "./core/worker/worker-context.js";
 import {
   CloudRunnerError,
@@ -72,6 +73,7 @@ describe("cloud runner crypto boundary", () => {
     assert.equal(shouldPersistAuthStatus("unknown"), false);
     assert.equal(shouldPersistAuthStatus("login_required"), true);
     assert.equal(shouldPersistAuthStatus("challenged"), true);
+    assert.equal(authErrorCode("unknown"), null);
   });
 
   it("merges target status without deleting other platforms", () => {
@@ -100,6 +102,8 @@ describe("cloud runner crypto boundary", () => {
     assert.ok("cgroupWorkingSetMb" in snapshot);
     assert.ok("inactiveFileMb" in snapshot);
     assert.ok("slabReclaimableMb" in snapshot);
+    assert.ok("memoryMaxEventsDelta" in snapshot);
+    assert.ok("nodeMemoryMb" in snapshot);
     assert.doesNotMatch(log, /cookies|authorization|storageState|indexedDB|token/i);
   });
 });
@@ -127,6 +131,7 @@ describe("cloud runner dispatch boundary", () => {
   });
 
   it("dispatches LinkedIn without loading worker.js", async () => {
+    let discovered = 0;
     const page = {
       goto: async () => {},
       url: () => "https://www.linkedin.com/jobs/search/",
@@ -145,6 +150,8 @@ describe("cloud runner dispatch boundary", () => {
               occludableCards: 1,
               jobViewLinks: 1,
               noResultsBanners: 0,
+              authenticatedMarkers: 1,
+              authenticatedNavDestinations: 3,
               bodyTextLength: 40,
             }
           : [{ job_id: null, title: "Synthetic role", apply_url: "https://fixture.invalid/job" }],
@@ -156,8 +163,12 @@ describe("cloud runner dispatch boundary", () => {
     });
     try {
       await assert.doesNotReject(
-        dispatchCloudOperation({ cmd: "search_jobs", handle: "cloud-dispatch-fixture" }),
+        dispatchCloudOperation(
+          { cmd: "search_jobs", handle: "cloud-dispatch-fixture" },
+          { onJobsDiscovered: (jobs) => (discovered = jobs.length) },
+        ),
       );
+      assert.equal(discovered, 1);
     } finally {
       sessions.delete("cloud-dispatch-fixture");
     }

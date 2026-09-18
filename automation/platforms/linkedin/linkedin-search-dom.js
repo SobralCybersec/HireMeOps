@@ -68,6 +68,44 @@ export function inspectLinkedInAuthDocument() {
   };
 }
 
+export function inspectLinkedInSearchState() {
+  const count = (selector) => document.querySelectorAll(selector).length;
+  const authenticatedNavigationDestinations = [
+    'a[href*="/feed/"]',
+    'a[href*="/mynetwork/"]',
+    'a[href*="/jobs/"]',
+    'a[href*="/messaging/"]',
+    'a[href*="/notifications/"]',
+    'a[href*="/in/"]',
+  ].filter((selector) => count(selector) > 0).length;
+  return {
+    readyState: document.readyState,
+    occludableCards: count("li[data-occludable-job-id]"),
+    jobViewLinks: count('a[href*="/jobs/view/"]'),
+    noResultsBanners: count(
+      ".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner",
+    ),
+    loginMarkers: count(
+      'form[action*="/login"], input[name="session_key"], input[name="session_password"], .login__form, [data-test-id="login-form"]',
+    ),
+    challengeMarkers: count(
+      '[id*="checkpoint" i], [class*="checkpoint" i], [id*="challenge" i], [class*="challenge" i], form[action*="checkpoint"], iframe[src*="captcha" i]',
+    ),
+    jobsRootMarkers: count(".jobs-search-two-pane__wrapper, .jobs-search-results-list"),
+    authenticatedMarkers: count(
+      ".global-nav, [data-test-global-nav], .global-nav__me, .feed-identity-module, " +
+        ".share-box-feed-entry__closed-share-box, .jobs-search-two-pane__wrapper, " +
+        ".jobs-search-results-list, .jobs-search-no-results-banner, " +
+        ".jobs-search-two-pane__no-results-banner, li[data-occludable-job-id]",
+    ),
+    authenticatedNavDestinations: authenticatedNavigationDestinations,
+    nextPageButtons: count(
+      'button[aria-label="View next page"], .jobs-search-pagination__button--next, ' +
+        'button[aria-label^="Page "]:not([aria-current])',
+    ),
+  };
+}
+
 export function inspectLinkedInSearchDocument() {
   const noResultsSelector =
     ".jobs-search-no-results-banner, .jobs-search-two-pane__no-results-banner";
@@ -114,6 +152,15 @@ export function inspectLinkedInSearchDocument() {
     'form[action*="checkpoint"]',
     'iframe[src*="captcha" i]',
   ]);
+  const authenticatedNavigationDestinations = [
+    'a[href*="/feed/"]',
+    'a[href*="/mynetwork/"]',
+    'a[href*="/jobs/"]',
+    'a[href*="/messaging/"]',
+    'a[href*="/notifications/"]',
+    'a[href*="/in/"]',
+  ].filter((selector) => Array.from(document.querySelectorAll(selector)).some(visible)).length;
+  const html = document.documentElement?.outerHTML ?? "";
   return {
     url: location.href,
     title: document.title,
@@ -126,13 +173,12 @@ export function inspectLinkedInSearchDocument() {
     jobViewLinks: document.querySelectorAll('a[href*="/jobs/view/"]').length,
     noResultsBanners: Array.from(document.querySelectorAll(noResultsSelector)).filter(visible)
       .length,
-    bodyTextLength: document.body?.innerText?.length ?? 0,
-    documentHtmlLength: document.documentElement?.outerHTML?.length ?? 0,
-    rawJobsViewOccurrences: (document.documentElement?.outerHTML?.match(/\/jobs\/view\//g) ?? [])
-      .length,
-    rawJobPostingOccurrences: (document.documentElement?.outerHTML?.match(/jobPostings/gi) ?? [])
-      .length,
+    bodyTextLength: document.body?.textContent?.length ?? 0,
+    documentHtmlLength: html.length,
+    rawJobsViewOccurrences: (html.match(/\/jobs\/view\//g) ?? []).length,
+    rawJobPostingOccurrences: (html.match(/jobPostings/gi) ?? []).length,
     authenticatedMarkers,
+    authenticatedNavDestinations: authenticatedNavigationDestinations,
     loginMarkers,
     challengeMarkers,
     jobsRootMarkers: document.querySelectorAll(

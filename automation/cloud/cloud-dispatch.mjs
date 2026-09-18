@@ -2,9 +2,9 @@ import { activePage } from "../core/worker/worker-context.js";
 import { CloudRunnerError } from "../cloud-runner-contract.mjs";
 
 const DISPATCHERS = {
-  search_jobs: async (request) => {
+  search_jobs: async (request, hooks) => {
     const { cmdSearchJobs } = await import("../platforms/linkedin/worker-linkedin.js");
-    return cmdSearchJobs(request);
+    return cmdSearchJobs(request, hooks);
   },
   search_linkedin_posts: async (request) => {
     const { cmdSearchLinkedInPosts } = await import("../platforms/linkedin/worker-linkedin.js");
@@ -103,10 +103,10 @@ const DISPATCHERS = {
   },
 };
 
-export async function dispatchCloudOperation(request) {
+export async function dispatchCloudOperation(request, hooks = {}) {
   const dispatch = DISPATCHERS[request?.cmd];
   if (!dispatch) throw new CloudRunnerError("unsupported_operation");
-  return dispatch(request);
+  return dispatch(request, hooks);
 }
 
 export function isCloudOperationSupported(command) {

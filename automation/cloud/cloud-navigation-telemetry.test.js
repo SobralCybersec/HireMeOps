@@ -19,6 +19,21 @@ function request(url, type, failure) {
 }
 
 describe("cloud navigation telemetry", () => {
+  it("reports pending requests by type and host without retaining URLs", () => {
+    const page = fakePage();
+    const telemetry = createNavigationTelemetry(page);
+    page.emit("request", request("https://static.licdn.com/pending.js?token=secret", "script"));
+
+    const snapshot = telemetry.snapshot();
+    expect(snapshot).toMatchObject({
+      pendingRequestsTotal: 1,
+      pendingByType: { script: 1 },
+      pendingByHostBucket: { licdn: 1 },
+    });
+    expect(JSON.stringify(snapshot)).not.toMatch(/licdn\.com|token|secret/i);
+    telemetry.detach();
+  });
+
   it("aggregates request metadata without retaining URLs or bodies", () => {
     const page = fakePage();
     const telemetry = createNavigationTelemetry(page, { resourcePolicyEnabled: true });

@@ -495,6 +495,7 @@ function cloudContext(config, pool) {
     page: null,
     memoryGuard: null,
     memoryBudgetExceeded: false,
+    authWitness: null,
     streamedJobs: false,
     discoveredJobIds: new Set(),
     persistedJobIds: new Set(),
@@ -633,7 +634,7 @@ async function persistOperationAuthFailure(context, platform) {
   const authPlatform = authStatusPlatform(platform);
   if (!authPlatform) return null;
   const { status } = await classifyPageAuth(platform, context.page);
-  const code = authErrorCode(status) ?? (status === "unknown" ? "session_status_unknown" : null);
+  const code = authErrorCode(status);
   if (!code) return null;
   if (shouldPersistAuthStatus(status)) {
     await persistInvalidSessionStatus(context.pool, context.row, authPlatform, status);
@@ -648,6 +649,9 @@ async function executeCloudOperation(context, request, platform) {
     const result = await withCloudDeadline(
       () =>
         dispatchCloudOperation(request, {
+          onPhase: (phase) => {
+            context.record(phase);
+          },
           onJobsDiscovered: (jobs) =>
             streamCloudJobs(context, jobs, platform, "job.search.item_found"),
           onJobUpdated: async (job) => {
@@ -662,6 +666,7 @@ async function executeCloudOperation(context, request, platform) {
       },
     );
     if (context.memoryBudgetExceeded) throw new CloudRunnerError("memory_budget_exceeded");
+    context.authWitness = result?.auth_status === "valid" ? { status: "valid" } : null;
     return result;
   } catch (error) {
     if (context.memoryBudgetExceeded) throw new CloudRunnerError("memory_budget_exceeded");
@@ -675,8 +680,9 @@ function assertMemoryBudget(context) {
   if (context.memoryBudgetExceeded) throw new CloudRunnerError("memory_budget_exceeded");
 }
 
-async function recordOperationStatus(context, platform) {
+async function recordOperationStatus(context, platform, result) {
   const authPlatform = authStatusPlatform(platform);
+  if (result?.auth_status === "valid" || context.authWitness?.status === "valid") return "valid";
   const { status } = await classifyPageAuth(platform, context.page);
   if (status === "valid") return status;
   if (shouldPersistAuthStatus(status)) {
@@ -708,7 +714,7 @@ async function executeCloudRun(context) {
   const resultCount = cloudResultCount(request.cmd, result);
   context.report.resultCount = resultCount;
   assertMemoryBudget(context);
-  await recordOperationStatus(context, platform);
+  await recordOperationStatus(context, platform, result);
   context.record("post-navigation");
   await recordRunPhase(context, "persisting", { platform });
   const isSearchOperation = isSearchJobCommand(request.cmd);
@@ -766,6 +772,7 @@ function cloudErrorCode(error) {
     "session_status_unknown",
     "linkedin_document_not_ready",
     "linkedin_results_not_loaded",
+    "linkedin_auth_unknown",
     "cloud_results_invalid",
   ].includes(code)
     ? code

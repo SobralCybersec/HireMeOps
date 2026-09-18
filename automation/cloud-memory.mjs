@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 
 const BYTES_PER_MB = 1_048_576;
 let previousCpuStat = null;
+let previousMemoryEvents = null;
+let previousMemoryEventsAt = null;
 
 function cgroupFile(name) {
   const path = processCgroupPath();
@@ -194,6 +196,21 @@ function bytesToMb(value) {
   return value == null ? null : +(value / BYTES_PER_MB).toFixed(1);
 }
 
+function memoryEventDeltas(events) {
+  const now = Date.now();
+  const previous = previousMemoryEvents;
+  const elapsedMs =
+    previousMemoryEventsAt == null ? null : Math.max(1, now - previousMemoryEventsAt);
+  previousMemoryEvents = events;
+  previousMemoryEventsAt = now;
+  const delta = previous ? Math.max(0, events.max - previous.max) : null;
+  return {
+    memoryMaxEventsDelta: delta,
+    memoryMaxEventsPerSecond:
+      delta == null || elapsedMs == null ? null : +((delta * 1000) / elapsedMs).toFixed(1),
+  };
+}
+
 function cgroupMemoryEvents() {
   const raw = readKeyValues(cgroupFile("memory.events"));
   return {
@@ -321,11 +338,16 @@ export function memorySnapshot(stage) {
   const cpu = cpuSnapshot();
   const stat = cgroupMemoryStat(cgroup.stat);
   const events = cgroup.events ?? cgroupMemoryEvents();
+  const memoryEventDelta = memoryEventDeltas(events);
+  const nodeUsage = process.memoryUsage();
   const toMb = (value) => (value == null ? null : +(value / BYTES_PER_MB).toFixed(1));
   return {
     stage,
     at: new Date().toISOString(),
     nodeRssMb: +(process.memoryUsage().rss / BYTES_PER_MB).toFixed(1),
+    nodeMemoryMb: Object.fromEntries(
+      Object.entries(nodeUsage).map(([key, value]) => [key, +(value / BYTES_PER_MB).toFixed(1)]),
+    ),
     nodePssMb: mb(nodePss),
     chromiumPssMb: mb(chromiumPss),
     chromiumPssByTypeMb: Object.fromEntries(
@@ -340,6 +362,7 @@ export function memorySnapshot(stage) {
     slabUnreclaimableMb: toMb(cgroup.slabUnreclaimable),
     cgroupPeakMb: cgroup.peak == null ? null : +(cgroup.peak / BYTES_PER_MB).toFixed(1),
     cgroupMaxMb: cgroup.max == null ? null : +(cgroup.max / BYTES_PER_MB).toFixed(1),
+    ...memoryEventDelta,
     cgroup: {
       currentMb: cgroup.current == null ? null : +(cgroup.current / BYTES_PER_MB).toFixed(1),
       workingSetMb: toMb(cgroup.workingSet),

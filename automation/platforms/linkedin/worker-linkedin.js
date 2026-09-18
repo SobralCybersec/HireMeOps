@@ -1,9 +1,15 @@
 import { session } from "../../core/worker/worker-context.js";
-import { classifyPlatformUrl, sanitizeProbeUrl } from "../../core/auth/auth-classification.js";
+import {
+  classifyLinkedInAuth,
+  classifyPlatformUrl,
+  sanitizeProbeError,
+  sanitizeProbeUrl,
+} from "../../core/auth/auth-classification.js";
 import { createNavigationTelemetry } from "../../cloud/cloud-navigation-telemetry.mjs";
 import {
   classifyLinkedInSearchState,
   extractLinkedInCardsFromDocument,
+  inspectLinkedInSearchState,
   inspectLinkedInSearchDocument,
 } from "./linkedin-search-dom.js";
 
@@ -12,16 +18,66 @@ export async function cmdSearchJobs(config, hooks = {}) {
   const sess = session(handle);
   const { page } = sess;
   const url = buildLinkedInSearchUrl({ keywords, location, pageIndex: page_index, filters });
-  const searchState = await openLinkedInSearch(page, url);
-  if (searchState.state === "empty") return { jobs: [], has_next_page: false };
+  let cloudExtraction = null;
+  const searchState = await openLinkedInSearch(
+    page,
+    url,
+    process.env.HIREMEOPS_CLOUD === "1"
+      ? {
+          onResultsReady: async ({ state, diagnostics }) => {
+            const jobs = state === "empty" ? [] : await readLinkedInCards(page);
+            if (state !== "empty" && jobs.length === 0) throw linkedInSearchError(diagnostics);
+            const hasNextPage =
+              state === "empty" ? false : await readLinkedInNextPage(page, diagnostics);
+            await closeCloudSearchPage(page);
+            await hooks.onPhase?.("linkedin-results-ready");
+            await hooks.onPhase?.("linkedin-cards-extracted");
+            await hooks.onPhase?.("linkedin-page-closed");
+            cloudExtraction = { jobs, hasNextPage };
+          },
+        }
+      : undefined,
+  );
+  if (searchState.state === "empty") {
+    const extraction = cloudExtraction ?? { jobs: [], hasNextPage: false };
+    return {
+      jobs: extraction.jobs,
+      has_next_page: extraction.hasNextPage,
+      auth_status: searchState.authStatus,
+    };
+  }
 
-  await page.waitForTimeout(400 + Math.floor(Math.random() * 400));
-  const jobs = await readLinkedInCards(page);
+  const jobsFromCloud = cloudExtraction?.jobs;
+  if (process.env.HIREMEOPS_CLOUD !== "1") {
+    await page.waitForTimeout(400 + Math.floor(Math.random() * 400));
+  }
+  const jobs = jobsFromCloud ?? (await readLinkedInCards(page));
   if (jobs.length === 0) throw linkedInSearchError(searchState.diagnostics);
+  const hasNextPage =
+    cloudExtraction?.hasNextPage ?? (await readLinkedInNextPage(page, searchState.diagnostics));
+  if (process.env.HIREMEOPS_CLOUD !== "1") await closeCloudSearchPage(page);
   await hooks.onJobsDiscovered?.(jobs);
+  await hooks.onPhase?.("first-jobs-persisted");
   await enrichLinkedInJobs(page, sess.browser, jobs, hooks.onJobUpdated);
+  return {
+    jobs,
+    has_next_page: hasNextPage,
+    auth_status: searchState.authStatus,
+  };
+}
 
-  const hasNextPage = await page
+async function closeCloudSearchPage(page) {
+  if (process.env.HIREMEOPS_CLOUD !== "1") return;
+  try {
+    await page.close?.();
+  } catch {}
+}
+
+async function readLinkedInNextPage(page, diagnostics) {
+  if (process.env.HIREMEOPS_CLOUD === "1") {
+    return Number(diagnostics?.nextPageButtons) > 0;
+  }
+  return page
     .locator(
       [
         'button[aria-label="View next page"]',
@@ -32,35 +88,38 @@ export async function cmdSearchJobs(config, hooks = {}) {
     .first()
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
-  return { jobs, has_next_page: hasNextPage };
 }
 
-export async function waitForLinkedInSearchState(
-  page,
-  { timeout = 15_000, pollInterval = 250 } = {},
-) {
+export async function waitForLinkedInSearchState(page, { timeout = 15_000, pollInterval } = {}) {
   const startedAt = Date.now();
   const deadline = Date.now() + Math.max(0, timeout);
+  const interval = pollInterval ?? linkedInReadinessPollInterval();
   const dcl = observeDomContentLoaded(page, deadline);
   try {
-    let diagnostics = await readLinkedInSearchDiagnostics(page);
-    dcl.markReady(["interactive", "complete"].includes(diagnostics.readyState));
-    let state = classifyLinkedInSearchState(diagnostics);
+    let stateDiagnostics = await readLinkedInSearchState(page);
+    let state = classifyLinkedInSearchState(stateDiagnostics);
+    dcl.markReady(["interactive", "complete"].includes(stateDiagnostics.readyState));
     while (state === "not_loaded" && Date.now() < deadline) {
-      await page.waitForTimeout(Math.min(pollInterval, deadline - Date.now()));
-      diagnostics = await readLinkedInSearchDiagnostics(page);
-      dcl.markReady(["interactive", "complete"].includes(diagnostics.readyState));
-      state = classifyLinkedInSearchState(diagnostics);
+      await page.waitForTimeout(Math.min(interval, deadline - Date.now()));
+      stateDiagnostics = await readLinkedInSearchState(page);
+      dcl.markReady(["interactive", "complete"].includes(stateDiagnostics.readyState));
+      state = classifyLinkedInSearchState(stateDiagnostics);
     }
+    const diagnostics =
+      state === "results" ? stateDiagnostics : await readLinkedInSearchDiagnostics(page, stateDiagnostics);
     return {
       state,
-      diagnostics,
+      diagnostics: { ...stateDiagnostics, ...diagnostics },
       dcl: dcl.snapshot(),
       semanticElapsedMs: Date.now() - startedAt,
     };
   } finally {
     dcl.stop();
   }
+}
+
+function linkedInReadinessPollInterval() {
+  return process.env.HIREMEOPS_CLOUD === "1" ? 750 : 250;
 }
 
 function observeDomContentLoaded(page, deadline) {
@@ -98,8 +157,19 @@ function observeDomContentLoaded(page, deadline) {
   };
 }
 
-async function readLinkedInSearchDiagnostics(page) {
-  return page.evaluate(inspectLinkedInSearchDocument);
+async function readLinkedInSearchState(page) {
+  return page.evaluate(inspectLinkedInSearchState);
+}
+
+async function readLinkedInSearchDiagnostics(page, fallback = {}) {
+  try {
+    return await page.evaluate(inspectLinkedInSearchDocument);
+  } catch (error) {
+    return {
+      ...fallback,
+      diagnosticError: sanitizeProbeError(error),
+    };
+  }
 }
 
 function linkedInSearchError(diagnostics, code = "linkedin_results_not_loaded") {
@@ -138,7 +208,7 @@ function buildLinkedInSearchUrl({ keywords, location, pageIndex, filters }) {
   return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
 }
 
-async function openLinkedInSearch(page, url) {
+async function openLinkedInSearch(page, url, { onResultsReady } = {}) {
   const telemetry =
     process.env.HIREMEOPS_CLOUD === "1"
       ? createNavigationTelemetry(page, {
@@ -149,12 +219,13 @@ async function openLinkedInSearch(page, url) {
   try {
     response = await page.goto(url, { waitUntil: "commit", timeout: 30_000 });
     const currentUrl = page.url();
-    const authStatus = classifyPlatformUrl("linkedin", currentUrl);
-    if (authStatus !== "valid") throw linkedInSearchError({ url: currentUrl }, authStatus);
+    const urlStatus = classifyPlatformUrl("linkedin", currentUrl);
+    if (urlStatus !== "valid") throw linkedInSearchError({ url: currentUrl }, urlStatus);
     const readiness = await waitForLinkedInSearchState(page, {
       timeout: linkedInNavigationTimeout(),
     });
     const diagnostics = {
+      url: currentUrl,
       ...readiness.diagnostics,
       dcl: readiness.dcl,
       semanticElapsedMs: readiness.semanticElapsedMs,
@@ -165,27 +236,36 @@ async function openLinkedInSearch(page, url) {
           }
         : {}),
     };
+    const authStatus = classifyLinkedInAuth({ url: currentUrl, ...readiness.diagnostics });
     if (readiness.state === "not_loaded") {
       throw linkedInSearchError(diagnostics, classifyLinkedInReadinessError(diagnostics));
     }
     if (readiness.state === "login_required" || readiness.state === "challenged") {
       throw linkedInSearchError(diagnostics, readiness.state);
     }
-    await page
-      .locator(
-        [
-          "button.msg-overlay-bubble-header__control--close",
-          "button.artdeco-toast-item__dismiss",
-        ].join(","),
-      )
-      .first()
-      .click({ timeout: 2_000 })
-      .catch(() => {});
+    if (authStatus !== "valid") {
+      throw linkedInSearchError(diagnostics, authStatus === "unknown" ? "linkedin_auth_unknown" : authStatus);
+    }
+    await onResultsReady?.({ state: readiness.state, diagnostics });
+    if (!page.isClosed?.()) {
+      await page
+        .locator(
+          [
+            "button.msg-overlay-bubble-header__control--close",
+            "button.artdeco-toast-item__dismiss",
+          ].join(","),
+        )
+        .first()
+        .click({ timeout: 2_000 })
+        .catch(() => {});
+    }
     logLinkedInSearchDiagnostics(readiness.state, response, diagnostics);
-    return { ...readiness, diagnostics };
+    return { ...readiness, diagnostics, authStatus };
   } catch (error) {
     const diagnostics = {
       ...(error.diagnostics ?? { url: page.url() }),
+      errorName: error?.name ?? "Error",
+      errorMessage: sanitizeProbeError(error),
       ...(telemetry
         ? {
             network: telemetry.snapshot(),
@@ -215,6 +295,19 @@ function logLinkedInSearchDiagnostics(state, response, diagnostics) {
       ...metadata,
     })}\n`,
   );
+  const network = diagnostics.network;
+  if (network) {
+    process.stderr.write(
+      `[linkedin-network-summary] requests=${network.requestsTotal} ` +
+        `scripts=${network.scriptRequests} ` +
+        `script2xx=${network.scriptResponses2xx} ` +
+        `scriptPending=${network.pendingByType?.script ?? 0} ` +
+        `styles=${network.requestsByType?.stylesheet ?? 0} ` +
+        `xhrFetch=${network.xhrFetchRequests} ` +
+        `pageErrors=${network.pageErrorCount} ` +
+        `consoleErrors=${network.consoleErrorCount}\n`,
+    );
+  }
 }
 
 async function readLinkedInCards(page) {
@@ -231,14 +324,14 @@ function parseLinkedInDetail(json) {
   };
 }
 
-export async function fetchLinkedInJobDetail(page, csrf, jobId) {
+export async function fetchLinkedInJobDetail(requestContext, csrf, jobId) {
   const attempts = [
     `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}?decorationId=${LINKEDIN_DETAIL_DECO}`,
     `https://www.linkedin.com/voyager/api/jobs/jobPostings/${jobId}`,
   ];
   let best = null;
   for (const url of attempts) {
-    const parsed = await fetchLinkedInDetailAttempt(page, csrf, url);
+    const parsed = await fetchLinkedInDetailAttempt(requestContext, csrf, url);
     if (!parsed) continue;
     best = mergeLinkedInDetail(best, parsed);
     if (best.description) break;
@@ -246,10 +339,11 @@ export async function fetchLinkedInJobDetail(page, csrf, jobId) {
   return best;
 }
 
-async function fetchLinkedInDetailAttempt(page, csrf, url) {
+async function fetchLinkedInDetailAttempt(requestContext, csrf, url) {
   let response = null;
   try {
-    response = await page.request.get(url, {
+    const request = requestContext?.get ? requestContext : requestContext?.request;
+    response = await request.get(url, {
       headers: {
         "csrf-token": csrf,
         "x-restli-protocol-version": "2.0.0",
@@ -287,12 +381,14 @@ async function enrichLinkedInJobs(page, browser, jobs, onJobUpdated) {
   const runPool = async () => {
     while (cursor < jobs.length) {
       const job = jobs[cursor++];
-      const detail = job.job_id ? await fetchLinkedInJobDetail(page, csrf, job.job_id) : null;
+      const detail = job.job_id ? await fetchLinkedInJobDetail(browser.request, csrf, job.job_id) : null;
       job.description = detail?.description ?? null;
       if (!job.title && detail?.title) job.title = detail.title;
       if (detail?.location) job.location = detail.location;
       await onJobUpdated?.(job);
-      await page.waitForTimeout(150 + Math.floor(Math.random() * 250));
+      if (process.env.HIREMEOPS_CLOUD !== "1") {
+        await page.waitForTimeout(150 + Math.floor(Math.random() * 250));
+      }
     }
   };
   const concurrency = process.env.HIREMEOPS_CLOUD === "1" ? 1 : 3;
