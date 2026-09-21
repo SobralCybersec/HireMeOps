@@ -33,7 +33,7 @@ lopdf = "0.44.0" # write/generate CV PDFs + metadata + page count
 sha2 = "0.11.0" # content hashing (CV / AI-cache / credential fingerprints)
 tauri-plugin-dialog = "2.7.1" # native file-open dialogs
 zip = "8.6.0" # DOCX is a zip container (CV parsing)
-quick-xml = "0.41.0" # DOCX XML body parsing (CV parsing)
+quick-xml = "0.42.0" # DOCX XML body parsing (CV parsing)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] } # HTTP to AI APIs
 # Cross-platform self-RSS reader for the HIREMEOPS_PERF memory logger (reads
 # /proc/self/smaps on Linux, task_info on macOS, PSAPI on Windows).
